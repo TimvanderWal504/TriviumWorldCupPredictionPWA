@@ -5,9 +5,12 @@ using TriviumWorldCup.Api.Auth;
 using TriviumWorldCup.Api.Auth.Mock;
 using TriviumWorldCup.Api.Data;
 using TriviumWorldCup.Api.Domain;
+using TriviumWorldCup.Api.Ingestion;
+using TriviumWorldCup.Api.Leaderboard;
 using TriviumWorldCup.Api.Predictions;
 using TriviumWorldCup.Api.Profiles;
 using TriviumWorldCup.Api.Scoring;
+using TriviumWorldCup.Api.Standings;
 using TriviumWorldCup.Api.Tournament;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -48,6 +51,10 @@ builder.Services.AddMarten(opts =>
 
 // Scoring recompute service — TWC-8
 builder.Services.AddScoped<ScoringRecomputeService>();
+
+// Result ingestion pipeline — TWC-9 (Quartz + FootballApiClient)
+// ScoringRecomputeService guard inside AddIngestion prevents double-registration.
+builder.Services.AddIngestion(builder.Configuration);
 
 // Health checks
 builder.Services.AddHealthChecks()
@@ -110,6 +117,12 @@ app.MapPlayerEndpoints();
 
 // Tournament prediction endpoints — GET/POST/PUT /predictions/tournament
 app.MapTournamentPredictionEndpoints();
+
+// Standings endpoints — GET /scores/me
+app.MapStandingsEndpoints();
+
+// Leaderboard endpoints -- GET /leaderboard, GET /leaderboard/{userId}
+app.MapLeaderboardEndpoints();
 
 // ── Tournament seed ───────────────────────────────────────────────────────────
 // Idempotent: exits immediately if data is already present.

@@ -4,14 +4,16 @@ import { DevUserSwitcher } from './auth/DevUserSwitcher.tsx';
 import { OfflineBanner } from './components/OfflineBanner.tsx';
 import { ProfileSetupModal } from './auth/ProfileSetupModal.tsx';
 import { GroupPredictionsPage } from './pages/GroupPredictionsPage.tsx';
+import { LeaderboardPage } from './pages/LeaderboardPage.tsx';
 import { ProfilePage } from './pages/ProfilePage.tsx';
 import { RulesPage } from './pages/RulesPage.tsx';
+import { StandingsPage } from './pages/StandingsPage.tsx';
 import { TournamentPredictionPage } from './pages/TournamentPredictionPage.tsx';
 import { useAuth } from './auth/useAuth.ts';
 
 const IS_PROD = import.meta.env.PROD;
 
-type Page = 'home' | 'profile' | 'predictions' | 'tournament' | 'rules';
+type Page = 'home' | 'profile' | 'predictions' | 'tournament' | 'rules' | 'standings' | 'leaderboard';
 
 function AppShell() {
   const { user, isLoading, hasProfile, signOut } = useAuth();
@@ -51,6 +53,18 @@ function AppShell() {
               Tournament
             </button>
             <button
+              onClick={() => setPage('standings')}
+              className="text-slate-300 hover:text-white transition-colors"
+            >
+              My Standings
+            </button>
+            <button
+              onClick={() => setPage('leaderboard')}
+              className="text-slate-300 hover:text-white transition-colors"
+            >
+              Leaderboard
+            </button>
+            <button
               onClick={() => setPage('rules')}
               className="text-slate-300 hover:text-white transition-colors"
             >
@@ -85,6 +99,10 @@ function AppShell() {
           <GroupPredictionsPage />
         ) : page === 'tournament' ? (
           <TournamentPredictionPage />
+        ) : page === 'standings' ? (
+          <StandingsPage />
+        ) : page === 'leaderboard' ? (
+          <LeaderboardPage />
         ) : page === 'rules' ? (
           <RulesPage />
         ) : page === 'profile' ? (
