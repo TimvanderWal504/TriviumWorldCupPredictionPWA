@@ -1,26 +1,84 @@
+import { useState } from 'react';
 import { AuthProvider } from './auth/AuthContext.tsx';
 import { DevUserSwitcher } from './auth/DevUserSwitcher.tsx';
+import { ProfileSetupModal } from './auth/ProfileSetupModal.tsx';
+import { ProfilePage } from './pages/ProfilePage.tsx';
+import { useAuth } from './auth/useAuth.ts';
 
-/**
- * Vite exposes import.meta.env.PROD as a boolean — true only for production builds.
- * DevUserSwitcher is excluded from production bundles entirely via this check.
- */
 const IS_PROD = import.meta.env.PROD;
 
-function AppShell() {
-  return (
-    <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center">
-      <header className="text-center px-4">
-        <h1 className="text-4xl font-bold tracking-tight mb-2">
-          Trivium World Cup 2026
-        </h1>
-        <p className="text-slate-400 text-lg">
-          Prediction pool — coming soon
-        </p>
-      </header>
+type Page = 'home' | 'profile';
 
-      {/* Dev user switcher — excluded in production builds */}
-      {!IS_PROD && <DevUserSwitcher />}
+function AppShell() {
+  const { user, isLoading, hasProfile, signOut } = useAuth();
+  const [page, setPage] = useState<Page>('home');
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">
+        <p className="text-slate-400">Loading…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-900 text-white flex flex-col">
+      {/* Nav — only shown when authenticated */}
+      {user && hasProfile && (
+        <nav className="bg-slate-800 border-b border-slate-700 px-6 py-3 flex items-center justify-between">
+          <button
+            onClick={() => setPage('home')}
+            className="text-lg font-bold text-white hover:text-blue-400 transition-colors"
+          >
+            TWC 2026
+          </button>
+          <div className="flex items-center gap-4 text-sm">
+            <button
+              onClick={() => setPage('profile')}
+              className="text-slate-300 hover:text-white transition-colors"
+            >
+              {user.displayName}
+            </button>
+            <button
+              onClick={signOut}
+              className="text-slate-400 hover:text-white transition-colors"
+            >
+              Sign out
+            </button>
+          </div>
+        </nav>
+      )}
+
+      {/* Page content */}
+      <main className="flex-1">
+        {!user ? (
+          // Not signed in — placeholder until TWC-3 sign-in UI is fuller
+          <div className="flex flex-col items-center justify-center h-full py-20 text-center px-4">
+            <h1 className="text-4xl font-bold tracking-tight mb-2">Trivium World Cup 2026</h1>
+            <p className="text-slate-400 text-lg">Prediction pool — sign in to start predicting.</p>
+            {!IS_PROD && <DevUserSwitcher />}
+          </div>
+        ) : page === 'profile' ? (
+          <ProfilePage />
+        ) : (
+          // Home placeholder — feature screens come in later stories
+          <div className="flex flex-col items-center justify-center h-full py-20 text-center px-4">
+            <h1 className="text-4xl font-bold tracking-tight mb-2">Trivium World Cup 2026</h1>
+            <p className="text-slate-400 text-lg mb-2">Prediction pool — coming soon.</p>
+            {user && (
+              <p className="text-slate-500 text-sm">
+                Signed in as <span className="text-white font-medium">{user.displayName}</span>
+              </p>
+            )}
+          </div>
+        )}
+      </main>
+
+      {/* Profile setup — shown when authenticated but no profile yet */}
+      {user && !hasProfile && <ProfileSetupModal />}
+
+      {/* Dev switcher overlay — outside nav so it's always accessible in dev */}
+      {!IS_PROD && user && hasProfile && <DevUserSwitcher />}
     </div>
   );
 }
