@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AuthProvider } from './auth/AuthContext.tsx';
 import { DevUserSwitcher } from './auth/DevUserSwitcher.tsx';
+import { OfflineBanner } from './components/OfflineBanner.tsx';
 import { ProfileSetupModal } from './auth/ProfileSetupModal.tsx';
 import { ProfilePage } from './pages/ProfilePage.tsx';
 import { useAuth } from './auth/useAuth.ts';
@@ -23,6 +24,7 @@ function AppShell() {
 
   return (
     <div className="min-h-screen bg-slate-900 text-white flex flex-col">
+      <OfflineBanner />
       {/* Nav — only shown when authenticated */}
       {user && hasProfile && (
         <nav className="bg-slate-800 border-b border-slate-700 px-6 py-3 flex items-center justify-between">
