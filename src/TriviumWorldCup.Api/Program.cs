@@ -5,7 +5,9 @@ using TriviumWorldCup.Api.Auth;
 using TriviumWorldCup.Api.Auth.Mock;
 using TriviumWorldCup.Api.Data;
 using TriviumWorldCup.Api.Domain;
+using TriviumWorldCup.Api.Predictions;
 using TriviumWorldCup.Api.Profiles;
+using TriviumWorldCup.Api.Tournament;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -33,6 +35,10 @@ builder.Services.AddMarten(opts =>
     opts.Schema.For<Player>().Identity(p => p.Id);
     // UserProfile — Id equals the auth UserId (string).
     opts.Schema.For<UserProfile>().Identity(p => p.Id);
+    // GroupPrediction — Id is "{UserId}_{FixtureId}" composite key.
+    opts.Schema.For<GroupPrediction>().Identity(p => p.Id);
+    // TournamentPrediction — Id equals the auth UserId (one per member).
+    opts.Schema.For<TournamentPrediction>().Identity(p => p.Id);
 }).UseLightweightSessions();
 
 // Health checks
@@ -84,6 +90,18 @@ app.MapGet("/ping", () => Results.Ok(new { status = "ok" }))
 
 // Profile endpoints — GET / POST / PUT /profile
 app.MapProfileEndpoints();
+
+// Fixture + team read endpoints — GET /fixtures, GET /teams
+app.MapFixtureEndpoints();
+
+// Group prediction endpoints — GET/POST/PUT /predictions/group/{fixtureId}
+app.MapGroupPredictionEndpoints();
+
+// Player roster endpoint — GET /players
+app.MapPlayerEndpoints();
+
+// Tournament prediction endpoints — GET/POST/PUT /predictions/tournament
+app.MapTournamentPredictionEndpoints();
 
 // ── Tournament seed ───────────────────────────────────────────────────────────
 // Idempotent: exits immediately if data is already present.

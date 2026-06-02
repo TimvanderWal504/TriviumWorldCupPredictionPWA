@@ -77,6 +77,22 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
+      '/predictions': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '/fixtures': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '/teams': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '/players': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
     },
   },
   test: {
