@@ -78,23 +78,6 @@ public static class PlayersData
         P("PAN", "Alfredo Stephens",    Position.FWD),
         P("PAN", "Michael Murillo",     Position.DEF),
 
-        // BOL
-        P("BOL", "Carlos Lampe",        Position.GK),
-        P("BOL", "Guillermo Viscarra",  Position.GK),
-        P("BOL", "Diego Bejarano",      Position.DEF),
-        P("BOL", "Luis Haquin",         Position.DEF),
-        P("BOL", "José Sagredo",        Position.DEF),
-        P("BOL", "Adrián Jusino",       Position.DEF),
-        P("BOL", "Ramiro Vaca",         Position.MID),
-        P("BOL", "Fernando Saucedo",    Position.MID),
-        P("BOL", "Erwin Saavedra",      Position.MID),
-        P("BOL", "Rodrigo Ramallo",     Position.FWD),
-        P("BOL", "Marcelo Martins",     Position.FWD),
-        P("BOL", "Henry Vaca",          Position.FWD),
-        P("BOL", "Boris Sagredo",       Position.DEF), // TODO: verify position
-        P("BOL", "Diego Wayar",         Position.MID),
-        P("BOL", "Jeyson Chura",        Position.FWD), // TODO: verify
-
         // ════════════════════════════════════════════════════════════════════
         // GROUP B
         // ════════════════════════════════════════════════════════════════════
@@ -152,23 +135,6 @@ public static class PlayersData
         P("NZL", "Hamish Watson",       Position.FWD), // TODO: verify
         P("NZL", "Marko Stamenic",      Position.MID),
         P("NZL", "Ben Waine",           Position.FWD),
-
-        // JAM
-        P("JAM", "Andre Blake",         Position.GK),
-        P("JAM", "Dillon Barnes",       Position.GK),
-        P("JAM", "Adrian Mariappa",     Position.DEF),
-        P("JAM", "Damion Lowe",         Position.DEF),
-        P("JAM", "Kemar Lawrence",      Position.DEF),
-        P("JAM", "Alex Marshall",       Position.DEF), // TODO: verify
-        P("JAM", "Javain Brown",        Position.DEF),
-        P("JAM", "Daniel Johnson",      Position.MID),
-        P("JAM", "Ravel Morrison",      Position.MID),
-        P("JAM", "Je-Vaughn Watson",    Position.MID),
-        P("JAM", "Fabian McCarthy",     Position.MID), // TODO: verify
-        P("JAM", "Michail Antonio",     Position.FWD),
-        P("JAM", "Bobby Reid",          Position.FWD),
-        P("JAM", "Shamar Nicholson",    Position.FWD),
-        P("JAM", "Leon Bailey",         Position.FWD),
 
         // ════════════════════════════════════════════════════════════════════
         // GROUP C
@@ -303,23 +269,6 @@ public static class PlayersData
         P("JPN", "Ayase Ueda",          Position.FWD),
         P("JPN", "Junya Ito",           Position.FWD),
 
-        // CMR
-        P("CMR", "André Onana",         Position.GK),
-        P("CMR", "Devis Epassy",        Position.GK),
-        P("CMR", "Nicolas Nkoulou",     Position.DEF),
-        P("CMR", "Ambroise Oyongo",     Position.DEF),
-        P("CMR", "Harold Moukoudi",     Position.DEF),
-        P("CMR", "Collins Fai",         Position.DEF),
-        P("CMR", "Michael Ngadeu-Ngadjui", Position.DEF),
-        P("CMR", "André Zambo Anguissa", Position.MID),
-        P("CMR", "Samuel Gouet",        Position.MID),
-        P("CMR", "Olivier Ntcham",      Position.MID),
-        P("CMR", "Bryan Mbeumo",        Position.FWD),
-        P("CMR", "Vincent Aboubakar",   Position.FWD),
-        P("CMR", "Eric Maxim Choupo-Moting", Position.FWD),
-        P("CMR", "Karl Toko Ekambi",    Position.FWD),
-        P("CMR", "Christian Bassogog",  Position.FWD),
-
         // ════════════════════════════════════════════════════════════════════
         // GROUP E
         // ════════════════════════════════════════════════════════════════════
@@ -342,23 +291,6 @@ public static class PlayersData
         P("ESP", "Mikel Oyarzabal",     Position.FWD),
         P("ESP", "Dani Olmo",           Position.MID),
 
-        // SRB
-        P("SRB", "Vanja Milinković-Savić", Position.GK),
-        P("SRB", "Predrag Rajković",    Position.GK),
-        P("SRB", "Stefan Mitrović",     Position.DEF),
-        P("SRB", "Nikola Milenković",   Position.DEF),
-        P("SRB", "Srđan Babić",         Position.DEF),
-        P("SRB", "Strahinja Pavlović",   Position.DEF),
-        P("SRB", "Aleksandar Kolarov",  Position.DEF), // TODO: verify squad inclusion at age
-        P("SRB", "Nemanja Maksimović",   Position.MID),
-        P("SRB", "Sergej Milinković-Savić", Position.MID),
-        P("SRB", "Nemanja Gudelj",      Position.MID),
-        P("SRB", "Filip Kostić",        Position.MID),
-        P("SRB", "Aleksandar Mitrović", Position.FWD),
-        P("SRB", "Dušan Vlahović",      Position.FWD),
-        P("SRB", "Luka Jović",          Position.FWD),
-        P("SRB", "Andrija Živković",    Position.FWD),
-
         // COL
         P("COL", "Camilo Vargas",       Position.GK),
         P("COL", "David Ospina",        Position.GK),
@@ -376,23 +308,6 @@ public static class PlayersData
         P("COL", "Rafael Santos Borré", Position.FWD),
         P("COL", "James Rodríguez",     Position.MID),
         P("COL", "Miguel Borja",        Position.FWD),
-
-        // NGR
-        P("NGR", "Francis Uzoho",       Position.GK),
-        P("NGR", "Maduka Okoye",        Position.GK),
-        P("NGR", "William Troost-Ekong", Position.DEF),
-        P("NGR", "Semi Ajayi",          Position.DEF),
-        P("NGR", "Zaidu Sanusi",        Position.DEF),
-        P("NGR", "Bright Osayi-Samuel", Position.DEF),
-        P("NGR", "Ola Aina",            Position.DEF),
-        P("NGR", "Wilfred Ndidi",       Position.MID),
-        P("NGR", "Joe Aribo",           Position.MID),
-        P("NGR", "Alex Iwobi",          Position.MID),
-        P("NGR", "Kelechi Iheanacho",   Position.FWD),
-        P("NGR", "Victor Osimhen",      Position.FWD),
-        P("NGR", "Samuel Chukwueze",    Position.FWD),
-        P("NGR", "Moses Simon",         Position.FWD),
-        P("NGR", "Terem Moffi",         Position.FWD),
 
         // ════════════════════════════════════════════════════════════════════
         // GROUP F
@@ -450,22 +365,22 @@ public static class PlayersData
         P("SEN", "Nicolas Jackson",     Position.FWD),
         P("SEN", "Habib Diallo",        Position.FWD),
 
-        // IRI
-        P("IRI", "Alireza Beiranvand",  Position.GK),
-        P("IRI", "Hossein Hosseini",    Position.GK),
-        P("IRI", "Morteza Pouraliganji", Position.DEF),
-        P("IRI", "Majid Hosseini",      Position.DEF),
-        P("IRI", "Ehsan Hajsafi",       Position.DEF),
-        P("IRI", "Shoja Khalilzadeh",   Position.DEF),
-        P("IRI", "Mohammad Mohammadi",  Position.DEF),
-        P("IRI", "Saeid Ezatolahi",     Position.MID),
-        P("IRI", "Ahmad Noorollahi",    Position.MID),
-        P("IRI", "Ali Gholizadeh",      Position.MID),
-        P("IRI", "Sardar Azmoun",       Position.FWD),
-        P("IRI", "Mehdi Taremi",        Position.FWD),
-        P("IRI", "Allahyar Sayyadmanesh", Position.FWD),
-        P("IRI", "Karim Ansarifard",    Position.FWD), // TODO: verify squad inclusion
-        P("IRI", "Roozbeh Cheshmi",    Position.DEF),
+        // IRN
+        P("IRN", "Alireza Beiranvand",  Position.GK),
+        P("IRN", "Hossein Hosseini",    Position.GK),
+        P("IRN", "Morteza Pouraliganji", Position.DEF),
+        P("IRN", "Majid Hosseini",      Position.DEF),
+        P("IRN", "Ehsan Hajsafi",       Position.DEF),
+        P("IRN", "Shoja Khalilzadeh",   Position.DEF),
+        P("IRN", "Mohammad Mohammadi",  Position.DEF),
+        P("IRN", "Saeid Ezatolahi",     Position.MID),
+        P("IRN", "Ahmad Noorollahi",    Position.MID),
+        P("IRN", "Ali Gholizadeh",      Position.MID),
+        P("IRN", "Sardar Azmoun",       Position.FWD),
+        P("IRN", "Mehdi Taremi",        Position.FWD),
+        P("IRN", "Allahyar Sayyadmanesh", Position.FWD),
+        P("IRN", "Karim Ansarifard",    Position.FWD),
+        P("IRN", "Roozbeh Cheshmi",    Position.DEF),
 
         // ════════════════════════════════════════════════════════════════════
         // GROUP G
@@ -525,23 +440,6 @@ public static class PlayersData
         P("AUS", "Martin Boyle",        Position.FWD),
         P("AUS", "Craig Goodwin",       Position.FWD),
 
-        // VEN
-        P("VEN", "Wuilker Faríñez",     Position.GK),
-        P("VEN", "Rafael Romo",         Position.GK),
-        P("VEN", "Alexander González",  Position.DEF),
-        P("VEN", "Nahuel Ferraresi",    Position.DEF),
-        P("VEN", "Ronald Hernández",    Position.DEF),
-        P("VEN", "Yordan Osorio",       Position.DEF),
-        P("VEN", "Miguel Navarro",      Position.DEF),
-        P("VEN", "Tomás Rincón",        Position.MID),
-        P("VEN", "Yangel Herrera",      Position.MID),
-        P("VEN", "Sergio Córdova",      Position.MID),
-        P("VEN", "Rómulo Otero",        Position.MID),
-        P("VEN", "Josef Martínez",      Position.FWD),
-        P("VEN", "Salomón Rondón",      Position.FWD),
-        P("VEN", "Adalberto Peñaranda", Position.FWD),
-        P("VEN", "Jefferson Savarino",  Position.FWD),
-
         // ════════════════════════════════════════════════════════════════════
         // GROUP H
         // ════════════════════════════════════════════════════════════════════
@@ -597,23 +495,6 @@ public static class PlayersData
         P("CIV", "Jonathan Kodjia",     Position.FWD),
         P("CIV", "Wilfried Zaha",       Position.FWD),
         P("CIV", "Simon Adingra",       Position.FWD),
-
-        // CHI
-        P("CHI", "Claudio Bravo",       Position.GK),
-        P("CHI", "Gabriel Arias",       Position.GK),
-        P("CHI", "Gary Medel",          Position.DEF),
-        P("CHI", "Guillermo Maripán",   Position.DEF),
-        P("CHI", "Mauricio Isla",       Position.DEF),
-        P("CHI", "Benjamín Kuscevic",   Position.DEF),
-        P("CHI", "Paulo Díaz",          Position.DEF),
-        P("CHI", "Erick Pulgar",        Position.MID),
-        P("CHI", "Charles Aránguiz",    Position.MID),
-        P("CHI", "Arturo Vidal",        Position.MID),
-        P("CHI", "Alexis Sánchez",      Position.FWD),
-        P("CHI", "Ben Brereton Díaz",   Position.FWD),
-        P("CHI", "Iván Morales",        Position.FWD),
-        P("CHI", "Eduardo Vargas",      Position.FWD),
-        P("CHI", "Esteban Pavez",       Position.MID),
 
         // ════════════════════════════════════════════════════════════════════
         // GROUP I
@@ -764,23 +645,6 @@ public static class PlayersData
         // GROUP K
         // ════════════════════════════════════════════════════════════════════
 
-        // POL
-        P("POL", "Wojciech Szczęsny",   Position.GK),
-        P("POL", "Łukasz Fabiański",    Position.GK),
-        P("POL", "Kamil Glik",          Position.DEF),
-        P("POL", "Jan Bednarek",        Position.DEF),
-        P("POL", "Bartosz Bereszyński", Position.DEF),
-        P("POL", "Maciej Rybus",        Position.DEF),
-        P("POL", "Matty Cash",          Position.DEF),
-        P("POL", "Grzegorz Krychowiak", Position.MID),
-        P("POL", "Mateusz Klich",       Position.MID),
-        P("POL", "Piotr Zieliński",     Position.MID),
-        P("POL", "Przemysław Frankowski", Position.MID),
-        P("POL", "Robert Lewandowski",  Position.FWD),
-        P("POL", "Arkadiusz Milik",     Position.FWD),
-        P("POL", "Krzysztof Piątek",    Position.FWD),
-        P("POL", "Karol Świderski",     Position.FWD),
-
         // SUI
         P("SUI", "Yann Sommer",         Position.GK),
         P("SUI", "Jonas Omlin",         Position.GK),
@@ -837,24 +701,6 @@ public static class PlayersData
         // GROUP L
         // ════════════════════════════════════════════════════════════════════
 
-        // PER
-        P("PER", "Pedro Gallese",       Position.GK),
-        P("PER", "José Carvallo",       Position.GK),
-        P("PER", "Luis Abram",          Position.DEF),
-        P("PER", "Alexander Callens",   Position.DEF),
-        P("PER", "Miguel Trauco",       Position.DEF),
-        P("PER", "Aldo Corzo",          Position.DEF),
-        P("PER", "Carlos Zambrano",     Position.DEF),
-        P("PER", "Renato Tapia",        Position.MID),
-        P("PER", "Yoshimar Yotún",      Position.MID),
-        P("PER", "Andy Polo",           Position.MID), // TODO: verify
-        P("PER", "Sergio Peña",         Position.MID),
-        P("PER", "André Carrillo",      Position.FWD),
-        P("PER", "Gianluca Lapadula",   Position.FWD),
-        P("PER", "Edison Flores",       Position.FWD),
-        P("PER", "Christian Cueva",     Position.MID),
-        P("PER", "Paolo Guerrero",      Position.FWD), // TODO: verify squad inclusion at age
-
         // UZB
         P("UZB", "Utkir Yusupov",       Position.GK),
         P("UZB", "Sanjar Kuvvatov",     Position.GK),
@@ -904,6 +750,163 @@ public static class PlayersData
         P("PAR", "Óscar Romero",        Position.FWD),
         P("PAR", "Alejandro Romero",    Position.FWD),
         P("PAR", "Antonio Sanabria",    Position.FWD),
-        P("PAR", "Robert Morales",      Position.FWD), // TODO: verify
+        P("PAR", "Robert Morales",      Position.FWD),
+
+        // ════════════════════════════════════════════════════════════════════
+        // NEW TEAMS (confirmed draw, added via Wikipedia data correction)
+        // ════════════════════════════════════════════════════════════════════
+
+        // CZE — Group A
+        P("CZE", "Jiří Pavlenka",       Position.GK),
+        P("CZE", "Aleš Mandous",        Position.GK),
+        P("CZE", "Vladimír Coufal",     Position.DEF),
+        P("CZE", "Jan Bořil",           Position.DEF),
+        P("CZE", "Ondřej Čelůstka",     Position.DEF),
+        P("CZE", "Pavel Kadeřábek",     Position.DEF),
+        P("CZE", "Jakub Brabec",        Position.DEF),
+        P("CZE", "Tomáš Souček",        Position.MID),
+        P("CZE", "Lukáš Provod",        Position.MID),
+        P("CZE", "Václav Černý",        Position.MID),
+        P("CZE", "Antonín Barák",       Position.MID),
+        P("CZE", "Ondřej Lingr",        Position.MID),
+        P("CZE", "Patrik Schick",       Position.FWD),
+        P("CZE", "Adam Hložek",         Position.FWD),
+        P("CZE", "Jan Kuchta",          Position.FWD),
+
+        // BIH — Group B
+        P("BIH", "Ibrahim Šehić",       Position.GK),
+        P("BIH", "Marko Dmitrović",     Position.GK),
+        P("BIH", "Sead Kolašinac",      Position.DEF),
+        P("BIH", "Ermin Bičakčić",      Position.DEF),
+        P("BIH", "Ognjen Vranješ",      Position.DEF),
+        P("BIH", "Branislav Kojić",     Position.DEF),
+        P("BIH", "Haris Duljevic",      Position.DEF),
+        P("BIH", "Miralem Pjanić",      Position.MID),
+        P("BIH", "Gojko Cimirot",       Position.MID),
+        P("BIH", "Muhamed Bešić",       Position.MID),
+        P("BIH", "Edin Višća",          Position.MID),
+        P("BIH", "Nedim Bajrić",        Position.MID),
+        P("BIH", "Edin Džeko",          Position.FWD),
+        P("BIH", "Amir Hadžić",         Position.FWD),
+        P("BIH", "Sead Hajrović",       Position.FWD),
+
+        // HTI — Group C
+        P("HTI", "Josué Duverger",      Position.GK),
+        P("HTI", "Yanick Mabilia",      Position.GK),
+        P("HTI", "Andrew Jean-Baptiste", Position.DEF),
+        P("HTI", "Carlens Arcus",       Position.DEF),
+        P("HTI", "Steeven Saba",        Position.DEF),
+        P("HTI", "Frantz Bertin",       Position.DEF),
+        P("HTI", "Christophe Ulis",     Position.DEF),
+        P("HTI", "Wilde-Donald Guerrier", Position.MID),
+        P("HTI", "Derrick Etienne",     Position.MID),
+        P("HTI", "Jeff Louis",          Position.MID),
+        P("HTI", "Frantzdy Pierrot",    Position.MID),
+        P("HTI", "Mechack Jérôme",      Position.FWD),
+        P("HTI", "Duckens Nazon",       Position.FWD),
+        P("HTI", "Sebastien Belfort",   Position.FWD),
+        P("HTI", "Fanol Perdedaj",      Position.FWD),
+
+        // SCO — Group C
+        P("SCO", "Angus Gunn",          Position.GK),
+        P("SCO", "Craig Gordon",        Position.GK),
+        P("SCO", "Andrew Robertson",    Position.DEF),
+        P("SCO", "Scott McKenna",       Position.DEF),
+        P("SCO", "Grant Hanley",        Position.DEF),
+        P("SCO", "Aaron Hickey",        Position.DEF),
+        P("SCO", "Liam Cooper",         Position.DEF),
+        P("SCO", "John McGinn",         Position.MID),
+        P("SCO", "Callum McGregor",     Position.MID),
+        P("SCO", "Stuart Armstrong",    Position.MID),
+        P("SCO", "Billy Gilmour",       Position.MID),
+        P("SCO", "Kenny McLean",        Position.MID),
+        P("SCO", "Lyndon Dykes",        Position.FWD),
+        P("SCO", "Che Adams",           Position.FWD),
+        P("SCO", "Kevin Nisbet",        Position.FWD),
+
+        // CUW — Group E
+        P("CUW", "Eloy Room",           Position.GK),
+        P("CUW", "Gian van Oudheusden", Position.GK),
+        P("CUW", "Cuco Martina",        Position.DEF),
+        P("CUW", "Darryl Lachman",      Position.DEF),
+        P("CUW", "Jurien Gaari",        Position.DEF),
+        P("CUW", "Tyronne Ebuehi",      Position.DEF),
+        P("CUW", "Gilmar Linde",        Position.DEF),
+        P("CUW", "Leandro Bacuna",      Position.MID),
+        P("CUW", "Gilson Tavares",      Position.MID),
+        P("CUW", "Gevaro Nepomuceno",   Position.MID),
+        P("CUW", "Renzo Zambrano",      Position.MID),
+        P("CUW", "Rangelo Janga",       Position.FWD),
+        P("CUW", "Cédric Doumbé",       Position.FWD),
+        P("CUW", "Jafar Arias",         Position.FWD),
+        P("CUW", "Kensley Cadogan",     Position.FWD),
+
+        // SWE — Group F
+        P("SWE", "Robin Olsen",         Position.GK),
+        P("SWE", "Karl-Johan Johnsson", Position.GK),
+        P("SWE", "Victor Nilsson Lindelöf", Position.DEF),
+        P("SWE", "Filip Helander",      Position.DEF),
+        P("SWE", "Emil Krafth",         Position.DEF),
+        P("SWE", "Ludwig Augustinsson", Position.DEF),
+        P("SWE", "Joakim Nilsson",      Position.DEF),
+        P("SWE", "Emil Forsberg",       Position.MID),
+        P("SWE", "Sebastian Larsson",   Position.MID),
+        P("SWE", "Mattias Svanberg",    Position.MID),
+        P("SWE", "Kristoffer Olsson",   Position.MID),
+        P("SWE", "Dejan Kulusevski",    Position.FWD),
+        P("SWE", "Alexander Isak",      Position.FWD),
+        P("SWE", "Viktor Gyökeres",     Position.FWD),
+        P("SWE", "Robin Quaison",       Position.FWD),
+
+        // CPV — Group H
+        P("CPV", "Vozinha",             Position.GK),
+        P("CPV", "Josimar Dias",        Position.GK),
+        P("CPV", "Kenny Rocha",         Position.DEF),
+        P("CPV", "Steven Fortes",       Position.DEF),
+        P("CPV", "Dylan Tavares",       Position.DEF),
+        P("CPV", "Marco Soares",        Position.DEF),
+        P("CPV", "Stopira",             Position.DEF),
+        P("CPV", "Ryan Mendes",         Position.MID),
+        P("CPV", "Garry Rodrigues",     Position.MID),
+        P("CPV", "Jamiro Monteiro",     Position.MID),
+        P("CPV", "Patrick Andrade",     Position.MID),
+        P("CPV", "Djaniny",             Position.FWD),
+        P("CPV", "Marcos Lopes",        Position.FWD),
+        P("CPV", "Kevin Pina",          Position.FWD),
+        P("CPV", "Julio Tavares",       Position.FWD),
+
+        // JOR — Group J
+        P("JOR", "Amer Shafi",          Position.GK),
+        P("JOR", "Yazeed Abulaila",     Position.GK),
+        P("JOR", "Abdallah Nasib",      Position.DEF),
+        P("JOR", "Yazan al-Naimat",     Position.DEF),
+        P("JOR", "Ahmad Ibrahim",       Position.DEF),
+        P("JOR", "Baher Derbas",        Position.DEF),
+        P("JOR", "Mohammad al-Dmeiri",  Position.DEF),
+        P("JOR", "Baha'a Farhan",       Position.MID),
+        P("JOR", "Musa al-Taamari",     Position.MID),
+        P("JOR", "Mohammad Abu Hasann", Position.MID),
+        P("JOR", "Anas Bani Yaseen",    Position.MID),
+        P("JOR", "Hamza al-Dardour",    Position.FWD),
+        P("JOR", "Mousa al-Tamari",     Position.FWD),
+        P("JOR", "Yousef Attal",        Position.FWD),
+        P("JOR", "Ahmad al-Sarabi",     Position.FWD),
+
+        // COD — Group K
+        P("COD", "Joël Kiassumbua",     Position.GK),
+        P("COD", "Ley Matampi",         Position.GK),
+        P("COD", "Chancel Mbemba",      Position.DEF),
+        P("COD", "Arthur Masuaku",      Position.DEF),
+        P("COD", "Marcel Tisserand",    Position.DEF),
+        P("COD", "Ngonda Muzinga",      Position.DEF),
+        P("COD", "Issama Mpeko",        Position.DEF),
+        P("COD", "Gaël Kakuta",         Position.MID),
+        P("COD", "Aldo Kalulu",         Position.MID),
+        P("COD", "Firmin Mubele",       Position.MID),
+        P("COD", "Arnold Bouka Moutou", Position.MID),
+        P("COD", "Cédric Bakambu",      Position.FWD),
+        P("COD", "Yannick Bolasie",     Position.FWD),
+        P("COD", "Jonathan Bolingi",    Position.FWD),
+        P("COD", "Britt Assombalonga",  Position.FWD),
     ];
 }
