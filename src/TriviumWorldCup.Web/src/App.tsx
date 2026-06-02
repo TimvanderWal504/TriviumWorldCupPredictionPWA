@@ -1,13 +1,17 @@
 import { useState } from 'react';
 import { AuthProvider } from './auth/AuthContext.tsx';
 import { DevUserSwitcher } from './auth/DevUserSwitcher.tsx';
+import { OfflineBanner } from './components/OfflineBanner.tsx';
 import { ProfileSetupModal } from './auth/ProfileSetupModal.tsx';
+import { GroupPredictionsPage } from './pages/GroupPredictionsPage.tsx';
 import { ProfilePage } from './pages/ProfilePage.tsx';
+import { RulesPage } from './pages/RulesPage.tsx';
+import { TournamentPredictionPage } from './pages/TournamentPredictionPage.tsx';
 import { useAuth } from './auth/useAuth.ts';
 
 const IS_PROD = import.meta.env.PROD;
 
-type Page = 'home' | 'profile';
+type Page = 'home' | 'profile' | 'predictions' | 'tournament' | 'rules';
 
 function AppShell() {
   const { user, isLoading, hasProfile, signOut } = useAuth();
@@ -23,6 +27,7 @@ function AppShell() {
 
   return (
     <div className="min-h-screen bg-slate-900 text-white flex flex-col">
+      <OfflineBanner />
       {/* Nav — only shown when authenticated */}
       {user && hasProfile && (
         <nav className="bg-slate-800 border-b border-slate-700 px-6 py-3 flex items-center justify-between">
@@ -33,6 +38,24 @@ function AppShell() {
             TWC 2026
           </button>
           <div className="flex items-center gap-4 text-sm">
+            <button
+              onClick={() => setPage('predictions')}
+              className="text-slate-300 hover:text-white transition-colors"
+            >
+              Predictions
+            </button>
+            <button
+              onClick={() => setPage('tournament')}
+              className="text-slate-300 hover:text-white transition-colors"
+            >
+              Tournament
+            </button>
+            <button
+              onClick={() => setPage('rules')}
+              className="text-slate-300 hover:text-white transition-colors"
+            >
+              Rules
+            </button>
             <button
               onClick={() => setPage('profile')}
               className="text-slate-300 hover:text-white transition-colors"
@@ -58,6 +81,12 @@ function AppShell() {
             <p className="text-slate-400 text-lg">Prediction pool — sign in to start predicting.</p>
             {!IS_PROD && <DevUserSwitcher />}
           </div>
+        ) : page === 'predictions' ? (
+          <GroupPredictionsPage />
+        ) : page === 'tournament' ? (
+          <TournamentPredictionPage />
+        ) : page === 'rules' ? (
+          <RulesPage />
         ) : page === 'profile' ? (
           <ProfilePage />
         ) : (
