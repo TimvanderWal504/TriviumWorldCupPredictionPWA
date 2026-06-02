@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using TriviumWorldCup.Api.Auth;
 using TriviumWorldCup.Api.Auth.Mock;
+using TriviumWorldCup.Api.Data;
+using TriviumWorldCup.Api.Domain;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,11 +17,19 @@ var connectionString = builder.Configuration.GetConnectionString("Postgres")
 
 // ── Services ─────────────────────────────────────────────────────────────────
 
-// Marten document store (no documents defined yet — extended by feature stories)
+// Marten document store — tournament document types registered here.
 builder.Services.AddMarten(opts =>
 {
     opts.Connection(connectionString);
     opts.DatabaseSchemaName = "twc";
+
+    // Tournament documents — all use string identities (natural keys).
+    opts.Schema.For<Team>().Identity(t => t.Id);
+    opts.Schema.For<Group>().Identity(g => g.Id);
+    opts.Schema.For<Fixture>().Identity(f => f.Id);
+    opts.Schema.For<KnockoutSlot>().Identity(s => s.Id);
+    // Player.Id is Guid — Marten picks this up by convention.
+    opts.Schema.For<Player>().Identity(p => p.Id);
 }).UseLightweightSessions();
 
 // Health checks
@@ -68,6 +78,11 @@ app.MapHealthChecks("/health", new HealthCheckOptions
 app.MapGet("/ping", () => Results.Ok(new { status = "ok" }))
    .WithName("Ping")
    .WithTags("health");
+
+// ── Tournament seed ───────────────────────────────────────────────────────────
+// Idempotent: exits immediately if data is already present.
+var documentStore = app.Services.GetRequiredService<IDocumentStore>();
+await TournamentSeed.SeedAsync(documentStore);
 
 app.Run();
 
