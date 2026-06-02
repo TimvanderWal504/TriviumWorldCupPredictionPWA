@@ -15,6 +15,15 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
+      // Proxy /auth/* and /profile to the .NET API
+      '/auth': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '/profile': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
     },
   },
 })

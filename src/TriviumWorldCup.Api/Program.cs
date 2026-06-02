@@ -5,6 +5,7 @@ using TriviumWorldCup.Api.Auth;
 using TriviumWorldCup.Api.Auth.Mock;
 using TriviumWorldCup.Api.Data;
 using TriviumWorldCup.Api.Domain;
+using TriviumWorldCup.Api.Profiles;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,6 +31,8 @@ builder.Services.AddMarten(opts =>
     opts.Schema.For<KnockoutSlot>().Identity(s => s.Id);
     // Player.Id is Guid — Marten picks this up by convention.
     opts.Schema.For<Player>().Identity(p => p.Id);
+    // UserProfile — Id equals the auth UserId (string).
+    opts.Schema.For<UserProfile>().Identity(p => p.Id);
 }).UseLightweightSessions();
 
 // Health checks
@@ -78,6 +81,9 @@ app.MapHealthChecks("/health", new HealthCheckOptions
 app.MapGet("/ping", () => Results.Ok(new { status = "ok" }))
    .WithName("Ping")
    .WithTags("health");
+
+// Profile endpoints — GET / POST / PUT /profile
+app.MapProfileEndpoints();
 
 // ── Tournament seed ───────────────────────────────────────────────────────────
 // Idempotent: exits immediately if data is already present.

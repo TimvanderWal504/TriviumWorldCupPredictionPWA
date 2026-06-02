@@ -1,4 +1,6 @@
+using Marten;
 using Microsoft.AspNetCore.Mvc;
+using TriviumWorldCup.Api.Domain;
 
 namespace TriviumWorldCup.Api.Auth.Mock;
 
@@ -63,17 +65,24 @@ public static class MockAuthEndpoints
         .WithName("MockLogout")
         .WithSummary("Sign out (mock provider only).");
 
-        // GET /auth/me — returns the current user (provider-agnostic, useful for client bootstrap)
-        routes.MapGet("/auth/me", (HttpContext context) =>
+        // GET /auth/me — returns the current user (provider-agnostic, useful for client bootstrap).
+        // When a UserProfile exists, its DisplayName overrides the provider's display name so the
+        // auth context always reflects the user's chosen name.
+        routes.MapGet("/auth/me", async (HttpContext context, IDocumentSession session, CancellationToken ct) =>
         {
             var user = context.GetAppUser();
             if (!user.IsAuthenticated)
                 return Results.Ok(new { authenticated = false, user = (object?)null });
 
+            var profile = await session.LoadAsync<UserProfile>(user.UserId, ct);
+            var displayName = profile is not null && !string.IsNullOrWhiteSpace(profile.DisplayName)
+                ? profile.DisplayName
+                : user.DisplayName;
+
             return Results.Ok(new
             {
                 authenticated = true,
-                user = new { user.UserId, user.DisplayName, user.Roles }
+                user = new { user.UserId, displayName, user.Roles }
             });
         })
         .WithName("AuthMe")
