@@ -1,0 +1,99 @@
+---
+# Trivium World Cup 2026 — Docker Compose stack
+#
+# Bring up:  docker compose up -d
+# LAN only:  docker compose --profile lan up -d        (skips cloudflared)
+# Full:      TUNNEL_TOKEN=<token> docker compose up -d
+#
+# Required env vars: see .env.example
+# Optional:  TUNNEL_TOKEN — omit for LAN-only demo
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout:  5s
+      retries:  5
+      start_period: 10s
+    # Not exposed on host — only reachable from other containers
+    networks:
+      - backend
+
+  # ── .NET API ────────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./src/TriviumWorldCup.Api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT:       ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__Postgres:  "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout:  5s
+      retries:  5
+      start_period: 20s
+    # API is NOT exposed directly on the host; nginx proxies to it
+    networks:
+      - backend
+      - frontend
+
+  # ── React / nginx ───────────────────────────────────────────────────────────
+  web:
+    build:
+      context: ./src/TriviumWorldCup.Web
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      # Bind to loopback only — not to 0.0.0.0 — so it is not reachable from
+      # the internet without the tunnel.  On the AK12 LAN, the host's local IP
+      # (e.g. 192.168.x.x:80) is still reachable by LAN clients because
+      # Docker's DNAT rules apply regardless of the listen address.
+      - "127.0.0.1:80:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - frontend
+
+  # ── Cloudflare Tunnel ───────────────────────────────────────────────────────
+  # Optional — only required when TUNNEL_TOKEN is set.
+  # The tunnel dials outbound on port 443; no inbound host ports are opened.
+  # For LAN-only demos leave TUNNEL_TOKEN unset or start with --profile lan.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:-placeholder}
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on:
+      web:
+        condition: service_started
+    networks:
+      - frontend
+    profiles:
+      - tunnel
+
+volumes:
+  postgres_data:
+    name: twc_postgres_data
+
+networks:
+  backend:
+    internal: true   # postgres and api cannot reach the internet directly
+  frontend:

@@ -1,0 +1,34 @@
+# --- Claude Code: local/secret config (never commit) ---
+.claude/settings.local.json
+
+# --- Secrets & environment ---
+.env
+.env.*
+!.env.example
+*.local
+secrets/
+
+# --- Cloudflare Tunnel credentials ---
+*.cloudflared.json
+cert.pem
+
+# --- .NET ---
+bin/
+obj/
+*.user
+*.suo
+.vs/
+TestResults/
+
+# --- Node / React ---
+node_modules/
+dist/
+.vite/
+
+# --- NuGet ---
+*.nupkg
+packages/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
