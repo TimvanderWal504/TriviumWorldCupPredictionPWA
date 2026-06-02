@@ -7,6 +7,7 @@ using TriviumWorldCup.Api.Data;
 using TriviumWorldCup.Api.Domain;
 using TriviumWorldCup.Api.Predictions;
 using TriviumWorldCup.Api.Profiles;
+using TriviumWorldCup.Api.Scoring;
 using TriviumWorldCup.Api.Tournament;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -39,7 +40,14 @@ builder.Services.AddMarten(opts =>
     opts.Schema.For<GroupPrediction>().Identity(p => p.Id);
     // TournamentPrediction — Id equals the auth UserId (one per member).
     opts.Schema.For<TournamentPrediction>().Identity(p => p.Id);
+    // GoalEvent — Id is Guid (Marten picks this up by convention, but we register explicitly).
+    opts.Schema.For<GoalEvent>().Identity(e => e.Id);
+    // MemberScore — Id equals UserId (one document per member).
+    opts.Schema.For<MemberScore>().Identity(s => s.Id);
 }).UseLightweightSessions();
+
+// Scoring recompute service — TWC-8
+builder.Services.AddScoped<ScoringRecomputeService>();
 
 // Health checks
 builder.Services.AddHealthChecks()

@@ -40,4 +40,10 @@ public class KnockoutSlot
 
     public int? HomeScore { get; set; }
     public int? AwayScore { get; set; }
+
+    /// <summary>
+    /// FIFA code of the match winner — populated by TWC-9 when the slot result is recorded.
+    /// Used by ScoringRecomputeService to determine the tournament champion from the Final slot.
+    /// </summary>
+    public string? WinnerTeamId { get; set; }
 }
