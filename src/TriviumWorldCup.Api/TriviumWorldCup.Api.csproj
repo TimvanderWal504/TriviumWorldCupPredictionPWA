@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>TriviumWorldCup.Api</RootNamespace>
+    <AssemblyName>TriviumWorldCup.Api</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- OpenAPI / Swagger -->
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.24" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+
+    <!-- Wolverine message handling (package ID is WolverineFx on nuget.org) -->
+    <PackageReference Include="WolverineFx" Version="3.9.0" />
+    <PackageReference Include="WolverineFx.Http" Version="3.9.0" />
+
+    <!-- Marten document store + Npgsql -->
+    <PackageReference Include="Marten" Version="7.40.5" />
+    <PackageReference Include="Npgsql" Version="8.0.7" />
+
+    <!-- Health checks -->
+    <PackageReference Include="AspNetCore.HealthChecks.NpgSql" Version="8.0.1" />
+  </ItemGroup>
+
+</Project>
