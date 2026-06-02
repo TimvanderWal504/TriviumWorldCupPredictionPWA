@@ -1,0 +1,34 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{41BD0265-4540-4392-BA0D-10122D58C71D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TriviumWorldCup.Api", "src\TriviumWorldCup.Api\TriviumWorldCup.Api.csproj", "{1045081A-3ED9-47FB-8909-9C7CF5BAE8B0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TriviumWorldCup.Api.Tests", "src\TriviumWorldCup.Api.Tests\TriviumWorldCup.Api.Tests.csproj", "{FC425FD4-EF9B-477A-9F0E-0EDF79C7574D}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{1045081A-3ED9-47FB-8909-9C7CF5BAE8B0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1045081A-3ED9-47FB-8909-9C7CF5BAE8B0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1045081A-3ED9-47FB-8909-9C7CF5BAE8B0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1045081A-3ED9-47FB-8909-9C7CF5BAE8B0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FC425FD4-EF9B-477A-9F0E-0EDF79C7574D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FC425FD4-EF9B-477A-9F0E-0EDF79C7574D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FC425FD4-EF9B-477A-9F0E-0EDF79C7574D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FC425FD4-EF9B-477A-9F0E-0EDF79C7574D}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{1045081A-3ED9-47FB-8909-9C7CF5BAE8B0} = {41BD0265-4540-4392-BA0D-10122D58C71D}
+		{FC425FD4-EF9B-477A-9F0E-0EDF79C7574D} = {41BD0265-4540-4392-BA0D-10122D58C71D}
+	EndGlobalSection
+EndGlobal
