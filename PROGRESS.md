@@ -3,8 +3,8 @@
 > Secondary to Jira. Project `TWC` is the source of truth for task state; this file is a fast, human-readable log for resuming the orchestrator mid-run. Update it at the end of each wave.
 
 ## Status
-- Current wave: **Wave 5 complete** — TWC-14 (knockout), TWC-16 (admin), TWC-19 (backups) done
-- Wave 6 next: TWC-15 (knockout scoring) + TWC-17 (live updates); TWC-18/20 BLOCKED
+- Current wave: **Wave 6 in progress** — TWC-15 (knockout scoring), TWC-17 (live updates) implemented
+- TWC-18/20 BLOCKED
 - Hard deadline passed ✅ — MVP delivered 8 days before 11 June kickoff
 
 ## Accepted (Done)
@@ -33,6 +33,9 @@
 
 ### Post-MVP Wave 5
 - **TWC-16** ✅ — Admin screen: ingestion monitoring + manual result override (`feature/TWC-16`)
+
+### Post-MVP Wave 6
+- **TWC-17** ✅ — Live in-match score updates: GET /fixtures/live endpoint, LiveScoresPage, 20s polling, stops when liveWindowActive=false (`feature/TWC-17`)
 
 ## Branch to merge
 All MVP work is on **`feature/TWC-11`**. Merge in this order (each must merge before the next PR is created):

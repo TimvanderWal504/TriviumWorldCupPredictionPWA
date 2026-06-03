@@ -7,6 +7,7 @@ import { AdminPage } from './pages/AdminPage.tsx';
 import { GroupPredictionsPage } from './pages/GroupPredictionsPage.tsx';
 import { KnockoutBracketPage } from './pages/KnockoutBracketPage.tsx';
 import { LeaderboardPage } from './pages/LeaderboardPage.tsx';
+import { LiveScoresPage } from './pages/LiveScoresPage.tsx';
 import { ProfilePage } from './pages/ProfilePage.tsx';
 import { RulesPage } from './pages/RulesPage.tsx';
 import { StandingsPage } from './pages/StandingsPage.tsx';
@@ -15,7 +16,7 @@ import { useAuth } from './auth/useAuth.ts';
 
 const IS_PROD = import.meta.env.PROD;
 
-type Page = 'home' | 'profile' | 'predictions' | 'tournament' | 'knockout' | 'rules' | 'standings' | 'leaderboard' | 'admin';
+type Page = 'home' | 'profile' | 'predictions' | 'tournament' | 'knockout' | 'rules' | 'standings' | 'leaderboard' | 'admin' | 'live';
 
 function AppShell() {
   const { user, isLoading, hasProfile, signOut } = useAuth();
@@ -73,6 +74,12 @@ function AppShell() {
               Leaderboard
             </button>
             <button
+              onClick={() => setPage('live')}
+              className="text-slate-300 hover:text-white transition-colors"
+            >
+              Live
+            </button>
+            <button
               onClick={() => setPage('rules')}
               className="text-slate-300 hover:text-white transition-colors"
             >
@@ -127,6 +134,8 @@ function AppShell() {
           <ProfilePage />
         ) : page === 'admin' ? (
           <AdminPage />
+        ) : page === 'live' ? (
+          <LiveScoresPage />
         ) : (
           // Home placeholder — feature screens come in later stories
           <div className="flex flex-col items-center justify-center h-full py-20 text-center px-4">
