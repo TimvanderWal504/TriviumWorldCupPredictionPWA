@@ -121,11 +121,44 @@ public class ScoringRecomputeService(IDocumentStore store)
             goldenSixPointsByUser[tp.UserId] = gs6Pts;
         }
 
-        // ── Step 3: Gather all user IDs and upsert MemberScore documents ──────
+        // ── Step 3: Knockout match points ─────────────────────────────────────
+
+        // Load all completed knockout slots that have a determined winner.
+        var completedKnockoutSlots = await session
+            .Query<KnockoutSlot>()
+            .Where(s => s.Status == MatchStatus.Completed && s.WinnerTeamId != null)
+            .ToListAsync(ct);
+
+        var slotByKey = completedKnockoutSlots.ToDictionary(s => s.SlotKey);
+
+        // All knockout predictions.
+        var allKnockoutPredictions = await session
+            .Query<KnockoutPrediction>()
+            .ToListAsync(ct);
+
+        var knockoutPointsByUser = new Dictionary<string, int>();
+
+        foreach (var pred in allKnockoutPredictions)
+        {
+            if (!slotByKey.TryGetValue(pred.SlotKey, out var slot))
+                continue; // slot not yet completed — skip
+
+            var pts = KnockoutMatchScorer.Compute(
+                pred.PredictedWinnerTeamId,
+                pred.PredictedHomeScore, pred.PredictedAwayScore,
+                slot.WinnerTeamId!,
+                slot.HomeScore, slot.AwayScore,
+                slot.Round);
+
+            knockoutPointsByUser[pred.UserId] = knockoutPointsByUser.GetValueOrDefault(pred.UserId) + pts;
+        }
+
+        // ── Step 4: Gather all user IDs and upsert MemberScore documents ──────
 
         var allUserIds = groupMatchPoints.Keys
             .Union(championPointsByUser.Keys)
             .Union(goldenSixPointsByUser.Keys)
+            .Union(knockoutPointsByUser.Keys)
             .Distinct();
 
         var now = DateTimeOffset.UtcNow;
@@ -139,6 +172,7 @@ public class ScoringRecomputeService(IDocumentStore store)
                 GroupMatchPoints    = groupMatchPoints.GetValueOrDefault(userId),
                 ChampionPoints      = championPointsByUser.GetValueOrDefault(userId),
                 GoldenSixPoints     = goldenSixPointsByUser.GetValueOrDefault(userId),
+                KnockoutPoints      = knockoutPointsByUser.GetValueOrDefault(userId),
                 ExactScorelineCount = exactCount.GetValueOrDefault(userId),
                 CorrectOutcomeCount = correctOutcomeCount.GetValueOrDefault(userId),
                 LastComputedAt      = now,
