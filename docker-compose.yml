@@ -71,6 +71,24 @@ services:
     networks:
       - frontend
 
+  # ── Nightly backup ──────────────────────────────────────────────────────────
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${POSTGRES_DB}
+    volumes:
+      - postgres_backups:/backups
+      - ./scripts/backup.sh:/backup.sh:ro
+    entrypoint: ["sh", "-c", "crond -f -d 8 & echo '0 2 * * * sh /backup.sh' | crontab - && wait"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+
   # ── Cloudflare Tunnel ───────────────────────────────────────────────────────
   # Optional — only required when TUNNEL_TOKEN is set.
   # The tunnel dials outbound on port 443; no inbound host ports are opened.
@@ -92,6 +110,8 @@ services:
 volumes:
   postgres_data:
     name: twc_postgres_data
+  postgres_backups:
+    name: twc_postgres_backups
 
 networks:
   backend:
