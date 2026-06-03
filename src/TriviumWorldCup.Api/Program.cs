@@ -10,6 +10,7 @@ using TriviumWorldCup.Api.Ingestion;
 using TriviumWorldCup.Api.Leaderboard;
 using TriviumWorldCup.Api.Predictions;
 using TriviumWorldCup.Api.Profiles;
+using TriviumWorldCup.Api.Push;
 using TriviumWorldCup.Api.Scoring;
 using TriviumWorldCup.Api.Standings;
 using TriviumWorldCup.Api.Tournament;
@@ -52,6 +53,8 @@ builder.Services.AddMarten(opts =>
     opts.Schema.For<MemberScore>().Identity(s => s.Id);
     // ResultOverride — audit log for manual admin overrides (TWC-16).
     opts.Schema.For<ResultOverride>().Identity(o => o.Id);
+    // PushSubscription — Web Push device subscription (TWC-18).
+    opts.Schema.For<PushSubscription>().Identity(p => p.Id);
 }).UseLightweightSessions();
 
 // Scoring recompute service — TWC-8
@@ -63,6 +66,10 @@ builder.Services.AddSingleton<IngestionStatusStore>();
 // Result ingestion pipeline — TWC-9 (Quartz + FootballApiClient)
 // ScoringRecomputeService guard inside AddIngestion prevents double-registration.
 builder.Services.AddIngestion(builder.Configuration);
+
+// Push notification services — TWC-18 (WebPushClient + PushReminderJob)
+// If VAPID keys are absent, a warning is logged and the job is not registered.
+builder.Services.AddPushServices(builder.Configuration);
 
 // Health checks
 builder.Services.AddHealthChecks()
@@ -134,6 +141,9 @@ app.MapLeaderboardEndpoints();
 
 // Admin endpoints -- GET/POST /admin/ingestion, /admin/fixtures/{id}/result, etc. (TWC-16)
 app.MapAdminEndpoints();
+
+// Push subscription endpoints -- GET /push/vapid-public-key, POST/DELETE /push/subscribe (TWC-18)
+app.MapPushEndpoints();
 
 // Knockout bracket slot endpoints -- GET /knockout/slots
 app.MapKnockoutSlotEndpoints();
