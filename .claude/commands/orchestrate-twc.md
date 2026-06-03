@@ -58,7 +58,9 @@ Dependency-ordered for the known TWC backlog. Re-validate before use.
 - Wave 4 (parallel): TWC-10 my standings; TWC-11 leaderboard + drill-down. → MVP complete.
 - Wave 5 — post-MVP (parallel): TWC-14 knockout bracket + screens; TWC-16 admin; TWC-19 backups.
 - Wave 6 — post-MVP: TWC-15 knockout scoring (after TWC-8 and TWC-14); TWC-17 live updates; TWC-18 push reminders.
-- Wave 7 — final: TWC-20 real Entra integration. Done last; swaps the mock provider for the real one behind the auth abstraction. Human-gated on the Entra app registration.
+- Wave 7 — knockout resolver: TWC-32 — populate R32 from final group standings (winners, runners-up, 8 best third-placed) and propagate winners/losers through the rounds. Completes the knockout flow (pairs with TWC-14 skeleton/UI and TWC-15 scoring); must land before the knockout E2E.
+- Wave 8 — E2E suite (epic TWC-21): TWC-22 foundation first (harness, mock-auth login, seeding, stubbing, time/result control, CI), then the area specs in parallel — TWC-23 auth/profile, TWC-24 group predictions, TWC-25 champion + Golden Six, TWC-26 standings/scoring, TWC-27 leaderboard/visibility/tiebreaker, TWC-28 app-shell smoke, TWC-29 admin, TWC-30 live updates. TWC-31 knockout E2E runs after Wave 7's resolver.
+- Wave 9 — final: TWC-20 real Entra integration. Done last; swaps the mock provider for the real one behind the auth abstraction. Human-gated on the Entra app registration.
 </execution_waves>
 
 <phase_3_dispatch>
@@ -92,6 +94,7 @@ Return: a summary of changes, the test results, anything you deliberately did NO
 <coordination_rules>
 - Never run two sub-agents that edit the same module concurrently. The scoring module is the classic hotspot: keep TWC-8 and TWC-15 serial, and let standings/leaderboard read the engine rather than modify it.
 - TWC-9 (ingestion) depends on TWC-8 (scoring engine): ingestion triggers a score recompute, so TWC-8 must reach acceptance before TWC-9 starts — they are not parallel.
+- TWC-22 (E2E foundation) must reach acceptance before any other E2E spec (TWC-23–TWC-31); TWC-31 (knockout E2E) additionally depends on TWC-32 (knockout resolver).
 - Schema-owning stories (TWC-5, and later TWC-14) land before the stories that depend on their tables.
 - If two ready stories collide on shared files, run them in sequence and tell the second agent what the first changed.
 </coordination_rules>

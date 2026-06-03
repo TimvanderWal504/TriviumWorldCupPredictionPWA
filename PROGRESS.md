@@ -3,9 +3,15 @@
 > Secondary to Jira. Project `TWC` is the source of truth for task state; this file is a fast, human-readable log for resuming the orchestrator mid-run. Update it at the end of each wave.
 
 ## Status
-- Current wave: **Wave 6 in progress** — TWC-15 (knockout scoring), TWC-17 (live updates), TWC-18 (push reminders) implemented
-- TWC-20 BLOCKED (Entra app registration)
-- Hard deadline passed ✅ — MVP delivered 8 days before 11 June kickoff
+- MVP ✅ delivered 8 days before the 11 June kickoff. Post-MVP done: TWC-15 (knockout scoring), TWC-16 (admin), TWC-17 (live updates).
+- **Knockout gap:** the bracket structure, UI, predictions and scoring exist, but **bracket population is not implemented** — nothing resolves group standings into R32 or propagates rounds, so slots stay null. Split out as new story **TWC-32** (Wave 7).
+- **E2E:** new epic **TWC-21** with foundation **TWC-22** + area specs **TWC-23–TWC-31** (Wave 8).
+- TWC-18 (push) and TWC-20 (Entra) remain BLOCKED.
+
+## Planned waves
+- **Wave 7** — TWC-32 knockout resolver (group standings → R32, 8 best third-placed allocation, round propagation, idempotent). Must precede the knockout E2E.
+- **Wave 8** — E2E suite (epic TWC-21): TWC-22 foundation first, then TWC-23–TWC-30 in parallel; TWC-31 (knockout E2E) after Wave 7.
+- **Wave 9 — final** — TWC-20 real Entra integration (human-gated on the Entra app registration).
 
 ## Accepted (Done)
 
@@ -36,7 +42,6 @@
 
 ### Post-MVP Wave 6
 - **TWC-17** ✅ — Live in-match score updates: GET /fixtures/live endpoint, LiveScoresPage, 20s polling, stops when liveWindowActive=false (`feature/TWC-17`)
-- **TWC-18** ✅ — Push notifications: VAPID subscribe/unsubscribe endpoints, PushReminderJob (30 min), ProfilePage opt-in toggle with iOS notice (`feature/TWC-18`)
 
 ## Branch to merge
 All MVP work is on **`feature/TWC-11`**. Merge in this order (each must merge before the next PR is created):
@@ -88,6 +93,6 @@ docker compose --profile tunnel up -d         # with Cloudflare Tunnel
 ```
 
 ## Next action
-**MVP is done. Push `feature/TWC-11` and open PRs in branch-chain order.**
-Post-MVP stories (TWC-14 knockout bracket, TWC-15 knockout scoring, TWC-16 admin, TWC-17 live updates, TWC-18 push reminders, TWC-19 backups) can follow after kickoff.
-TWC-20 (real Entra) is human-gated on the Entra app registration.
+1. **Wave 7** — implement TWC-32 (knockout resolver); this unblocks the knockout flow end to end (predictions open, scoring fires, champion resolves).
+2. **Wave 8** — build the E2E suite: TWC-22 foundation first, then the area specs in parallel; TWC-31 (knockout E2E) after TWC-32.
+3. **Wave 9 (final)** — TWC-20 real Entra, once the app registration is provided.
