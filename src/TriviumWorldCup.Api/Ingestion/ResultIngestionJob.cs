@@ -1,5 +1,6 @@
 using Marten;
 using Quartz;
+using TriviumWorldCup.Api.Admin;
 using TriviumWorldCup.Api.Domain;
 using TriviumWorldCup.Api.Scoring;
 
@@ -37,6 +38,7 @@ public class ResultIngestionJob(
     IFootballApiClient apiClient,
     IDocumentStore store,
     ScoringRecomputeService scoringService,
+    IngestionStatusStore statusStore,
     ILogger<ResultIngestionJob> logger) : IJob
 {
     // Version 5 UUID namespace for deterministic GoalEvent IDs.
@@ -49,6 +51,10 @@ public class ResultIngestionJob(
 
         logger.LogDebug("ResultIngestionJob: starting poll");
 
+        // ── 0. Update status store: record attempt ────────────────────────────
+        statusStore.LastAttemptedPoll = DateTimeOffset.UtcNow;
+        statusStore.TotalPollCount++;
+
         // ── 1. Fetch current status of all group-stage fixtures from API ──────
         IReadOnlyList<ApiFixture> allApiFixtures;
         try
@@ -57,6 +63,8 @@ public class ResultIngestionJob(
         }
         catch (Exception ex)
         {
+            statusStore.LastError = ex.Message;
+            statusStore.ErrorCount++;
             logger.LogWarning(ex, "ResultIngestionJob: failed to fetch fixtures from API — will retry on next cycle");
             return;
         }
@@ -238,6 +246,10 @@ public class ResultIngestionJob(
                 ingestedCount);
             await scoringService.RecomputeAllAsync(ct);
         }
+
+        // ── Record successful poll ────────────────────────────────────────────
+        statusStore.LastSuccessfulPoll = DateTimeOffset.UtcNow;
+        statusStore.LastError = null;
 
         logger.LogDebug("ResultIngestionJob: completed (ingested={Count}, liveWindow={Live})",
             ingestedCount, anyLive);

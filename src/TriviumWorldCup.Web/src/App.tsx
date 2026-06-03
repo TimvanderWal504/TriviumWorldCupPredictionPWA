@@ -3,7 +3,9 @@ import { AuthProvider } from './auth/AuthContext.tsx';
 import { DevUserSwitcher } from './auth/DevUserSwitcher.tsx';
 import { OfflineBanner } from './components/OfflineBanner.tsx';
 import { ProfileSetupModal } from './auth/ProfileSetupModal.tsx';
+import { AdminPage } from './pages/AdminPage.tsx';
 import { GroupPredictionsPage } from './pages/GroupPredictionsPage.tsx';
+import { KnockoutBracketPage } from './pages/KnockoutBracketPage.tsx';
 import { LeaderboardPage } from './pages/LeaderboardPage.tsx';
 import { ProfilePage } from './pages/ProfilePage.tsx';
 import { RulesPage } from './pages/RulesPage.tsx';
@@ -13,7 +15,7 @@ import { useAuth } from './auth/useAuth.ts';
 
 const IS_PROD = import.meta.env.PROD;
 
-type Page = 'home' | 'profile' | 'predictions' | 'tournament' | 'rules' | 'standings' | 'leaderboard';
+type Page = 'home' | 'profile' | 'predictions' | 'tournament' | 'knockout' | 'rules' | 'standings' | 'leaderboard' | 'admin';
 
 function AppShell() {
   const { user, isLoading, hasProfile, signOut } = useAuth();
@@ -53,6 +55,12 @@ function AppShell() {
               Tournament
             </button>
             <button
+              onClick={() => setPage('knockout')}
+              className="text-slate-300 hover:text-white transition-colors"
+            >
+              Bracket
+            </button>
+            <button
               onClick={() => setPage('standings')}
               className="text-slate-300 hover:text-white transition-colors"
             >
@@ -70,6 +78,14 @@ function AppShell() {
             >
               Rules
             </button>
+            {user.roles?.includes('admin') && (
+              <button
+                onClick={() => setPage('admin')}
+                className="text-amber-400 hover:text-amber-300 transition-colors font-medium"
+              >
+                Admin
+              </button>
+            )}
             <button
               onClick={() => setPage('profile')}
               className="text-slate-300 hover:text-white transition-colors"
@@ -99,6 +115,8 @@ function AppShell() {
           <GroupPredictionsPage />
         ) : page === 'tournament' ? (
           <TournamentPredictionPage />
+        ) : page === 'knockout' ? (
+          <KnockoutBracketPage />
         ) : page === 'standings' ? (
           <StandingsPage />
         ) : page === 'leaderboard' ? (
@@ -107,6 +125,8 @@ function AppShell() {
           <RulesPage />
         ) : page === 'profile' ? (
           <ProfilePage />
+        ) : page === 'admin' ? (
+          <AdminPage />
         ) : (
           // Home placeholder — feature screens come in later stories
           <div className="flex flex-col items-center justify-center h-full py-20 text-center px-4">
