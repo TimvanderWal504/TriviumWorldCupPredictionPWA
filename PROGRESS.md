@@ -3,8 +3,9 @@
 > Secondary to Jira. Project `TWC` is the source of truth for task state; this file is a fast, human-readable log for resuming the orchestrator mid-run. Update it at the end of each wave.
 
 ## Status
-- **MVP COMPLETE** — all 13 MVP stories done on `feature/TWC-11`
-- Hard deadline: **11 June 2026** (first kickoff — ✅ delivered with 9 days to spare)
+- Current wave: **Wave 5 complete** — TWC-14 (knockout), TWC-16 (admin), TWC-19 (backups) done
+- Wave 6 next: TWC-15 (knockout scoring) + TWC-17 (live updates); TWC-18/20 BLOCKED
+- Hard deadline passed ✅ — MVP delivered 8 days before 11 June kickoff
 
 ## Accepted (Done)
 
@@ -29,6 +30,9 @@
 - **TWC-11** ✅ — Leaderboard + drill-down: competition-rank tiebreakers, privacy-enforced (`feature/TWC-11`)
 
 **Final: 251 .NET tests + 11 frontend tests passing. Both builds green.**
+
+### Post-MVP Wave 5
+- **TWC-16** ✅ — Admin screen: ingestion monitoring + manual result override (`feature/TWC-16`)
 
 ## Branch to merge
 All MVP work is on **`feature/TWC-11`**. Merge in this order (each must merge before the next PR is created):
