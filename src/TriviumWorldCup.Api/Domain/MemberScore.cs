@@ -21,8 +21,11 @@ public class MemberScore
     /// <summary>Points from Golden Six player goal scoring.</summary>
     public int GoldenSixPoints { get; set; }
 
+    /// <summary>Points accumulated from knockout-stage match predictions.</summary>
+    public int KnockoutPoints { get; set; }
+
     /// <summary>Sum of all point categories.</summary>
-    public int TotalPoints => GroupMatchPoints + ChampionPoints + GoldenSixPoints;
+    public int TotalPoints => GroupMatchPoints + ChampionPoints + GoldenSixPoints + KnockoutPoints;
 
     /// <summary>Count of exact scorelines predicted (tiebreaker 1, TWC-11).</summary>
     public int ExactScorelineCount { get; set; }
