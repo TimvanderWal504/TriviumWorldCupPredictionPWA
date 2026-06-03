@@ -1,6 +1,7 @@
 using Marten;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using TriviumWorldCup.Api.Admin;
 using TriviumWorldCup.Api.Auth;
 using TriviumWorldCup.Api.Auth.Mock;
 using TriviumWorldCup.Api.Data;
@@ -41,16 +42,23 @@ builder.Services.AddMarten(opts =>
     opts.Schema.For<UserProfile>().Identity(p => p.Id);
     // GroupPrediction — Id is "{UserId}_{FixtureId}" composite key.
     opts.Schema.For<GroupPrediction>().Identity(p => p.Id);
+    // KnockoutPrediction — Id is "{UserId}_{SlotKey}" composite key.
+    opts.Schema.For<KnockoutPrediction>().Identity(p => p.Id);
     // TournamentPrediction — Id equals the auth UserId (one per member).
     opts.Schema.For<TournamentPrediction>().Identity(p => p.Id);
     // GoalEvent — Id is Guid (Marten picks this up by convention, but we register explicitly).
     opts.Schema.For<GoalEvent>().Identity(e => e.Id);
     // MemberScore — Id equals UserId (one document per member).
     opts.Schema.For<MemberScore>().Identity(s => s.Id);
+    // ResultOverride — audit log for manual admin overrides (TWC-16).
+    opts.Schema.For<ResultOverride>().Identity(o => o.Id);
 }).UseLightweightSessions();
 
 // Scoring recompute service — TWC-8
 builder.Services.AddScoped<ScoringRecomputeService>();
+
+// Ingestion status store — singleton, updated by ResultIngestionJob each poll cycle (TWC-16)
+builder.Services.AddSingleton<IngestionStatusStore>();
 
 // Result ingestion pipeline — TWC-9 (Quartz + FootballApiClient)
 // ScoringRecomputeService guard inside AddIngestion prevents double-registration.
@@ -123,6 +131,15 @@ app.MapStandingsEndpoints();
 
 // Leaderboard endpoints -- GET /leaderboard, GET /leaderboard/{userId}
 app.MapLeaderboardEndpoints();
+
+// Admin endpoints -- GET/POST /admin/ingestion, /admin/fixtures/{id}/result, etc. (TWC-16)
+app.MapAdminEndpoints();
+
+// Knockout bracket slot endpoints -- GET /knockout/slots
+app.MapKnockoutSlotEndpoints();
+
+// Knockout prediction endpoints -- GET/POST/PUT /predictions/knockout/{slotKey}
+app.MapKnockoutPredictionEndpoints();
 
 // ── Tournament seed ───────────────────────────────────────────────────────────
 // Idempotent: exits immediately if data is already present.
