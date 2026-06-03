@@ -34,7 +34,7 @@ export default defineConfig({
         runtimeCaching: [
           {
             // Network-first for API routes
-            urlPattern: /\/(auth|profile|predictions|fixtures|teams|players)(\/|$)/,
+            urlPattern: /\/(auth|profile|predictions|fixtures|teams|players|scores|leaderboard)(\/|$)/,
             handler: 'NetworkFirst',
             options: {
               cacheName: 'api-cache',
@@ -90,6 +90,14 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/players': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '/scores': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '/leaderboard': {
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
