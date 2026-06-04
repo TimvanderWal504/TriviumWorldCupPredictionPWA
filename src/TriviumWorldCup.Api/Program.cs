@@ -8,6 +8,7 @@ using TriviumWorldCup.Api.Data;
 using TriviumWorldCup.Api.Domain;
 using TriviumWorldCup.Api.E2E;
 using TriviumWorldCup.Api.Ingestion;
+using TriviumWorldCup.Api.Knockout;
 using TriviumWorldCup.Api.Leaderboard;
 using TriviumWorldCup.Api.Predictions;
 using TriviumWorldCup.Api.Profiles;
@@ -60,6 +61,9 @@ builder.Services.AddMarten(opts =>
 
 // Scoring recompute service — TWC-8
 builder.Services.AddScoped<ScoringRecomputeService>();
+
+// Knockout bracket resolver — TWC-32
+builder.Services.AddScoped<KnockoutBracketResolver>();
 
 // Ingestion status store — singleton, updated by ResultIngestionJob each poll cycle (TWC-16)
 builder.Services.AddSingleton<IngestionStatusStore>();

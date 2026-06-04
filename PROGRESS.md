@@ -53,6 +53,9 @@
 ### Wave 8 — E2E
 - **TWC-22** ✅ — Playwright harness: `e2e/` project, mock-auth login helper, seed/reset helper, time/result control endpoints (`/e2e/*`, non-Production), page objects for all 8 screens, 16/16 smoke tests green (`feature/TWC-22-impl`)
 
+### Wave 7
+- **TWC-32** ✅ — Knockout bracket resolver: group ranking (FIFA criteria: pts/GD/GF + head-to-head), best-8-of-12 third-placed selection, R32 slot population, MatchWinner/MatchLoser round propagation, new admin endpoint `POST /admin/knockout/{slotKey}/result`, idempotent. 22 new tests; 351 total pass. (`feature/TWC-32`)
+
 ## ⚠️ Required before going live
 
 1. **Set `FOOTBALL__APIKEY`** env var to the API-Football key — ingestion worker runs silently without it

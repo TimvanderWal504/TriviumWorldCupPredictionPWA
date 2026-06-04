@@ -2,6 +2,7 @@ using Marten;
 using Microsoft.AspNetCore.Mvc;
 using TriviumWorldCup.Api.Auth;
 using TriviumWorldCup.Api.Domain;
+using TriviumWorldCup.Api.Knockout;
 using TriviumWorldCup.Api.Scoring;
 
 namespace TriviumWorldCup.Api.Admin;
@@ -55,6 +56,7 @@ public static class AdminEndpoints
             [FromBody] SetResultRequest request,
             IDocumentSession session,
             ScoringRecomputeService scoringService,
+            KnockoutBracketResolver bracketResolver,
             CancellationToken ct) =>
         {
             var user = context.GetAppUser();
@@ -86,6 +88,9 @@ public static class AdminEndpoints
             session.Store(overrideRecord);
 
             await session.SaveChangesAsync(ct);
+
+            // Attempt to resolve R32 bracket (exits early if group stage not yet complete).
+            await bracketResolver.ResolveGroupStageAsync(ct);
             await scoringService.RecomputeAllAsync(ct);
 
             return Results.Ok(new
@@ -234,9 +239,13 @@ public static class AdminEndpoints
         .WithName("GetOverrides")
         .WithSummary("Returns the most recent 50 manual overrides, newest first.");
 
-        // ── POST /admin/recompute ─────────────────────────────────────────────
-        group.MapPost("/recompute", async (
+        // ── POST /admin/knockout/{slotKey}/result ─────────────────────────────
+        group.MapPost("/knockout/{slotKey}/result", async (
+            string slotKey,
             HttpContext context,
+            [FromBody] SetKnockoutResultRequest request,
+            IDocumentSession session,
+            KnockoutBracketResolver bracketResolver,
             ScoringRecomputeService scoringService,
             CancellationToken ct) =>
         {
@@ -244,12 +253,90 @@ public static class AdminEndpoints
             if (!user.IsInRole("admin"))
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
 
+            if (request.HomeScore < 0 || request.AwayScore < 0)
+                return Results.BadRequest(new { error = "Scores must be non-negative." });
+
+            var slot = await session.LoadAsync<KnockoutSlot>(slotKey, ct);
+            if (slot is null)
+                return Results.NotFound(new { error = $"Knockout slot '{slotKey}' not found." });
+
+            if (slot.HomeTeamId is null || slot.AwayTeamId is null)
+                return Results.UnprocessableEntity(new
+                {
+                    error = "Slot teams are not yet determined. Resolve the bracket first."
+                });
+
+            // WinnerTeamId is required for knockout matches.
+            if (string.IsNullOrWhiteSpace(request.WinnerTeamId))
+                return Results.BadRequest(new { error = "WinnerTeamId is required." });
+
+            if (!string.Equals(request.WinnerTeamId, slot.HomeTeamId, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(request.WinnerTeamId, slot.AwayTeamId, StringComparison.OrdinalIgnoreCase))
+            {
+                return Results.BadRequest(new
+                {
+                    error = $"WinnerTeamId must be '{slot.HomeTeamId}' or '{slot.AwayTeamId}'."
+                });
+            }
+
+            slot.HomeScore    = request.HomeScore;
+            slot.AwayScore    = request.AwayScore;
+            slot.WinnerTeamId = request.WinnerTeamId;
+            slot.Status       = MatchStatus.Completed;
+            session.Store(slot);
+
+            var overrideRecord = new ResultOverride
+            {
+                Id               = Guid.NewGuid(),
+                AdminUserId      = user.UserId,
+                AdminDisplayName = user.DisplayName,
+                OverriddenAt     = DateTimeOffset.UtcNow,
+                TargetType       = "knockoutslot",
+                TargetId         = slotKey,
+                Description      = $"Set result {request.HomeScore}-{request.AwayScore}, winner {request.WinnerTeamId}",
+            };
+            session.Store(overrideRecord);
+
+            await session.SaveChangesAsync(ct);
+
+            // Propagate winner into downstream slots and recompute scores.
+            await bracketResolver.PropagateKnockoutResultAsync(slotKey, ct);
+            await scoringService.RecomputeAllAsync(ct);
+
+            return Results.Ok(new
+            {
+                slot.SlotKey,
+                slot.HomeTeamId,
+                slot.AwayTeamId,
+                slot.HomeScore,
+                slot.AwayScore,
+                slot.WinnerTeamId,
+                slot.Status,
+            });
+        })
+        .WithName("SetKnockoutSlotResult")
+        .WithSummary("Manually sets the result of a knockout slot, propagates bracket, and triggers recompute.");
+
+        // ── POST /admin/recompute ─────────────────────────────────────────────
+        group.MapPost("/recompute", async (
+            HttpContext context,
+            ScoringRecomputeService scoringService,
+            KnockoutBracketResolver bracketResolver,
+            CancellationToken ct) =>
+        {
+            var user = context.GetAppUser();
+            if (!user.IsInRole("admin"))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            // Re-resolve group stage (if all 72 fixtures are done) and propagate all knockout results.
+            await bracketResolver.ResolveGroupStageAsync(ct);
+            await bracketResolver.PropagateAllKnockoutResultsAsync(ct);
             await scoringService.RecomputeAllAsync(ct);
 
             return Results.Ok(new { message = "Recompute triggered" });
         })
         .WithName("ForceRecompute")
-        .WithSummary("Forces a full scoring recompute for all members.");
+        .WithSummary("Forces bracket re-resolution and full scoring recompute for all members.");
 
         return routes;
     }
@@ -271,3 +358,6 @@ public sealed record SetResultRequest(int HomeScore, int AwayScore);
 
 /// <summary>Request body for POST /admin/fixtures/{id}/goals.</summary>
 public sealed record AddGoalRequest(Guid PlayerId, string Type, int Minute);
+
+/// <summary>Request body for POST /admin/knockout/{slotKey}/result.</summary>
+public sealed record SetKnockoutResultRequest(int HomeScore, int AwayScore, string WinnerTeamId);

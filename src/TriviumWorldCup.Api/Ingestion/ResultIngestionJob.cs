@@ -2,6 +2,7 @@ using Marten;
 using Quartz;
 using TriviumWorldCup.Api.Admin;
 using TriviumWorldCup.Api.Domain;
+using TriviumWorldCup.Api.Knockout;
 using TriviumWorldCup.Api.Scoring;
 
 namespace TriviumWorldCup.Api.Ingestion;
@@ -38,6 +39,7 @@ public class ResultIngestionJob(
     IFootballApiClient apiClient,
     IDocumentStore store,
     ScoringRecomputeService scoringService,
+    KnockoutBracketResolver bracketResolver,
     IngestionStatusStore statusStore,
     ILogger<ResultIngestionJob> logger) : IJob
 {
@@ -240,10 +242,14 @@ public class ResultIngestionJob(
 
         if (ingestedCount > 0)
         {
-            // Trigger scoring recompute after each batch
+            // Trigger knockout bracket resolver after each batch.
+            // ResolveGroupStageAsync exits early if the group stage is not yet complete.
             logger.LogInformation(
-                "ResultIngestionJob: {Count} fixture(s) ingested — triggering score recompute",
+                "ResultIngestionJob: {Count} fixture(s) ingested — triggering bracket resolution and score recompute",
                 ingestedCount);
+            await bracketResolver.ResolveGroupStageAsync(ct);
+
+            // Trigger scoring recompute after each batch
             await scoringService.RecomputeAllAsync(ct);
         }
 
