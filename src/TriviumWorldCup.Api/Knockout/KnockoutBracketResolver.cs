@@ -1,0 +1,622 @@
+using Marten;
+using TriviumWorldCup.Api.Domain;
+
+namespace TriviumWorldCup.Api.Knockout;
+
+/// <summary>
+/// Resolves the knockout bracket from group-stage results and propagates completed
+/// knockout slots into subsequent rounds.
+///
+/// Idempotent: calling ResolveAsync multiple times on the same data produces the
+/// same bracket state — all writes use Marten's Store() (upsert semantics).
+///
+/// Pipeline:
+///   1. ResolveGroupStageAsync — determines winner, runner-up and 3rd-placed team
+///      for each group, then populates all R32 slots.  Called once all group-stage
+///      fixtures are completed.
+///   2. PropagateKnockoutResultAsync — after a knockout slot is recorded (WinnerTeamId
+///      set), fills the HomeTeamId/AwayTeamId of any downstream slot that depends on
+///      the winner (MatchWinner) or loser (MatchLoser) of the completed slot.
+///
+/// FIFA ranking criteria (group stage, in order):
+///   1. Points (3/1/0)
+///   2. Goal difference across all group games
+///   3. Goals scored across all group games
+///   4. Head-to-head points between tied teams
+///   5. Head-to-head goal difference between tied teams
+///   6. Head-to-head goals scored between tied teams
+///   7+ Disciplinary / FIFA ranking — treated as equal for this implementation.
+///
+/// Best-third-place allocation:
+///   8 of 12 third-placed teams qualify.  Each R32 BestThirdPlace slot covers a set
+///   of three groups encoded in the SlotSource.Reference (e.g. "B/C/D").  The
+///   assignment is: for each qualifying 3rd-placed team, find the unique R32 slot
+///   whose BestThirdPlace reference contains the team's group letter.
+///   This works because the seed encodes exactly 8 x 3-group combinations covering
+///   all 12 group letters, and the 8 qualifying groups are always a subset that
+///   maps bijectively onto those slot references at tournament time.
+/// </summary>
+public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBracketResolver> logger)
+{
+    // -------------------------------------------------------------------------
+    // Public entry points
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Checks whether all group-stage fixtures are completed and, if so, resolves
+    /// the R32 bracket from the current group standings.
+    /// Safe to call repeatedly — exits early if not all 72 fixtures are complete.
+    /// </summary>
+    public async Task ResolveGroupStageAsync(CancellationToken ct = default)
+    {
+        await using var session = store.LightweightSession();
+
+        // Load all 72 group-stage fixtures.
+        var fixtures = await session.Query<Fixture>().ToListAsync(ct);
+
+        // Only proceed when every fixture is completed.
+        if (fixtures.Count < 72 || fixtures.Any(f => f.Status != MatchStatus.Completed))
+        {
+            logger.LogDebug(
+                "KnockoutBracketResolver: group stage not complete ({Done}/{Total} done) — skipping R32 resolution",
+                fixtures.Count(f => f.Status == MatchStatus.Completed), fixtures.Count);
+            return;
+        }
+
+        logger.LogInformation("KnockoutBracketResolver: all group fixtures complete — resolving R32 bracket");
+
+        // Load groups to know which teams are in each group.
+        var groups = await session.Query<Group>().ToListAsync(ct);
+
+        // Rank each group.
+        var rankings = RankAllGroups(groups, fixtures);
+
+        // Determine the 8 best third-placed teams.
+        var bestThirds = SelectBestThirdPlaced(rankings, fixtures);
+
+        // Load all knockout slots.
+        var slots = await session.Query<KnockoutSlot>().ToListAsync(ct);
+        var slotByKey = slots.ToDictionary(s => s.SlotKey);
+
+        // Populate R32 slots from group standings.
+        var changed = PopulateR32Slots(slotByKey, rankings, bestThirds);
+
+        if (changed > 0)
+        {
+            foreach (var slot in slotByKey.Values)
+                session.Store(slot);
+
+            await session.SaveChangesAsync(ct);
+
+            logger.LogInformation(
+                "KnockoutBracketResolver: populated {Count} R32 slot team assignment(s)",
+                changed);
+        }
+        else
+        {
+            logger.LogDebug("KnockoutBracketResolver: R32 slots already populated — no changes");
+        }
+    }
+
+    /// <summary>
+    /// After a knockout slot result is recorded (WinnerTeamId set on the slot in
+    /// Marten), propagates the winner/loser into the downstream slot that references
+    /// it.  Also sets WinnerTeamId on the source slot if HomeScore/AwayScore are
+    /// present but WinnerTeamId is not yet set (covers the case where the ingestion
+    /// job records scores without a winner).
+    ///
+    /// Safe to call repeatedly — idempotent.
+    /// </summary>
+    public async Task PropagateKnockoutResultAsync(string completedSlotKey, CancellationToken ct = default)
+    {
+        await using var session = store.LightweightSession();
+
+        var slots = await session.Query<KnockoutSlot>().ToListAsync(ct);
+        var slotByKey = slots.ToDictionary(s => s.SlotKey);
+
+        if (!slotByKey.TryGetValue(completedSlotKey, out var completedSlot))
+        {
+            logger.LogWarning(
+                "KnockoutBracketResolver: slot '{Key}' not found — cannot propagate",
+                completedSlotKey);
+            return;
+        }
+
+        // Ensure WinnerTeamId is set if we have enough information.
+        EnsureWinnerSet(completedSlot);
+
+        if (completedSlot.WinnerTeamId is null)
+        {
+            logger.LogDebug(
+                "KnockoutBracketResolver: slot '{Key}' has no winner yet — skipping propagation",
+                completedSlotKey);
+            return;
+        }
+
+        var changed = PropagateSlotResult(slotByKey, completedSlot);
+
+        if (changed > 0)
+        {
+            foreach (var slot in slotByKey.Values)
+                session.Store(slot);
+
+            await session.SaveChangesAsync(ct);
+
+            logger.LogInformation(
+                "KnockoutBracketResolver: propagated result of '{Key}' into {Count} downstream slot(s)",
+                completedSlotKey, changed);
+        }
+    }
+
+    /// <summary>
+    /// Convenience overload that propagates all completed knockout slots in one pass.
+    /// Useful after an admin override that sets multiple results at once.
+    /// </summary>
+    public async Task PropagateAllKnockoutResultsAsync(CancellationToken ct = default)
+    {
+        await using var session = store.LightweightSession();
+
+        var slots = await session.Query<KnockoutSlot>().ToListAsync(ct);
+        var slotByKey = slots.ToDictionary(s => s.SlotKey);
+
+        var totalChanged = 0;
+
+        // Process in round order so upstream results flow downstream in one sweep.
+        var orderedSlots = slotByKey.Values
+            .OrderBy(s => (int)s.Round)
+            .ThenBy(s => s.SlotNumber)
+            .ToList();
+
+        foreach (var slot in orderedSlots)
+        {
+            EnsureWinnerSet(slot);
+
+            if (slot.WinnerTeamId is not null)
+                totalChanged += PropagateSlotResult(slotByKey, slot);
+        }
+
+        if (totalChanged > 0)
+        {
+            foreach (var slot in slotByKey.Values)
+                session.Store(slot);
+
+            await session.SaveChangesAsync(ct);
+
+            logger.LogInformation(
+                "KnockoutBracketResolver: full propagation sweep changed {Count} slot team assignment(s)",
+                totalChanged);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Internal pure logic — internal visibility for unit testing
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Ranks all 12 groups and returns a dictionary keyed by group letter with a
+    /// list of team IDs ordered 1st-4th according to FIFA criteria.
+    /// </summary>
+    internal static Dictionary<string, List<string>> RankAllGroups(
+        IEnumerable<Group> groups,
+        IEnumerable<Fixture> fixtures)
+    {
+        var fixturesByGroup = fixtures
+            .GroupBy(f => f.GroupLetter)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var result = new Dictionary<string, List<string>>();
+
+        foreach (var group in groups)
+        {
+            var groupFixtures = fixturesByGroup.GetValueOrDefault(group.Letter, []);
+            result[group.Letter] = RankGroup(group.TeamIds, groupFixtures);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Ranks teams within a single group.
+    /// Returns team IDs in order: 1st, 2nd, 3rd, 4th.
+    /// </summary>
+    internal static List<string> RankGroup(
+        IEnumerable<string> teamIds,
+        IEnumerable<Fixture> fixtures)
+    {
+        var teams = teamIds.ToList();
+        var fixtureList = fixtures
+            .Where(f => f.HomeScore.HasValue && f.AwayScore.HasValue)
+            .ToList();
+
+        // Build per-team stats across all group games.
+        var stats = teams.ToDictionary(t => t, _ => new TeamStats());
+
+        foreach (var f in fixtureList)
+        {
+            var hs = f.HomeScore!.Value;
+            var aws = f.AwayScore!.Value;
+
+            if (!stats.ContainsKey(f.HomeTeamId) || !stats.ContainsKey(f.AwayTeamId))
+                continue;
+
+            stats[f.HomeTeamId].GoalsFor     += hs;
+            stats[f.HomeTeamId].GoalsAgainst += aws;
+            stats[f.AwayTeamId].GoalsFor     += aws;
+            stats[f.AwayTeamId].GoalsAgainst += hs;
+
+            if (hs > aws)
+            {
+                stats[f.HomeTeamId].Points += 3;
+            }
+            else if (hs == aws)
+            {
+                stats[f.HomeTeamId].Points += 1;
+                stats[f.AwayTeamId].Points += 1;
+            }
+            else
+            {
+                stats[f.AwayTeamId].Points += 3;
+            }
+        }
+
+        // Sort using full FIFA tiebreaker chain.
+        return teams
+            .OrderByDescending(t => stats[t].Points)
+            .ThenByDescending(t => stats[t].GoalDifference)
+            .ThenByDescending(t => stats[t].GoalsFor)
+            .ThenByDescending(t => HeadToHeadPoints(t, teams, stats, fixtureList))
+            .ThenByDescending(t => HeadToHeadGoalDifference(t, teams, stats, fixtureList))
+            .ThenByDescending(t => HeadToHeadGoalsFor(t, teams, stats, fixtureList))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Selects the 8 best third-placed teams, using fixture data to compute their
+    /// overall stats for cross-group comparison.
+    /// </summary>
+    internal static List<(string TeamId, string GroupLetter)> SelectBestThirdPlaced(
+        Dictionary<string, List<string>> rankings,
+        IEnumerable<Fixture> allFixtures)
+    {
+        var fixtureList = allFixtures
+            .Where(f => f.HomeScore.HasValue && f.AwayScore.HasValue)
+            .ToList();
+
+        var fixturesByGroup = fixtureList
+            .GroupBy(f => f.GroupLetter)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        // Collect third-placed teams with their overall stats.
+        var thirds = new List<(string TeamId, string GroupLetter, int Points, int GD, int GF)>();
+
+        foreach (var kv in rankings)
+        {
+            if (kv.Value.Count < 3) continue;
+
+            var teamId = kv.Value[2];
+            var groupLetter = kv.Key;
+            var groupFixtures = fixturesByGroup.GetValueOrDefault(groupLetter, []);
+
+            var pts = 0;
+            var gf = 0;
+            var ga = 0;
+
+            foreach (var f in groupFixtures)
+            {
+                if (f.HomeTeamId == teamId)
+                {
+                    gf += f.HomeScore!.Value;
+                    ga += f.AwayScore!.Value;
+                    if (f.HomeScore > f.AwayScore) pts += 3;
+                    else if (f.HomeScore == f.AwayScore) pts += 1;
+                }
+                else if (f.AwayTeamId == teamId)
+                {
+                    gf += f.AwayScore!.Value;
+                    ga += f.HomeScore!.Value;
+                    if (f.AwayScore > f.HomeScore) pts += 3;
+                    else if (f.AwayScore == f.HomeScore) pts += 1;
+                }
+            }
+
+            thirds.Add((teamId, groupLetter, pts, gf - ga, gf));
+        }
+
+        // Sort best-first and take top 8.
+        return thirds
+            .OrderByDescending(t => t.Points)
+            .ThenByDescending(t => t.GD)
+            .ThenByDescending(t => t.GF)
+            .Take(8)
+            .Select(t => (t.TeamId, t.GroupLetter))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Populates HomeTeamId/AwayTeamId on R32 slots (and any slot with a
+    /// GroupWinner/GroupRunnerUp/BestThirdPlace source).
+    /// Returns the number of slot-team assignments that changed.
+    /// </summary>
+    internal static int PopulateR32Slots(
+        Dictionary<string, KnockoutSlot> slotByKey,
+        Dictionary<string, List<string>> rankings,
+        List<(string TeamId, string GroupLetter)> bestThirds)
+    {
+        // Index best-thirds by group letter for fast lookup.
+        var bestThirdByGroup = bestThirds.ToDictionary(t => t.GroupLetter, t => t.TeamId);
+
+        var changed = 0;
+
+        foreach (var slot in slotByKey.Values.Where(s => s.Round == Round.R32))
+        {
+            var newHome = ResolveGroupSource(slot.HomeSlotSource, rankings, bestThirdByGroup);
+            var newAway = ResolveGroupSource(slot.AwaySlotSource, rankings, bestThirdByGroup);
+
+            if (newHome is not null && slot.HomeTeamId != newHome)
+            {
+                slot.HomeTeamId = newHome;
+                changed++;
+            }
+
+            if (newAway is not null && slot.AwayTeamId != newAway)
+            {
+                slot.AwayTeamId = newAway;
+                changed++;
+            }
+        }
+
+        return changed;
+    }
+
+    // -------------------------------------------------------------------------
+    // Private helpers
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Resolves a single SlotSource that references a group position (GroupWinner,
+    /// GroupRunnerUp, BestThirdPlace).  Returns null if the source is a MatchWinner
+    /// or MatchLoser type (those are handled by PropagateSlotResult).
+    /// </summary>
+    private static string? ResolveGroupSource(
+        SlotSource source,
+        Dictionary<string, List<string>> rankings,
+        Dictionary<string, string> bestThirdByGroup)
+    {
+        switch (source.Type)
+        {
+            case SlotSourceType.GroupWinner:
+            {
+                var letter = source.Reference.Trim();
+                if (rankings.TryGetValue(letter, out var ranked) && ranked.Count >= 1)
+                    return ranked[0];
+                return null;
+            }
+
+            case SlotSourceType.GroupRunnerUp:
+            {
+                var letter = source.Reference.Trim();
+                if (rankings.TryGetValue(letter, out var ranked) && ranked.Count >= 2)
+                    return ranked[1];
+                return null;
+            }
+
+            case SlotSourceType.BestThirdPlace:
+            {
+                // Reference is like "B/C/D" — find the best third-placed qualifying team
+                // whose group is one of those letters.
+                var letters = source.Reference
+                    .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var letter in letters)
+                {
+                    if (bestThirdByGroup.TryGetValue(letter, out var teamId))
+                        return teamId;
+                }
+
+                return null;
+            }
+
+            default:
+                return null; // MatchWinner / MatchLoser handled elsewhere
+        }
+    }
+
+    /// <summary>
+    /// Sets WinnerTeamId on a slot if it has scores but no winner yet.
+    /// Only sets the winner when one side's score is strictly greater (regulation/ET
+    /// winner).  Draws in 90 min where a winner was determined by penalties must have
+    /// WinnerTeamId set externally by the ingestion pipeline.
+    /// </summary>
+    private static void EnsureWinnerSet(KnockoutSlot slot)
+    {
+        if (slot.WinnerTeamId is not null) return;
+        if (slot.HomeScore is null || slot.AwayScore is null) return;
+        if (slot.HomeTeamId is null || slot.AwayTeamId is null) return;
+
+        if (slot.HomeScore > slot.AwayScore)
+            slot.WinnerTeamId = slot.HomeTeamId;
+        else if (slot.AwayScore > slot.HomeScore)
+            slot.WinnerTeamId = slot.AwayTeamId;
+        // Draw in 90 min — winner determined by penalties, set externally.
+    }
+
+    /// <summary>
+    /// Given a completed slot, fills the downstream slot(s) that reference it.
+    /// Returns the count of downstream slot assignments changed.
+    /// </summary>
+    private static int PropagateSlotResult(
+        Dictionary<string, KnockoutSlot> slotByKey,
+        KnockoutSlot completed)
+    {
+        if (completed.WinnerTeamId is null || completed.HomeTeamId is null || completed.AwayTeamId is null)
+            return 0;
+
+        var loserTeamId = completed.WinnerTeamId == completed.HomeTeamId
+            ? completed.AwayTeamId
+            : completed.HomeTeamId;
+
+        var changed = 0;
+
+        foreach (var downstream in slotByKey.Values)
+        {
+            // Check Home slot source
+            if (downstream.HomeSlotSource.Type == SlotSourceType.MatchWinner &&
+                downstream.HomeSlotSource.Reference == completed.SlotKey)
+            {
+                if (downstream.HomeTeamId != completed.WinnerTeamId)
+                {
+                    downstream.HomeTeamId = completed.WinnerTeamId;
+                    changed++;
+                }
+            }
+
+            if (downstream.HomeSlotSource.Type == SlotSourceType.MatchLoser &&
+                downstream.HomeSlotSource.Reference == completed.SlotKey)
+            {
+                if (downstream.HomeTeamId != loserTeamId)
+                {
+                    downstream.HomeTeamId = loserTeamId;
+                    changed++;
+                }
+            }
+
+            // Check Away slot source
+            if (downstream.AwaySlotSource.Type == SlotSourceType.MatchWinner &&
+                downstream.AwaySlotSource.Reference == completed.SlotKey)
+            {
+                if (downstream.AwayTeamId != completed.WinnerTeamId)
+                {
+                    downstream.AwayTeamId = completed.WinnerTeamId;
+                    changed++;
+                }
+            }
+
+            if (downstream.AwaySlotSource.Type == SlotSourceType.MatchLoser &&
+                downstream.AwaySlotSource.Reference == completed.SlotKey)
+            {
+                if (downstream.AwayTeamId != loserTeamId)
+                {
+                    downstream.AwayTeamId = loserTeamId;
+                    changed++;
+                }
+            }
+        }
+
+        return changed;
+    }
+
+    // -- FIFA tiebreaker helpers -----------------------------------------------
+
+    /// <summary>Head-to-head points for a team against all teams it is tied with on overall points.</summary>
+    private static int HeadToHeadPoints(
+        string teamId,
+        List<string> allTeams,
+        Dictionary<string, TeamStats> overallStats,
+        List<Fixture> fixtures)
+    {
+        var tiedTeams = GetTiedTeams(teamId, allTeams, overallStats);
+        if (tiedTeams.Count <= 1) return 0; // no tie — tiebreaker not applied
+
+        var pts = 0;
+        foreach (var f in fixtures)
+        {
+            if (!IsH2HFixture(f, teamId, tiedTeams)) continue;
+
+            if (f.HomeTeamId == teamId)
+            {
+                if (f.HomeScore > f.AwayScore) pts += 3;
+                else if (f.HomeScore == f.AwayScore) pts += 1;
+            }
+            else
+            {
+                if (f.AwayScore > f.HomeScore) pts += 3;
+                else if (f.AwayScore == f.HomeScore) pts += 1;
+            }
+        }
+
+        return pts;
+    }
+
+    private static int HeadToHeadGoalDifference(
+        string teamId,
+        List<string> allTeams,
+        Dictionary<string, TeamStats> overallStats,
+        List<Fixture> fixtures)
+    {
+        var tiedTeams = GetTiedTeams(teamId, allTeams, overallStats);
+        if (tiedTeams.Count <= 1) return 0;
+
+        var gd = 0;
+        foreach (var f in fixtures)
+        {
+            if (!IsH2HFixture(f, teamId, tiedTeams)) continue;
+
+            if (f.HomeTeamId == teamId)
+                gd += f.HomeScore!.Value - f.AwayScore!.Value;
+            else
+                gd += f.AwayScore!.Value - f.HomeScore!.Value;
+        }
+
+        return gd;
+    }
+
+    private static int HeadToHeadGoalsFor(
+        string teamId,
+        List<string> allTeams,
+        Dictionary<string, TeamStats> overallStats,
+        List<Fixture> fixtures)
+    {
+        var tiedTeams = GetTiedTeams(teamId, allTeams, overallStats);
+        if (tiedTeams.Count <= 1) return 0;
+
+        var gf = 0;
+        foreach (var f in fixtures)
+        {
+            if (!IsH2HFixture(f, teamId, tiedTeams)) continue;
+
+            if (f.HomeTeamId == teamId)
+                gf += f.HomeScore!.Value;
+            else
+                gf += f.AwayScore!.Value;
+        }
+
+        return gf;
+    }
+
+    /// <summary>
+    /// Returns all teams (including teamId itself) that are tied on overall points,
+    /// GD, and GF with teamId.  A head-to-head tiebreaker applies only within the
+    /// tied sub-group.
+    /// </summary>
+    private static List<string> GetTiedTeams(
+        string teamId,
+        List<string> allTeams,
+        Dictionary<string, TeamStats> overallStats)
+    {
+        var s = overallStats[teamId];
+        return allTeams
+            .Where(t => overallStats[t].Points == s.Points
+                        && overallStats[t].GoalDifference == s.GoalDifference
+                        && overallStats[t].GoalsFor == s.GoalsFor)
+            .ToList();
+    }
+
+    private static bool IsH2HFixture(Fixture f, string teamId, List<string> tiedTeams)
+    {
+        var involvesSelf = f.HomeTeamId == teamId || f.AwayTeamId == teamId;
+        if (!involvesSelf) return false;
+
+        var opponent = f.HomeTeamId == teamId ? f.AwayTeamId : f.HomeTeamId;
+        return tiedTeams.Contains(opponent);
+    }
+}
+
+/// <summary>Mutable per-team stats accumulator used during group ranking.</summary>
+internal sealed class TeamStats
+{
+    public int Points       { get; set; }
+    public int GoalsFor     { get; set; }
+    public int GoalsAgainst { get; set; }
+    public int GoalDifference => GoalsFor - GoalsAgainst;
+}
