@@ -5,7 +5,7 @@
 ## Status
 - MVP ✅ delivered 8 days before the 11 June kickoff. Post-MVP done: TWC-14 (knockout bracket), TWC-15 (knockout scoring), TWC-16 (admin), TWC-17 (live updates), TWC-18 (push notifications), TWC-19 (backups).
 - **Knockout gap:** the bracket structure, UI, predictions and scoring exist, but **bracket population is not implemented** — nothing resolves group standings into R32 or propagates rounds, so slots stay null. Split out as new story **TWC-32** (Wave 7).
-- **E2E:** new epic **TWC-21** with foundation **TWC-22** + area specs **TWC-23–TWC-31** (Wave 8).
+- **E2E:** new epic **TWC-21** with foundation **TWC-22** ✅ (PR #9) + area specs **TWC-23–TWC-31** (Wave 8b — awaiting PR #9 merge).
 - TWC-20 (Entra) remains BLOCKED.
 
 ## Planned waves
@@ -35,7 +35,7 @@
 - **TWC-10** ✅ — My standings: GET /scores/me, rank, Golden Six per-player breakdown (`feature/TWC-11`)
 - **TWC-11** ✅ — Leaderboard + drill-down: competition-rank tiebreakers, privacy-enforced (`feature/TWC-11`)
 
-**Final: 251 .NET tests + 11 frontend tests passing. Both builds green.**
+**Final: 324 .NET tests + 11 frontend tests + 16 Playwright smoke tests passing. All builds green.**
 
 ### Post-MVP Wave 5
 - **TWC-14** ✅ — Knockout bracket population + per-round prediction screens
@@ -45,7 +45,10 @@
 ### Post-MVP Wave 6
 - **TWC-15** ✅ — Knockout scoring (advancing team + 90-min bonus + round multiplier)
 - **TWC-17** ✅ — Live in-match score updates: GET /fixtures/live endpoint, LiveScoresPage, 20s polling, stops when liveWindowActive=false
-- **TWC-18** ✅ — Push notifications: opt-in Web Push reminders (VAPID) (`feature/TWC-17`)
+- **TWC-18** ✅ — Push notifications: opt-in Web Push reminders (VAPID)
+
+### Wave 8a — E2E foundation
+- **TWC-22** ✅ — Playwright harness: `e2e/` directory, 9 page objects, login/switch helper, DB seed/reset (non-prod gated), kickoff-override + result-injection endpoints, football API stub. 16/16 smoke tests pass. **PR #9 open — merge to unblock Wave 8b.** (`feature/TWC-17`)
 
 ## ⚠️ Required before going live
 
@@ -60,6 +63,7 @@
 ## Known follow-ups (non-blocking)
 - **Marten GHSA-vmw2-qwm8-x84c (Critical):** Upgrade before going public.
 - **NuGet.config:** Repo-level override for unreachable `BluRedSelect` Azure DevOps feed.
+- **R32 bracket wiring (`SeedData.cs`):** Several slot source entries carry `// TODO: verify bracket wiring` comments. The resolver consumes these declarations faithfully — if any slot source is wrong the bracket will misfire. Verify all 32 slot source entries against the official FIFA 2026 bracket draw before the first knockout match (28 June).
 
 ## Build commands
 
@@ -84,6 +88,8 @@ docker compose --profile tunnel up -d         # with Cloudflare Tunnel
 ```
 
 ## Next action
-1. **Wave 7** — implement TWC-32 (knockout resolver); this unblocks the knockout flow end to end (predictions open, scoring fires, champion resolves).
-2. **Wave 8** — build the E2E suite: TWC-22 foundation first, then the area specs in parallel; TWC-31 (knockout E2E) after TWC-32.
-3. **Wave 9 (final)** — TWC-20 real Entra, once the app registration is provided.
+1. **Merge PR #9** (TWC-22 E2E foundation) — this unblocks Wave 8b.
+2. **Wave 8b** — after PR #9 merge: dispatch TWC-23/24/25/26/27/28 in parallel (all mvp-scope E2E area specs).
+3. **Wave 7** — TWC-32 knockout resolver (can run in parallel with Wave 8b; post-mvp scope; unblocks TWC-31).
+4. **Wave 8c (post-mvp)** — TWC-29, TWC-30 in parallel; TWC-31 after TWC-32 is done.
+5. **Wave 9 (final)** — TWC-20 real Entra, once the app registration is provided.
