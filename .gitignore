@@ -26,6 +26,10 @@ node_modules/
 dist/
 .vite/
 
+# --- Playwright E2E ---
+playwright-report/
+test-results/
+
 # --- NuGet ---
 *.nupkg
 packages/

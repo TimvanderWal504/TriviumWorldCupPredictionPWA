@@ -14,6 +14,9 @@ RUN dotnet publish TriviumWorldCup.Api.csproj -c Release -o /app/publish --no-re
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
 
+# Install wget for the Docker Compose health check (aspnet image ships without it)
+RUN apt-get update && apt-get install -y --no-install-recommends wget && rm -rf /var/lib/apt/lists/*
+
 # Non-root user for security
 RUN addgroup --system twc && adduser --system --ingroup twc twc
 USER twc
