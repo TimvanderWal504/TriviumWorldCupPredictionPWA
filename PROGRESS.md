@@ -47,6 +47,9 @@
 - **TWC-17** ✅ — Live in-match score updates: GET /fixtures/live endpoint, LiveScoresPage, 20s polling, stops when liveWindowActive=false
 - **TWC-18** ✅ — Push notifications: opt-in Web Push reminders (VAPID) (`feature/TWC-17`)
 
+### Wave 7
+- **TWC-32** ✅ — Knockout bracket resolver: group ranking (FIFA criteria: pts/GD/GF + head-to-head), best-8-of-12 third-placed selection, R32 slot population, MatchWinner/MatchLoser round propagation, new admin endpoint `POST /admin/knockout/{slotKey}/result`, idempotent. 22 new tests; 351 total pass. (`feature/TWC-32`)
+
 ## ⚠️ Required before going live
 
 1. **Set `FOOTBALL__APIKEY`** env var to the API-Football key — ingestion worker runs silently without it
