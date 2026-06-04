@@ -3,6 +3,11 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// When run via Aspire, these are injected automatically.
+// Fallback values are used for standalone `npm run dev`.
+const apiTarget = process.env['services__api__http__0'] ?? 'http://localhost:5009';
+const devPort = parseInt(process.env['PORT'] ?? '5173');
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
@@ -62,62 +67,21 @@ export default defineConfig({
     }),
   ],
   server: {
+    port: devPort,
     proxy: {
-      // Proxy /api/* to the .NET API during local development
-      '/api': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
-      // Proxy /auth/* and /profile to the .NET API
-      '/auth': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
-      '/profile': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
-      '/predictions': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
-      '/fixtures': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
-      '/teams': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
-      '/players': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
-      '/scores': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
-      '/leaderboard': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
-      '/knockout': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
-      '/admin': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
-      '/push': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
-      // Proxy /e2e/* to the .NET API — test-control endpoints (TWC-22, non-Production only)
-      '/e2e': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
+      '/api':         { target: apiTarget, changeOrigin: true },
+      '/auth':        { target: apiTarget, changeOrigin: true },
+      '/profile':     { target: apiTarget, changeOrigin: true },
+      '/predictions': { target: apiTarget, changeOrigin: true },
+      '/fixtures':    { target: apiTarget, changeOrigin: true },
+      '/teams':       { target: apiTarget, changeOrigin: true },
+      '/players':     { target: apiTarget, changeOrigin: true },
+      '/scores':      { target: apiTarget, changeOrigin: true },
+      '/leaderboard': { target: apiTarget, changeOrigin: true },
+      '/knockout':    { target: apiTarget, changeOrigin: true },
+      '/admin':       { target: apiTarget, changeOrigin: true },
+      '/push':        { target: apiTarget, changeOrigin: true },
+      '/e2e':         { target: apiTarget, changeOrigin: true },
     },
   },
   test: {
