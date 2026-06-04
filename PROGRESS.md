@@ -3,10 +3,10 @@
 > Secondary to Jira. Project `TWC` is the source of truth for task state; this file is a fast, human-readable log for resuming the orchestrator mid-run. Update it at the end of each wave.
 
 ## Status
-- MVP ✅ delivered 8 days before the 11 June kickoff. Post-MVP done: TWC-15 (knockout scoring), TWC-16 (admin), TWC-17 (live updates).
+- MVP ✅ delivered 8 days before the 11 June kickoff. Post-MVP done: TWC-14 (knockout bracket), TWC-15 (knockout scoring), TWC-16 (admin), TWC-17 (live updates), TWC-18 (push notifications), TWC-19 (backups).
 - **Knockout gap:** the bracket structure, UI, predictions and scoring exist, but **bracket population is not implemented** — nothing resolves group standings into R32 or propagates rounds, so slots stay null. Split out as new story **TWC-32** (Wave 7).
 - **E2E:** new epic **TWC-21** with foundation **TWC-22** + area specs **TWC-23–TWC-31** (Wave 8).
-- TWC-18 (push) and TWC-20 (Entra) remain BLOCKED.
+- TWC-20 (Entra) remains BLOCKED.
 
 ## Planned waves
 - **Wave 7** — TWC-32 knockout resolver (group standings → R32, 8 best third-placed allocation, round propagation, idempotent). Must precede the knockout E2E.
@@ -38,23 +38,14 @@
 **Final: 251 .NET tests + 11 frontend tests passing. Both builds green.**
 
 ### Post-MVP Wave 5
-- **TWC-16** ✅ — Admin screen: ingestion monitoring + manual result override (`feature/TWC-16`)
+- **TWC-14** ✅ — Knockout bracket population + per-round prediction screens
+- **TWC-16** ✅ — Admin screen: ingestion monitoring + manual result override
+- **TWC-19** ✅ — Nightly PostgreSQL backups + 14-day rotation and restore runbook (`feature/TWC-16`)
 
 ### Post-MVP Wave 6
-- **TWC-17** ✅ — Live in-match score updates: GET /fixtures/live endpoint, LiveScoresPage, 20s polling, stops when liveWindowActive=false (`feature/TWC-17`)
-
-## Branch to merge
-All MVP work is on **`feature/TWC-11`**. Merge in this order (each must merge before the next PR is created):
-
-1. `feature/TWC-2` → main
-2. `feature/TWC-3` → main
-3. `feature/TWC-5` → main
-4. `feature/TWC-4` → main
-5. `feature/TWC-13` → main (TWC-6/7/12/13)
-6. `feature/TWC-8` → main (scoring engine)
-7. `feature/TWC-11` → main (TWC-9/10/11 + all integrations)
-
-`feature/TWC-7`, `feature/TWC-9`, `feature/TWC-10` can be abandoned — their code is in `feature/TWC-11`.
+- **TWC-15** ✅ — Knockout scoring (advancing team + 90-min bonus + round multiplier)
+- **TWC-17** ✅ — Live in-match score updates: GET /fixtures/live endpoint, LiveScoresPage, 20s polling, stops when liveWindowActive=false
+- **TWC-18** ✅ — Push notifications: opt-in Web Push reminders (VAPID) (`feature/TWC-17`)
 
 ## ⚠️ Required before going live
 
