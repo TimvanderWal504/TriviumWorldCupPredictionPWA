@@ -35,7 +35,7 @@ function AppShell() {
       <OfflineBanner />
       {/* Nav — only shown when authenticated */}
       {user && hasProfile && (
-        <nav className="bg-slate-800 border-b border-slate-700 px-6 py-3 flex items-center justify-between">
+        <nav data-testid="app-nav" className="bg-slate-800 border-b border-slate-700 px-6 py-3 flex items-center justify-between">
           <button
             onClick={() => setPage('home')}
             className="text-lg font-bold text-white hover:text-blue-400 transition-colors"
@@ -113,7 +113,7 @@ function AppShell() {
       <main className="flex-1">
         {!user ? (
           // Not signed in — placeholder until TWC-3 sign-in UI is fuller
-          <div className="flex flex-col items-center justify-center h-full py-20 text-center px-4">
+          <div data-testid="signin-prompt" className="flex flex-col items-center justify-center h-full py-20 text-center px-4">
             <h1 className="text-4xl font-bold tracking-tight mb-2">Trivium World Cup 2026</h1>
             <p className="text-slate-400 text-lg">Prediction pool — sign in to start predicting.</p>
             {!IS_PROD && <DevUserSwitcher />}

@@ -3,9 +3,9 @@
 > Secondary to Jira. Project `TWC` is the source of truth for task state; this file is a fast, human-readable log for resuming the orchestrator mid-run. Update it at the end of each wave.
 
 ## Status
-- MVP ✅ delivered 8 days before the 11 June kickoff. Post-MVP done: TWC-14 (knockout bracket), TWC-15 (knockout scoring), TWC-16 (admin), TWC-17 (live updates), TWC-18 (push notifications), TWC-19 (backups).
-- **Knockout gap:** the bracket structure, UI, predictions and scoring exist, but **bracket population is not implemented** — nothing resolves group standings into R32 or propagates rounds, so slots stay null. Split out as new story **TWC-32** (Wave 7).
-- **E2E:** new epic **TWC-21** with foundation **TWC-22** + area specs **TWC-23–TWC-31** (Wave 8).
+- MVP ✅ delivered. Post-MVP done: TWC-14–TWC-19. Wave 8 started: TWC-22 E2E foundation done.
+- **Knockout gap:** bracket structure exists but slot population not implemented (TWC-32 pending).
+- **E2E:** TWC-22 foundation ✅ (16/16 Playwright smoke tests pass). Area specs TWC-23–TWC-31 are next.
 - TWC-20 (Entra) remains BLOCKED.
 
 ## Planned waves
@@ -47,6 +47,9 @@
 - **TWC-17** ✅ — Live in-match score updates: GET /fixtures/live endpoint, LiveScoresPage, 20s polling, stops when liveWindowActive=false
 - **TWC-18** ✅ — Push notifications: opt-in Web Push reminders (VAPID) (`feature/TWC-17`)
 
+### Wave 8 — E2E
+- **TWC-22** ✅ — Playwright harness: `e2e/` project, mock-auth login helper, seed/reset helper, time/result control endpoints (`/e2e/*`, non-Production), page objects for all 8 screens, 16/16 smoke tests green (`feature/TWC-22-impl`)
+
 ## ⚠️ Required before going live
 
 1. **Set `FOOTBALL__APIKEY`** env var to the API-Football key — ingestion worker runs silently without it
@@ -65,7 +68,7 @@
 
 ### .NET API
 ```
-dotnet test TriviumWorldCup.sln   # 251 tests
+dotnet test TriviumWorldCup.sln   # 324 tests
 dotnet run --project src/TriviumWorldCup.Api  # Swagger at http://localhost:5009/swagger
 ```
 
@@ -83,7 +86,16 @@ FOOTBALL__APIKEY=<key> docker compose up -d   # with ingestion
 docker compose --profile tunnel up -d         # with Cloudflare Tunnel
 ```
 
+### E2E
+```
+cd e2e
+npm install                          # first time only
+BASE_URL=http://localhost:80 npx playwright test   # Docker Compose
+# or
+BASE_URL=http://localhost:5173 npx playwright test  # Vite dev + dotnet run
+```
+
 ## Next action
-1. **Wave 7** — implement TWC-32 (knockout resolver); this unblocks the knockout flow end to end (predictions open, scoring fires, champion resolves).
-2. **Wave 8** — build the E2E suite: TWC-22 foundation first, then the area specs in parallel; TWC-31 (knockout E2E) after TWC-32.
+1. **Wave 7** — implement TWC-32 (knockout resolver); this unblocks the knockout flow end to end.
+2. **Wave 8 continued** — area specs TWC-23–TWC-30 in parallel after TWC-22 PR merges; TWC-31 (knockout E2E) after TWC-32.
 3. **Wave 9 (final)** — TWC-20 real Entra, once the app registration is provided.

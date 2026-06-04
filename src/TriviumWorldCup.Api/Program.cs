@@ -6,6 +6,7 @@ using TriviumWorldCup.Api.Auth;
 using TriviumWorldCup.Api.Auth.Mock;
 using TriviumWorldCup.Api.Data;
 using TriviumWorldCup.Api.Domain;
+using TriviumWorldCup.Api.E2E;
 using TriviumWorldCup.Api.Ingestion;
 using TriviumWorldCup.Api.Leaderboard;
 using TriviumWorldCup.Api.Predictions;
@@ -150,6 +151,13 @@ app.MapKnockoutSlotEndpoints();
 
 // Knockout prediction endpoints -- GET/POST/PUT /predictions/knockout/{slotKey}
 app.MapKnockoutPredictionEndpoints();
+
+// E2E test-control endpoints — only registered outside Production (TWC-22)
+// Provides seed/reset, fixture kickoff override, and deterministic result injection.
+// Cannot run in Production: the mock auth provider guard prevents this too, but
+// we apply an independent environment check for defence-in-depth.
+if (!app.Environment.IsProduction())
+    app.MapTestControlEndpoints();
 
 // ── Tournament seed ───────────────────────────────────────────────────────────
 // Idempotent: exits immediately if data is already present.

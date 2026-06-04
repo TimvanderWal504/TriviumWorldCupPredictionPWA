@@ -113,6 +113,11 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
+      // Proxy /e2e/* to the .NET API — test-control endpoints (TWC-22, non-Production only)
+      '/e2e': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
     },
   },
   test: {
