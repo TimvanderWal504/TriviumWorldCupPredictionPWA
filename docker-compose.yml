@@ -94,13 +94,18 @@ services:
       - backend
 
   # ── Cloudflare Tunnel ───────────────────────────────────────────────────────
-  # Optional — only required when TUNNEL_TOKEN is set.
-  # The tunnel dials outbound on port 443; no inbound host ports are opened.
-  # For LAN-only demos leave TUNNEL_TOKEN unset or start with --profile lan.
+  # Dials outbound on port 443 — no inbound host ports are opened.
+  # Set TUNNEL_TOKEN to your Cloudflare Zero Trust tunnel token.
+  # Leave TUNNEL_TOKEN blank to disable (container exits cleanly; no impact on
+  # the rest of the stack).
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
-    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:-placeholder}
+    command: >
+      sh -c 'if [ -z "$$TUNNEL_TOKEN" ]; then
+               echo "TUNNEL_TOKEN not set — cloudflared disabled" && exit 0;
+             fi;
+             cloudflared tunnel --no-autoupdate run --token $$TUNNEL_TOKEN'
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
     depends_on:
@@ -108,8 +113,6 @@ services:
         condition: service_started
     networks:
       - frontend
-    profiles:
-      - tunnel
 
 volumes:
   postgres_data:
