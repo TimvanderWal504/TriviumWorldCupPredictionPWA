@@ -1,1 +1,35 @@
+@import url("https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap");
 @import "tailwindcss";
+@import "./twc-theme.css";
+
+/* ── Live dot pulse ── */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.25; }
+}
+.live-dot { animation: pulse-dot 1.4s ease-in-out infinite; }
+
+/* ── Toast slide-up ── */
+@keyframes slide-up {
+  from { transform: translateY(120%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.toast { animation: slide-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
+
+/* ── Save flash ── */
+@keyframes save-flash {
+  0%   { background-color: var(--win-soft); }
+  100% { background-color: transparent; }
+}
+.flash { animation: save-flash 1.2s ease-out; }
+
+/* ── Flag images ── */
+.flag { border-radius: 3px; object-fit: cover; box-shadow: 0 0 0 1px rgba(0,0,0,0.15); }
+
+/* ── Hide scrollbars on scroll containers ── */
+.appscroll { scrollbar-width: none; }
+.appscroll::-webkit-scrollbar { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot, .toast, .flash { animation: none !important; }
+}

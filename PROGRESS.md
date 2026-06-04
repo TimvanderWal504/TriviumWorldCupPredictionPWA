@@ -55,11 +55,16 @@
 ### Wave 7
 - **TWC-32** ✅ — Knockout bracket resolver: group ranking (FIFA criteria: pts/GD/GF + head-to-head), best-8-of-12 third-placed selection, R32 slot population, MatchWinner/MatchLoser round propagation, new admin endpoint `POST /admin/knockout/{slotKey}/result`, idempotent. 22 new tests; 351 total pass. (`feature/TWC-32`)
 
+### Unversioned work (main, 4 June 2026)
+- **PlayersData.cs** — Complete rewrite with official 2026 FIFA World Cup squads for all 48 teams (1 246 players). Source: Wikipedia squads page fetched 4 June 2026 (all squads submitted by 1 June). Positions mapped exactly from Wikipedia GK/DF/MF/FW to `Position.GK/DEF/MID/FWD`. Test minimum-squad threshold raised from 15 → 23 (FIFA minimum). 351 tests still pass.
+- **TWC theme / design system** — `twc-theme.css` design-token file added; `flagUrl.ts` utility added; all pages (`AdminPage`, `GroupPredictionsPage`, `KnockoutBracketPage`, `LeaderboardPage`, `LiveScoresPage`, `ProfilePage`, `RulesPage`, `StandingsPage`, `TournamentPredictionPage`, `DevUserSwitcher`, `ProfileSetupModal`, `OfflineBanner`, `index.css`) updated to use the new design tokens. TypeScript clean.
+- **GroupPredictionsPage UX** — (1) Thin 3 px scroll-position indicator bar under the group tabs (ResizeObserver + scroll listener, shows thumb proportional to visible tabs). (2) Auto-advance: when every unlocked fixture in the active group has been predicted, the page transitions to the next group after 600 ms; on page load, starts on the first incomplete group rather than always Group A. (3) When group L completes, navigates automatically to the Tournament prediction page. All three features work on mobile.
+
 ## ⚠️ Required before going live
 
 1. **Set `FOOTBALL__APIKEY`** env var to the API-Football key — ingestion worker runs silently without it
 2. **Populate `FootballApiTeamMap.AddKnownId()`** entries by calling `GET /teams?league=1&season=2026` once the key is active (optional — name-based matching is the primary strategy)
-3. **Audit `PlayersData.cs`** — rosters for CZE, BIH, HTI, SCO, CUW, SWE, CPV, JOR, COD are best-effort; update before first kickoff
+3. ~~**Audit `PlayersData.cs`**~~ ✅ — All 48 squads replaced with official 2026 FIFA World Cup rosters (source: Wikipedia, fetched 4 June 2026). Re-seeding a fresh DB picks these up automatically; existing DBs need a player-only migration (delete `mt_doc_player`, restart API).
 
 ## Blocked (post-MVP only)
 - **TWC-20** real Entra integration — Entra app registration + Cloudflare Tunnel hostname
@@ -102,5 +107,7 @@ BASE_URL=http://localhost:5173 npx playwright test  # Vite dev + dotnet run
 ```
 
 ## Next action
-1. **Wave 8** — area specs TWC-23–TWC-28 in parallel (mvp-scope); TWC-29/30 (post-mvp) in parallel; TWC-31 (knockout E2E, unblocked by TWC-32).
-2. **Wave 9 (final)** — TWC-20 real Entra, once the app registration is provided.
+1. **Commit work** — `PlayersData.cs` squad update, theme/design-token rollout, GroupPredictionsPage UX (scroll indicator + auto-advance + tournament navigation).
+2. **Delete `.claude/design/`** — confirmed nothing in the codebase imports it; the theme output lives in `src/TriviumWorldCup.Web/src/twc-theme.css`.
+3. **Wave 8** — area specs TWC-23–TWC-28 in parallel (mvp-scope); TWC-29/30 (post-mvp) in parallel; TWC-31 (knockout E2E, unblocked by TWC-32).
+4. **Wave 9 (final)** — TWC-20 real Entra, once the app registration is provided.

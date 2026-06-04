@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Radio, ListChecks, Trophy, BarChart3, User } from 'lucide-react';
 import { AuthProvider } from './auth/AuthContext.tsx';
 import { DevUserSwitcher } from './auth/DevUserSwitcher.tsx';
 import { OfflineBanner } from './components/OfflineBanner.tsx';
@@ -16,155 +17,247 @@ import { useAuth } from './auth/useAuth.ts';
 
 const IS_PROD = import.meta.env.PROD;
 
-type Page = 'home' | 'profile' | 'predictions' | 'tournament' | 'knockout' | 'rules' | 'standings' | 'leaderboard' | 'admin' | 'live';
+type Tab = 'live' | 'predict' | 'bracket' | 'ranks' | 'me';
+// 'tournament' is a sub-page within the 'predict' tab, not a top-level subPage
+type SubPage = 'profile' | 'rules' | 'admin' | null;
+type PredictView = 'group' | 'tournament';
+
+const ALL_TABS: { id: Tab; label: string; Icon: React.FC<{ size?: number }> }[] = [
+  { id: 'live',    label: 'Live',    Icon: Radio },
+  { id: 'predict', label: 'Predict', Icon: ListChecks },
+  { id: 'bracket', label: 'Bracket', Icon: Trophy },
+  { id: 'ranks',   label: 'Ranks',   Icon: BarChart3 },
+  { id: 'me',      label: 'Me',      Icon: User },
+];
+
+const TAB_TITLES: Record<Tab, string> = {
+  live:    'Live Scores',
+  predict: 'Predictions',
+  bracket: 'Knockout Bracket',
+  ranks:   'Leaderboard',
+  me:      'My Standings',
+};
+
+const SUB_TITLES: Record<NonNullable<SubPage>, string> = {
+  profile: 'Profile',
+  rules:   'Rules & Scoring',
+  admin:   'Admin',
+};
 
 function AppShell() {
   const { user, isLoading, hasProfile, signOut } = useAuth();
-  const [page, setPage] = useState<Page>('home');
+  const [tab, setTab] = useState<Tab>('predict');
+  const [subPage, setSubPage] = useState<SubPage>(null);
+  const [predictView, setPredictView] = useState<PredictView>('group');
+
+  // Visibility gates for Live and Bracket tabs
+  const [liveActive, setLiveActive] = useState(false);
+  const [bracketOpen, setBracketOpen] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+
+    // Check live window status
+    fetch('/fixtures/live', { credentials: 'include' })
+      .then(r => r.json())
+      .then((d: { liveWindowActive?: boolean; fixtures?: { status: string }[] }) => {
+        const active = d.liveWindowActive === true ||
+          (d.fixtures ?? []).some(f => f.status === 'InProgress');
+        setLiveActive(active);
+        // If we were on the live tab but it's no longer active, fall back to predict
+        if (!active) setTab(prev => prev === 'live' ? 'predict' : prev);
+      })
+      .catch(() => {});
+
+    // Check if bracket is open (any slot has teams determined)
+    fetch('/knockout/slots', { credentials: 'include' })
+      .then(r => r.json())
+      .then((slots: { homeTeamId: string | null }[]) => {
+        setBracketOpen(slots.some(s => s.homeTeamId !== null));
+      })
+      .catch(() => {});
+  }, [user]);
+
+  function goTab(t: Tab) {
+    setTab(t);
+    setSubPage(null);
+    if (t === 'predict') setPredictView('group');
+  }
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">
-        <p className="text-slate-400">Loading…</p>
+      <div className="min-h-screen bg-bg text-fg flex items-center justify-center">
+        <p className="text-fg-muted font-sans">Loading…</p>
       </div>
     );
   }
 
+  const visibleTabs = ALL_TABS.filter(t => {
+    if (t.id === 'live' && !liveActive) return false;
+    if (t.id === 'bracket' && !bracketOpen) return false;
+    return true;
+  });
+
+  const pageTitle = subPage
+    ? SUB_TITLES[subPage]
+    : tab === 'predict' && predictView === 'tournament'
+    ? 'Tournament Prediction'
+    : TAB_TITLES[tab];
+
   return (
-    <div className="min-h-screen bg-slate-900 text-white flex flex-col">
+    <div className="min-h-screen bg-bg text-fg font-sans flex flex-col">
+
       <OfflineBanner />
-      {/* Nav — only shown when authenticated */}
+
+      {/* ── Top bar ── */}
       {user && hasProfile && (
-        <nav data-testid="app-nav" className="bg-slate-800 border-b border-slate-700 px-6 py-3 flex items-center justify-between">
-          <button
-            onClick={() => setPage('home')}
-            className="text-lg font-bold text-white hover:text-blue-400 transition-colors"
-          >
-            TWC 2026
-          </button>
-          <div className="flex items-center gap-4 text-sm">
-            <button
-              onClick={() => setPage('predictions')}
-              className="text-slate-300 hover:text-white transition-colors"
-            >
-              Predictions
-            </button>
-            <button
-              onClick={() => setPage('tournament')}
-              className="text-slate-300 hover:text-white transition-colors"
-            >
-              Tournament
-            </button>
-            <button
-              onClick={() => setPage('knockout')}
-              className="text-slate-300 hover:text-white transition-colors"
-            >
-              Bracket
-            </button>
-            <button
-              onClick={() => setPage('standings')}
-              className="text-slate-300 hover:text-white transition-colors"
-            >
-              My Standings
-            </button>
-            <button
-              onClick={() => setPage('leaderboard')}
-              className="text-slate-300 hover:text-white transition-colors"
-            >
-              Leaderboard
-            </button>
-            <button
-              onClick={() => setPage('live')}
-              className="text-slate-300 hover:text-white transition-colors"
-            >
-              Live
-            </button>
-            <button
-              onClick={() => setPage('rules')}
-              className="text-slate-300 hover:text-white transition-colors"
-            >
-              Rules
-            </button>
-            {user.roles?.includes('admin') && (
-              <button
-                onClick={() => setPage('admin')}
-                className="text-amber-400 hover:text-amber-300 transition-colors font-medium"
-              >
-                Admin
-              </button>
-            )}
-            <button
-              onClick={() => setPage('profile')}
-              className="text-slate-300 hover:text-white transition-colors"
-            >
-              {user.displayName}
-            </button>
-            <button
-              onClick={signOut}
-              className="text-slate-400 hover:text-white transition-colors"
-            >
-              Sign out
-            </button>
+        <header className="sticky top-0 z-30 bg-bg-elevated border-b border-border px-4 py-3 flex items-center justify-between gap-2">
+          {/* Logo */}
+          <div className="flex items-center gap-1.5 shrink-0 cursor-pointer select-none" onClick={() => goTab('predict')}>
+            <span className="font-display font-black text-[20px] tracking-tight text-fg">
+              T<span className="text-pitch-500">W</span>C
+            </span>
+            <span className="font-mono text-[10px] text-fg-muted tracking-[0.2em] pt-0.5">2026</span>
           </div>
+
+          {/* Page title (centered) */}
+          <h1 className="font-display font-bold text-[17px] tracking-tight flex-1 text-center truncate">
+            {pageTitle}
+          </h1>
+
+          {/* Right — DEV switcher or empty spacer */}
+          <div className="shrink-0">
+            {!IS_PROD && user && hasProfile
+              ? <DevUserSwitcher />
+              : <div className="w-[52px]" />}
+          </div>
+        </header>
+      )}
+
+      {/* ── Main content ── */}
+      <main className="flex-1 overflow-y-auto pb-[4.25rem]">
+        {!user ? (
+          <div data-testid="signin-prompt" className="flex flex-col items-center justify-center min-h-screen py-20 text-center px-4">
+            <p className="font-display font-black text-[13px] tracking-[0.25em] text-pitch-500 uppercase mb-3">TWC 2026</p>
+            <h1 className="font-display font-black text-4xl tracking-tight mb-3">Trivium World Cup<br />2026</h1>
+            <p className="text-fg-secondary text-base mb-8 max-w-xs">Prediction pool — sign in to start predicting.</p>
+            {!IS_PROD && <DevUserSwitcher />}
+          </div>
+
+        ) : tab === 'live' ? (
+          <LiveScoresPage />
+
+        ) : tab === 'predict' ? (
+          <div>
+            <div className="px-4 pt-4 pb-2 flex gap-2">
+              <SubPill active={predictView === 'group'} onClick={() => setPredictView('group')}>Group Stage</SubPill>
+              <SubPill active={predictView === 'tournament'} onClick={() => setPredictView('tournament')}>Tournament</SubPill>
+            </div>
+            {predictView === 'tournament'
+              ? <TournamentPredictionPage />
+              : <GroupPredictionsPage onAllGroupsComplete={() => setPredictView('tournament')} />}
+          </div>
+
+        ) : tab === 'bracket' ? (
+          <KnockoutBracketPage />
+
+        ) : tab === 'ranks' ? (
+          <LeaderboardPage />
+
+        ) : tab === 'me' ? (
+          <div>
+            <div className="px-4 pt-4 pb-2 flex flex-wrap gap-2">
+              <SubPill active={subPage === null} onClick={() => setSubPage(null)}>Standings</SubPill>
+              <SubPill active={subPage === 'profile'} onClick={() => setSubPage('profile')}>Profile</SubPill>
+              <SubPill active={subPage === 'rules'} onClick={() => setSubPage('rules')}>Rules</SubPill>
+              {user.roles?.includes('admin') && (
+                <SubPill active={subPage === 'admin'} onClick={() => setSubPage('admin')} accent>Admin</SubPill>
+              )}
+              <button
+                onClick={signOut}
+                className="px-3.5 py-1.5 rounded-input text-[13px] font-semibold transition-colors bg-surface-3 text-fg-muted hover:text-fg ml-auto"
+              >
+                Sign out
+              </button>
+            </div>
+            {subPage === 'profile' ? <ProfilePage />
+              : subPage === 'rules'   ? <RulesPage />
+              : subPage === 'admin'   ? <AdminPage />
+              : <StandingsPage />}
+          </div>
+
+        ) : null}
+      </main>
+
+      {/* ── Bottom tab bar ── */}
+      {user && hasProfile && (
+        <nav
+          data-testid="app-nav"
+          className="fixed bottom-0 inset-x-0 z-40 bg-bg-elevated/95 backdrop-blur-sm border-t border-border pb-safe pt-1.5"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: `repeat(${visibleTabs.length}, 1fr)`,
+            boxShadow: '0 -8px 30px -16px rgba(0,0,0,0.4)',
+          }}
+        >
+          {visibleTabs.map(({ id, label, Icon }) => {
+            const active = tab === id && subPage === null;
+            return (
+              <button
+                key={id}
+                onClick={() => goTab(id)}
+                className={`flex flex-col items-center gap-0.5 py-1.5 transition-colors ${
+                  active ? 'text-pitch-600 dark:text-pitch-400' : 'text-fg-muted'
+                }`}
+              >
+                <Icon size={22} />
+                <span className={`text-[10px] ${active ? 'font-bold' : 'font-medium'}`}>{label}</span>
+              </button>
+            );
+          })}
         </nav>
       )}
 
-      {/* Page content */}
-      <main className="flex-1">
-        {!user ? (
-          // Not signed in — placeholder until TWC-3 sign-in UI is fuller
-          <div data-testid="signin-prompt" className="flex flex-col items-center justify-center h-full py-20 text-center px-4">
-            <h1 className="text-4xl font-bold tracking-tight mb-2">Trivium World Cup 2026</h1>
-            <p className="text-slate-400 text-lg">Prediction pool — sign in to start predicting.</p>
-            {!IS_PROD && <DevUserSwitcher />}
-          </div>
-        ) : page === 'predictions' ? (
-          <GroupPredictionsPage />
-        ) : page === 'tournament' ? (
-          <TournamentPredictionPage />
-        ) : page === 'knockout' ? (
-          <KnockoutBracketPage />
-        ) : page === 'standings' ? (
-          <StandingsPage />
-        ) : page === 'leaderboard' ? (
-          <LeaderboardPage />
-        ) : page === 'rules' ? (
-          <RulesPage />
-        ) : page === 'profile' ? (
-          <ProfilePage />
-        ) : page === 'admin' ? (
-          <AdminPage />
-        ) : page === 'live' ? (
-          <LiveScoresPage />
-        ) : (
-          // Home placeholder — feature screens come in later stories
-          <div className="flex flex-col items-center justify-center h-full py-20 text-center px-4">
-            <h1 className="text-4xl font-bold tracking-tight mb-2">Trivium World Cup 2026</h1>
-            <p className="text-slate-400 text-lg mb-2">Prediction pool — coming soon.</p>
-            {user && (
-              <p className="text-slate-500 text-sm">
-                Signed in as <span className="text-white font-medium">{user.displayName}</span>
-              </p>
-            )}
-          </div>
-        )}
-      </main>
-
-      {/* Profile setup — shown when authenticated but no profile yet */}
       {user && !hasProfile && <ProfileSetupModal />}
-
-      {/* Dev switcher overlay — outside nav so it's always accessible in dev */}
-      {!IS_PROD && user && hasProfile && <DevUserSwitcher />}
     </div>
   );
 }
 
-function App() {
+function SubPill({
+  active, onClick, accent = false, children,
+}: {
+  active: boolean; onClick: () => void; accent?: boolean; children: React.ReactNode;
+}) {
+  if (active) {
+    return (
+      <button
+        onClick={onClick}
+        className="px-3.5 py-1.5 rounded-input text-[13px] font-semibold transition-colors"
+        style={{
+          background: accent ? 'var(--accent-fill)' : 'var(--secondary-fill)',
+          color: accent ? 'var(--fg-ongold)' : 'var(--fg-onblue)',
+        }}
+      >
+        {children}
+      </button>
+    );
+  }
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3.5 py-1.5 rounded-input text-[13px] font-semibold transition-colors bg-surface-3 hover:text-fg ${
+        accent ? 'text-accent' : 'text-fg-secondary'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+export default function App() {
   return (
     <AuthProvider>
       <AppShell />
     </AuthProvider>
   );
 }
-
-export default App;

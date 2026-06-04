@@ -2,11 +2,6 @@ import { useState, type FormEvent } from 'react';
 import { useAuth } from './useAuth.ts';
 import { COUNTRIES } from '../data/countries.ts';
 
-/**
- * Full-screen, non-dismissable modal shown when the authenticated user has
- * no profile yet. Collects display name and country, then calls POST /profile.
- * On success it notifies the auth context so the app proceeds normally.
- */
 export function ProfileSetupModal() {
   const { onProfileCreated } = useAuth();
   const [displayName, setDisplayName] = useState('');
@@ -37,7 +32,6 @@ export function ProfileSetupModal() {
         credentials: 'include',
         body: JSON.stringify({ displayName: displayName.trim(), countryCode }),
       });
-
       if (res.ok) {
         await onProfileCreated();
       } else {
@@ -52,15 +46,14 @@ export function ProfileSetupModal() {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-8">
-        <h2 className="text-2xl font-bold text-white mb-1">Welcome!</h2>
-        <p className="text-slate-400 mb-6">Set up your profile to start predicting.</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'var(--overlay)' }}>
+      <div className="bg-surface rounded-sheet shadow-sheet w-full max-w-md p-8 border border-border">
+        <h2 className="font-display font-bold text-2xl tracking-tight mb-1">Welcome!</h2>
+        <p className="text-fg-secondary mb-6">Set up your profile to start predicting.</p>
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Display name */}
           <div>
-            <label htmlFor="displayName" className="block text-sm font-medium text-slate-300 mb-1">
+            <label htmlFor="displayName" className="block text-sm font-medium text-fg-secondary mb-1">
               Display name
             </label>
             <input
@@ -70,15 +63,13 @@ export function ProfileSetupModal() {
               onChange={e => setDisplayName(e.target.value)}
               maxLength={30}
               placeholder="e.g. GoalMachine88"
-              className="w-full bg-slate-700 text-white rounded-lg px-4 py-2.5 border border-slate-600
-                         focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+              className="w-full bg-surface-2 text-fg rounded-input px-4 py-2.5 border border-border placeholder:text-fg-muted"
             />
-            <p className="text-xs text-slate-500 mt-1">{displayName.trim().length}/30 characters</p>
+            <p className="text-xs text-fg-muted mt-1">{displayName.trim().length}/30 characters</p>
           </div>
 
-          {/* Country search + select */}
           <div>
-            <label htmlFor="countrySearch" className="block text-sm font-medium text-slate-300 mb-1">
+            <label htmlFor="countrySearch" className="block text-sm font-medium text-fg-secondary mb-1">
               Country
             </label>
             <input
@@ -87,36 +78,36 @@ export function ProfileSetupModal() {
               value={countrySearch}
               onChange={e => { setCountrySearch(e.target.value); setCountryCode(''); }}
               placeholder="Search country…"
-              className="w-full bg-slate-700 text-white rounded-lg px-4 py-2.5 border border-slate-600
-                         focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500 mb-1"
+              className="w-full bg-surface-2 text-fg rounded-input px-4 py-2.5 border border-border placeholder:text-fg-muted mb-1"
             />
             <select
               size={5}
               value={countryCode}
               onChange={e => setCountryCode(e.target.value)}
-              className="w-full bg-slate-700 text-white rounded-lg border border-slate-600
-                         focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              className="w-full bg-surface-2 text-fg rounded-input border border-border text-sm"
             >
               {filteredCountries.map(c => (
                 <option key={c.code} value={c.code}>{c.name}</option>
               ))}
             </select>
             {countryCode && (
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-fg-muted mt-1">
                 Selected: {COUNTRIES.find(c => c.code === countryCode)?.name} ({countryCode})
               </p>
             )}
           </div>
 
           {error && (
-            <p className="text-red-400 text-sm bg-red-950/40 rounded-lg px-4 py-2">{error}</p>
+            <p className="text-[13px] px-4 py-2 rounded-input" style={{ color: 'var(--loss)', background: 'var(--live-soft)' }}>
+              {error}
+            </p>
           )}
 
           <button
             type="submit"
             disabled={submitting}
-            className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:cursor-not-allowed
-                       text-white font-semibold rounded-lg py-3 transition-colors"
+            className="w-full font-semibold rounded-input py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ background: 'var(--primary-fill)', color: 'var(--fg-onbrand)' }}
           >
             {submitting ? 'Saving…' : 'Save profile'}
           </button>

@@ -1,46 +1,39 @@
 import { useEffect, useState } from 'react';
+import { WifiOff, X } from 'lucide-react';
 
 export function OfflineBanner() {
   const [offline, setOffline] = useState<boolean>(!navigator.onLine);
   const [dismissed, setDismissed] = useState<boolean>(false);
 
   useEffect(() => {
-    function handleOnline() {
-      setOffline(false);
-      setDismissed(false);
-    }
-    function handleOffline() {
-      setOffline(true);
-      setDismissed(false);
-    }
-
-    window.addEventListener('online', handleOnline);
+    function handleOnline()  { setOffline(false); setDismissed(false); }
+    function handleOffline() { setOffline(true);  setDismissed(false); }
+    window.addEventListener('online',  handleOnline);
     window.addEventListener('offline', handleOffline);
-
     return () => {
-      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('online',  handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
 
-  if (!offline || dismissed) {
-    return null;
-  }
+  if (!offline || dismissed) return null;
 
   return (
     <div
       role="alert"
-      className="bg-amber-400 text-amber-900 px-4 py-2 flex items-center justify-between text-sm font-medium"
+      className="relative z-50 flex items-center justify-between gap-3 px-4 py-2 text-[13px] font-medium"
+      style={{ background: 'var(--accent-fill)', color: 'var(--fg-ongold)' }}
     >
-      <span>
-        You&apos;re offline. Read-only data is available, but predictions require a connection.
+      <span className="flex items-center gap-2">
+        <WifiOff size={15} />
+        You&apos;re offline. Predictions need a connection.
       </span>
       <button
         onClick={() => setDismissed(true)}
         aria-label="Dismiss offline banner"
-        className="ml-4 text-amber-800 hover:text-amber-900 font-bold leading-none"
+        className="opacity-70 hover:opacity-100 transition-opacity"
       >
-        &times;
+        <X size={15} />
       </button>
     </div>
   );

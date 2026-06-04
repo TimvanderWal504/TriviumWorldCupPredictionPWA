@@ -1,55 +1,34 @@
 import { useEffect, useState, type FormEvent } from 'react';
-
-// ── Types ─────────────────────────────────────────────────────────────────────
+import { Clock } from 'lucide-react';
+import { flagUrl } from '../utils/flagUrl.ts';
 
 interface KnockoutSlotDto {
-  slotKey: string;
-  round: string;
-  slotNumber: number;
-  homeTeamId: string | null;
-  awayTeamId: string | null;
-  kickoffUtc: string | null;
-  venue: string | null;
-  city: string | null;
-  status: string;
-  homeScore: number | null;
-  awayScore: number | null;
-  winnerTeamId: string | null;
+  slotKey: string; round: string; slotNumber: number;
+  homeTeamId: string | null; awayTeamId: string | null;
+  kickoffUtc: string | null; venue: string | null; city: string | null;
+  status: string; homeScore: number | null; awayScore: number | null; winnerTeamId: string | null;
 }
-
 interface KnockoutPredictionDto {
-  slotKey: string;
-  predictedWinnerTeamId: string;
-  predictedHomeScore: number | null;
-  predictedAwayScore: number | null;
-  submittedAt: string;
+  slotKey: string; predictedWinnerTeamId: string;
+  predictedHomeScore: number | null; predictedAwayScore: number | null; submittedAt: string;
 }
-
-// ── API helpers ───────────────────────────────────────────────────────────────
 
 async function fetchSlots(): Promise<KnockoutSlotDto[]> {
   const res = await fetch('/knockout/slots', { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to load bracket slots (${res.status})`);
   return res.json() as Promise<KnockoutSlotDto[]>;
 }
-
 async function fetchPredictions(): Promise<KnockoutPredictionDto[]> {
   const res = await fetch('/predictions/knockout', { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to load predictions (${res.status})`);
   return res.json() as Promise<KnockoutPredictionDto[]>;
 }
-
 async function savePrediction(
-  slotKey: string,
-  predictedWinnerTeamId: string,
-  predictedHomeScore: number | null,
-  predictedAwayScore: number | null,
-  method: 'POST' | 'PUT',
+  slotKey: string, predictedWinnerTeamId: string,
+  predictedHomeScore: number | null, predictedAwayScore: number | null, method: 'POST' | 'PUT',
 ): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch(`/predictions/knockout/${slotKey}`, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
+    method, headers: { 'Content-Type': 'application/json' }, credentials: 'include',
     body: JSON.stringify({ predictedWinnerTeamId, predictedHomeScore, predictedAwayScore }),
   });
   if (res.ok) return { ok: true };
@@ -59,61 +38,35 @@ async function savePrediction(
   return { ok: false, error: body.error ?? `Error ${res.status}` };
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 const ROUND_ORDER = ['R32', 'R16', 'QF', 'SF', 'ThirdPlace', 'Final'];
-
 const ROUND_LABELS: Record<string, string> = {
-  R32: 'Round of 32',
-  R16: 'Round of 16',
-  QF: 'Quarter-finals',
-  SF: 'Semi-finals',
-  ThirdPlace: 'Third-place Play-off',
-  Final: 'Final',
+  R32: 'Round of 32', R16: 'Round of 16', QF: 'Quarter-finals',
+  SF: 'Semi-finals', ThirdPlace: 'Third-place Play-off', Final: 'Final',
 };
 
 function isLocked(kickoffUtc: string | null): boolean {
   if (!kickoffUtc) return true;
   return new Date(kickoffUtc).getTime() <= Date.now();
 }
-
 function formatKickoff(kickoffUtc: string | null): string {
   if (!kickoffUtc) return 'TBD';
-  return new Date(kickoffUtc).toLocaleString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return new Date(kickoffUtc).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-// ── Slot card ─────────────────────────────────────────────────────────────────
-
-interface SlotCardProps {
-  slot: KnockoutSlotDto;
-  prediction: KnockoutPredictionDto | undefined;
-  onSaved: (updated: KnockoutPredictionDto) => void;
-}
+interface SlotCardProps { slot: KnockoutSlotDto; prediction: KnockoutPredictionDto | undefined; onSaved: (u: KnockoutPredictionDto) => void; }
 
 function SlotCard({ slot, prediction, onSaved }: SlotCardProps) {
   const locked = isLocked(slot.kickoffUtc);
   const teamsKnown = slot.homeTeamId !== null && slot.awayTeamId !== null;
-
-  const [selectedWinner, setSelectedWinner] = useState<string>(
-    prediction?.predictedWinnerTeamId ?? '',
-  );
-  const [homeInput, setHomeInput] = useState<string>(
-    prediction?.predictedHomeScore != null ? String(prediction.predictedHomeScore) : '',
-  );
-  const [awayInput, setAwayInput] = useState<string>(
-    prediction?.predictedAwayScore != null ? String(prediction.predictedAwayScore) : '',
-  );
+  const [selectedWinner, setSelectedWinner] = useState(prediction?.predictedWinnerTeamId ?? '');
+  const [homeInput, setHomeInput] = useState(prediction?.predictedHomeScore != null ? String(prediction.predictedHomeScore) : '');
+  const [awayInput, setAwayInput] = useState(prediction?.predictedAwayScore != null ? String(prediction.predictedAwayScore) : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const hasResult = slot.homeScore !== null && slot.awayScore !== null;
+  const unpredicted = !prediction && !locked && teamsKnown;
 
-  // Sync if prediction changes (e.g. on initial load)
   useEffect(() => {
     if (prediction) {
       setSelectedWinner(prediction.predictedWinnerTeamId);
@@ -123,221 +76,128 @@ function SlotCard({ slot, prediction, onSaved }: SlotCardProps) {
   }, [prediction]);
 
   const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setSaved(false);
-
-    if (!selectedWinner) {
-      setError('Select the team you predict will advance.');
-      return;
-    }
-
+    e.preventDefault(); setError(null); setSaved(false);
+    if (!selectedWinner) { setError('Select the team you predict will advance.'); return; }
     const homeScore = homeInput !== '' ? parseInt(homeInput, 10) : null;
     const awayScore = awayInput !== '' ? parseInt(awayInput, 10) : null;
-
-    if (homeInput !== '' && (isNaN(homeScore!) || homeScore! < 0)) {
-      setError('Home score must be a non-negative number.');
-      return;
-    }
-    if (awayInput !== '' && (isNaN(awayScore!) || awayScore! < 0)) {
-      setError('Away score must be a non-negative number.');
-      return;
-    }
-
+    if (homeInput !== '' && (isNaN(homeScore!) || homeScore! < 0)) { setError('Home score must be a non-negative number.'); return; }
+    if (awayInput !== '' && (isNaN(awayScore!) || awayScore! < 0)) { setError('Away score must be a non-negative number.'); return; }
     setSaving(true);
-    const method = prediction !== undefined ? 'PUT' : 'POST';
-    const result = await savePrediction(slot.slotKey, selectedWinner, homeScore, awayScore, method);
+    const result = await savePrediction(slot.slotKey, selectedWinner, homeScore, awayScore, prediction !== undefined ? 'PUT' : 'POST');
     setSaving(false);
-
     if (result.ok) {
-      onSaved({
-        slotKey: slot.slotKey,
-        predictedWinnerTeamId: selectedWinner,
-        predictedHomeScore: homeScore,
-        predictedAwayScore: awayScore,
-        submittedAt: new Date().toISOString(),
-      });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
-    } else {
-      setError(result.error ?? 'Save failed.');
-    }
+      onSaved({ slotKey: slot.slotKey, predictedWinnerTeamId: selectedWinner, predictedHomeScore: homeScore, predictedAwayScore: awayScore, submittedAt: new Date().toISOString() });
+      setSaved(true); setTimeout(() => setSaved(false), 3000);
+    } else { setError(result.error ?? 'Save failed.'); }
   };
 
-  const hasResult = slot.homeScore !== null && slot.awayScore !== null;
-  const unpredicted = !prediction && !locked && teamsKnown;
+  const cardBorderColor = unpredicted ? 'var(--secondary)' : 'var(--border)';
+  const cardOpacity = locked && !teamsKnown ? 0.6 : locked ? 0.8 : 1;
 
   return (
-    <div
-      className={`rounded-xl border p-4 flex flex-col gap-3 ${
-        locked
-          ? 'bg-slate-800 border-slate-700 opacity-80'
-          : unpredicted
-          ? 'bg-slate-800 border-blue-500/50'
-          : 'bg-slate-800 border-slate-600'
-      }`}
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between text-xs text-slate-400">
-        <span>
-          {slot.slotKey}
-          {slot.venue ? ` · ${slot.venue}, ${slot.city}` : ''}
-        </span>
-        <div className="flex items-center gap-2">
-          {locked && teamsKnown && (
-            <span className="bg-slate-600 text-slate-300 text-xs font-semibold px-2 py-0.5 rounded">
-              Locked
-            </span>
-          )}
-          {unpredicted && (
-            <span className="bg-blue-900/60 text-blue-300 text-xs font-semibold px-2 py-0.5 rounded">
-              Unpredicted
-            </span>
-          )}
+    <div className="rounded-card bg-surface p-4 flex flex-col gap-2.5 border" style={{ borderColor: cardBorderColor, opacity: cardOpacity }}>
+      <div className="flex items-center justify-between text-[11px] text-fg-muted">
+        <span className="font-mono">{slot.slotKey}{slot.venue ? ` · ${slot.venue}` : ''}</span>
+        <div className="flex items-center gap-1.5">
+          {locked && teamsKnown && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-surface-3 text-fg-muted">Locked</span>}
+          {unpredicted && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md" style={{ background: 'var(--win-soft)', color: 'var(--win)' }}>Unpredicted</span>}
         </div>
       </div>
 
-      {/* Kickoff */}
-      <div className="text-xs text-slate-400">{formatKickoff(slot.kickoffUtc)}</div>
+      <div className="flex items-center gap-1.5 text-[11px] text-fg-muted">
+        <Clock size={12} />{formatKickoff(slot.kickoffUtc)}
+      </div>
 
-      {/* Teams not yet determined */}
-      {!teamsKnown && (
-        <p className="text-slate-500 text-sm italic">TBD vs TBD — bracket not yet set</p>
-      )}
+      {!teamsKnown && <p className="text-fg-muted text-sm italic">TBD vs TBD — bracket not yet set</p>}
 
-      {/* Teams are known */}
       {teamsKnown && (
         <>
-          {/* Result (if available) */}
           {hasResult && locked && (
-            <div className="flex items-center justify-center gap-2 text-sm">
-              <span className={`font-semibold ${slot.winnerTeamId === slot.homeTeamId ? 'text-green-400' : 'text-white'}`}>
-                {slot.homeTeamId}
-              </span>
-              <span className="text-slate-300 font-bold">
-                {slot.homeScore} – {slot.awayScore}
-              </span>
-              <span className={`font-semibold ${slot.winnerTeamId === slot.awayTeamId ? 'text-green-400' : 'text-white'}`}>
-                {slot.awayTeamId}
-              </span>
+            <div className="flex flex-col gap-2 py-1">
+              {[
+                { id: slot.homeTeamId!, score: slot.homeScore, win: slot.winnerTeamId === slot.homeTeamId },
+                { id: slot.awayTeamId!, score: slot.awayScore, win: slot.winnerTeamId === slot.awayTeamId },
+              ].map(({ id, score, win }) => (
+                <div key={id} className={`flex items-center gap-2.5 ${win ? '' : 'opacity-55'}`}>
+                  {flagUrl(id) && <img src={flagUrl(id)} alt="" width={22} height={15} className="flag shrink-0" />}
+                  <span className={`flex-1 font-mono font-semibold text-sm ${win ? '' : 'text-fg-muted'}`} style={win ? { color: 'var(--win)' } : {}}>{id}</span>
+                  <span className={`font-display font-bold tnum ${win ? 'text-fg' : 'text-fg-muted'}`}>{score}</span>
+                </div>
+              ))}
             </div>
           )}
 
-          {/* Score (no result yet but locked) */}
           {!hasResult && locked && (
-            <div className="flex items-center justify-center gap-2 text-sm text-slate-400">
-              <span>{slot.homeTeamId}</span>
-              <span className="font-bold">vs</span>
-              <span>{slot.awayTeamId}</span>
+            <div className="flex flex-col gap-2">
+              {[slot.homeTeamId!, slot.awayTeamId!].map(id => (
+                <div key={id} className="flex items-center gap-2.5">
+                  {flagUrl(id) && <img src={flagUrl(id)} alt="" width={22} height={15} className="flag shrink-0" />}
+                  <span className="font-mono font-semibold text-sm text-fg-secondary">{id}</span>
+                </div>
+              ))}
             </div>
           )}
 
-          {/* Prediction form — editable when not locked */}
           {!locked && (
             <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-              {/* Winner selection */}
-              <div className="flex items-center gap-3">
-                <label className="flex items-center gap-2 flex-1 cursor-pointer">
-                  <input
-                    type="radio"
-                    name={`winner-${slot.slotKey}`}
-                    value={slot.homeTeamId ?? ''}
-                    checked={selectedWinner === slot.homeTeamId}
-                    onChange={() => setSelectedWinner(slot.homeTeamId!)}
-                    className="accent-blue-500"
-                  />
-                  <span className="text-white font-semibold">{slot.homeTeamId}</span>
-                </label>
-
-                <span className="text-slate-400 font-bold text-sm">vs</span>
-
-                <label className="flex items-center gap-2 flex-1 cursor-pointer justify-end">
-                  <span className="text-white font-semibold">{slot.awayTeamId}</span>
-                  <input
-                    type="radio"
-                    name={`winner-${slot.slotKey}`}
-                    value={slot.awayTeamId ?? ''}
-                    checked={selectedWinner === slot.awayTeamId}
-                    onChange={() => setSelectedWinner(slot.awayTeamId!)}
-                    className="accent-blue-500"
-                  />
-                </label>
+              <div className="flex flex-col gap-2">
+                {[
+                  { id: slot.homeTeamId!, side: 'home' as const },
+                  { id: slot.awayTeamId!, side: 'away' as const },
+                ].map(({ id }) => (
+                  <label key={id} className="flex items-center gap-2.5 cursor-pointer">
+                    <input type="radio" name={`winner-${slot.slotKey}`} value={id}
+                      checked={selectedWinner === id} onChange={() => setSelectedWinner(id)}
+                      className="accent-pitch-500 shrink-0" />
+                    {flagUrl(id) && <img src={flagUrl(id)} alt="" width={22} height={15} className="flag shrink-0" />}
+                    <span className="font-mono font-semibold text-fg">{id}</span>
+                  </label>
+                ))}
               </div>
 
-              {/* Optional score prediction */}
-              <div className="flex items-center gap-2 text-xs text-slate-400">
+              <div className="flex items-center gap-2 text-[11px] text-fg-muted">
                 <span className="shrink-0">90-min score (optional):</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={99}
-                  placeholder="—"
-                  value={homeInput}
-                  onChange={e => setHomeInput(e.target.value)}
-                  aria-label={`${slot.homeTeamId} predicted score`}
-                  className="w-12 text-center bg-slate-700 text-white rounded-lg px-2 py-1
-                             border border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <span className="text-slate-400 font-bold">–</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={99}
-                  placeholder="—"
-                  value={awayInput}
-                  onChange={e => setAwayInput(e.target.value)}
-                  aria-label={`${slot.awayTeamId} predicted score`}
-                  className="w-12 text-center bg-slate-700 text-white rounded-lg px-2 py-1
-                             border border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                {[
+                  { v: homeInput, set: setHomeInput, label: `${slot.homeTeamId} predicted score` },
+                  { v: awayInput, set: setAwayInput, label: `${slot.awayTeamId} predicted score` },
+                ].map(({ v, set, label }, i) => (
+                  <>
+                    {i === 1 && <span className="text-fg-muted font-bold">–</span>}
+                    <input key={label} type="number" min={0} max={99} placeholder="—" value={v}
+                      onChange={e => set(e.target.value)} aria-label={label}
+                      className="w-12 text-center font-display font-bold tnum bg-surface-2 rounded-input py-1 border border-border" />
+                  </>
+                ))}
               </div>
 
-              <button
-                type="submit"
-                disabled={saving}
-                className="self-end bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800
-                           disabled:cursor-not-allowed text-white text-xs font-semibold
-                           rounded-lg px-3 py-1.5 transition-colors"
-              >
-                {saving ? 'Saving…' : prediction !== undefined ? 'Update' : 'Save'}
-              </button>
+              <div className="flex justify-end">
+                <button type="submit" disabled={saving}
+                  className="px-4 py-1.5 rounded-input text-[13px] font-semibold transition-colors disabled:opacity-40"
+                  style={{ background: 'var(--primary-fill)', color: 'var(--fg-onbrand)' }}>
+                  {saving ? 'Saving…' : prediction !== undefined ? 'Update' : 'Save'}
+                </button>
+              </div>
             </form>
           )}
 
-          {/* Read-only prediction when locked */}
           {locked && prediction && (
-            <div className="text-xs text-slate-400 mt-1">
+            <div className="text-[11px] text-fg-muted">
               Your pick:{' '}
-              <span className="text-white font-semibold">{prediction.predictedWinnerTeamId}</span>
+              <span className="font-mono font-semibold text-secondary">{prediction.predictedWinnerTeamId}</span>
               {prediction.predictedHomeScore != null && prediction.predictedAwayScore != null && (
-                <span>
-                  {' '}({prediction.predictedHomeScore}–{prediction.predictedAwayScore})
-                </span>
+                <span className="tnum"> ({prediction.predictedHomeScore}–{prediction.predictedAwayScore})</span>
               )}
             </div>
           )}
         </>
       )}
 
-      {/* Feedback */}
-      {error && (
-        <p className="text-red-400 text-xs bg-red-950/40 rounded px-3 py-1.5">{error}</p>
-      )}
-      {saved && (
-        <p className="text-green-400 text-xs bg-green-950/40 rounded px-3 py-1.5">Prediction saved.</p>
-      )}
+      {error && <p className="text-[13px] px-3 py-1.5 rounded-input" style={{ color: 'var(--loss)', background: 'var(--live-soft)' }}>{error}</p>}
+      {saved && <p className="text-[13px] px-3 py-1.5 rounded-input" style={{ color: 'var(--win)', background: 'var(--win-soft)' }}>Prediction saved.</p>}
     </div>
   );
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
-
-/**
- * Knockout bracket prediction page.
- * Shows all rounds R32 → R16 → QF → SF → 3rd place → Final.
- * Each slot is predictable once both teams are known and before kickoff.
- * Predictions lock at kickoff (server-side enforced).
- */
 export function KnockoutBracketPage() {
   const [slots, setSlots] = useState<KnockoutSlotDto[]>([]);
   const [predictions, setPredictions] = useState<Map<string, KnockoutPredictionDto>>(new Map());
@@ -352,80 +212,44 @@ export function KnockoutBracketPage() {
         const map = new Map<string, KnockoutPredictionDto>();
         for (const p of predictionList) map.set(p.slotKey, p);
         setPredictions(map);
-        // Default to the first round that has slots
-        if (slotList.length > 0) {
-          const firstRound = ROUND_ORDER.find(r => slotList.some(s => s.round === r));
-          if (firstRound) setActiveRound(firstRound);
-        }
+        const firstRound = ROUND_ORDER.find(r => slotList.some(s => s.round === r));
+        if (firstRound) setActiveRound(firstRound);
       })
-      .catch((err: unknown) => {
-        setLoadError(err instanceof Error ? err.message : 'Failed to load bracket data.');
-      })
+      .catch((err: unknown) => setLoadError(err instanceof Error ? err.message : 'Failed to load bracket data.'))
       .finally(() => setLoading(false));
   }, []);
 
-  const handleSaved = (updated: KnockoutPredictionDto) => {
-    setPredictions(prev => new Map(prev).set(updated.slotKey, updated));
-  };
-
-  // Rounds present in the slot data, in canonical order
   const presentRounds = ROUND_ORDER.filter(r => slots.some(s => s.round === r));
-  const activeSlots = slots
-    .filter(s => s.round === activeRound)
-    .sort((a, b) => a.slotNumber - b.slotNumber);
+  const activeSlots = slots.filter(s => s.round === activeRound).sort((a, b) => a.slotNumber - b.slotNumber);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20 text-slate-400">
-        Loading bracket…
-      </div>
-    );
-  }
-
-  if (loadError) {
-    return (
-      <div className="flex items-center justify-center py-20 text-red-400">
-        {loadError}
-      </div>
-    );
-  }
+  if (loading) return <div className="flex items-center justify-center py-20 text-fg-muted">Loading bracket…</div>;
+  if (loadError) return <div className="flex items-center justify-center py-20 text-[13px]" style={{ color: 'var(--loss)' }}>{loadError}</div>;
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-6">
-      <h1 className="text-2xl font-bold text-white mb-1">Knockout Bracket</h1>
-      <p className="text-slate-400 text-sm mb-6">
-        Pick the advancing team for each match. An optional 90-minute score can also be predicted.
+    <div className="max-w-3xl mx-auto px-4 py-4">
+      <p className="text-[13px] text-fg-secondary mb-3 leading-relaxed">
+        Pick the advancing team for each match. Optional 90-min score earns a bonus.
         Predictions lock at kickoff. Slots open once both teams are determined.
       </p>
 
-      {/* Round tabs */}
-      <div className="flex flex-wrap gap-1 mb-6" role="tablist">
+      <div className="flex gap-1.5 overflow-x-auto appscroll pb-3" role="tablist">
         {presentRounds.map(round => (
-          <button
-            key={round}
-            role="tab"
-            aria-selected={activeRound === round}
+          <button key={round} role="tab" aria-selected={activeRound === round}
             onClick={() => setActiveRound(round)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
-              activeRound === round
-                ? 'bg-blue-600 text-white'
-                : 'bg-slate-700 text-slate-300 hover:bg-slate-600 hover:text-white'
+            className={`px-3.5 py-1.5 rounded-input text-[13px] font-semibold whitespace-nowrap transition-colors ${
+              activeRound !== round ? 'bg-surface-3 text-fg-secondary' : ''
             }`}
-          >
+            style={activeRound === round ? { background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' } : undefined}>
             {ROUND_LABELS[round] ?? round}
           </button>
         ))}
       </div>
 
-      {/* Slot cards for selected round */}
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2.5">
         {activeSlots.map(slot => (
-          <SlotCard
-            key={slot.slotKey}
-            slot={slot}
+          <SlotCard key={slot.slotKey} slot={slot}
             prediction={predictions.get(slot.slotKey)}
-            onSaved={handleSaved}
-          />
+            onSaved={updated => setPredictions(prev => new Map(prev).set(updated.slotKey, updated))} />
         ))}
       </div>
     </div>

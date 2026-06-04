@@ -1,0 +1,319 @@
+/* ============================================================================
+   Trivium World Cup 2026 — Design Tokens (Tailwind v4)
+   ----------------------------------------------------------------------------
+   Drop-in for src/index.css. Replace the bare `@import "tailwindcss";` with:
+
+       @import "tailwindcss";
+       @import "./twc-theme.css";   (or paste this @theme block inline)
+
+   Provides:
+     • Raw palette scales        → bg-pitch-500, text-blue-700, border-gold-400…
+     • Semantic surface/text     → bg-bg, bg-surface, text-fg, text-fg-muted…
+     • Status colors             → bg-live, text-win, bg-locked…
+     • Radii / shadow / spacing  → rounded-card, shadow-card, etc.
+     • Display + body + mono type → font-display, font-sans, font-mono
+
+   Dark mode flips the semantic vars automatically via prefers-color-scheme
+   AND a `.dark` class (manual toggle). Palette scales never change.
+   ============================================================================ */
+
+/* ----------------------------------------------------------------------------
+   1. SEMANTIC RUNTIME VARS  (these flip per color scheme)
+   ---------------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+
+  /* Surfaces — light */
+  --bg:           #eef1f6;   /* app canvas                       */
+  --bg-elevated:  #ffffff;   /* raised header / sticky bars      */
+  --surface:      #ffffff;   /* primary card                     */
+  --surface-2:    #f4f6fa;   /* nested / inset panel             */
+  --surface-3:    #e8edf4;   /* track, inputs, chips             */
+  --overlay:      rgba(10, 14, 23, 0.45); /* scrim under modals  */
+
+  /* Hairlines / borders — light */
+  --border:        #e1e7f0;
+  --border-strong: #cdd6e3;
+  --ring:          #215990;  /* focus ring (broadcast blue)      */
+
+  /* Text — light */
+  --fg:           #111826;   /* primary copy / scores            */
+  --fg-secondary: #475064;   /* labels, secondary copy           */
+  --fg-muted:     #7a869c;   /* meta, timestamps, captions       */
+  --fg-onbrand:   #0c1208;   /* text on pitch-green fills        */
+  --fg-onblue:    #ffffff;   /* text on blue fills               */
+  --fg-ongold:    #2a1c00;   /* text on gold fills               */
+
+  /* Brand roles — light (text/link variants pick accessible steps) */
+  --primary:        #6b8f1f; /* pitch green, accessible on white */
+  --primary-fill:   #84ad28; /* CTA fill                         */
+  --primary-hover:  #6b8f1f;
+  --secondary:      #215990; /* broadcast blue                   */
+  --secondary-fill: #215990;
+  --link:           #1c4a78;
+  --accent:         #b5790a; /* trophy gold, accessible on white */
+  --accent-fill:    #f2a922;
+
+  /* Status — light */
+  --live:        #d8262b;    /* LIVE match pulse / red           */
+  --live-soft:   #fdeaea;
+  --win:         #2f8f3e;    /* correct / win / positive delta   */
+  --win-soft:    #e7f4e9;
+  --loss:        #c43c3c;    /* loss / negative delta            */
+  --draw:        #7a869c;    /* draw / neutral                   */
+  --warning:     #b5790a;    /* soon / closing / locked-warning  */
+  --warning-soft:#fbf0d8;
+  --locked:      #7a869c;    /* locked chip                      */
+  --offline:     #f2a922;    /* offline banner (gold, attention) */
+
+  /* Champion / podium accents */
+  --gold:   #d4a017;
+  --silver: #9aa7b8;
+  --bronze: #b06b2c;
+}
+
+/* Dark — premium broadcast ink (cool, slightly blue) */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    color-scheme: dark;
+
+    --bg:           #080c14;
+    --bg-elevated:  #111927;
+    --surface:      #141d2c;
+    --surface-2:    #1b2738;
+    --surface-3:    #243246;
+    --overlay:      rgba(3, 6, 12, 0.66);
+
+    --border:        #243044;
+    --border-strong: #33425a;
+    --ring:          #4f8fd4;
+
+    --fg:           #eef2f8;
+    --fg-secondary: #a9b6cb;
+    --fg-muted:     #6f7e97;
+    --fg-onbrand:   #0c1208;
+    --fg-onblue:    #ffffff;
+    --fg-ongold:    #2a1c00;
+
+    --primary:        #a1c23a; /* lifted for dark contrast       */
+    --primary-fill:   #84ad28;
+    --primary-hover:  #95b933;
+    --secondary:      #6ba2d8;
+    --secondary-fill: #2e6aa8;
+    --link:           #7fb1e3;
+    --accent:         #f2c14e;
+    --accent-fill:    #f2a922;
+
+    --live:        #ff4d52;
+    --live-soft:   rgba(255, 77, 82, 0.14);
+    --win:         #56c96a;
+    --win-soft:    rgba(86, 201, 106, 0.14);
+    --loss:        #ff6b6b;
+    --draw:        #6f7e97;
+    --warning:     #f2c14e;
+    --warning-soft:rgba(242, 169, 34, 0.14);
+    --locked:      #6f7e97;
+    --offline:     #f2a922;
+
+    --gold:   #f2c14e;
+    --silver: #c2cddd;
+    --bronze: #cf8a4f;
+  }
+}
+
+/* Manual `.dark` class — mirrors the dark block (for the toggle in demos) */
+.dark {
+  color-scheme: dark;
+
+  --bg:           #080c14;
+  --bg-elevated:  #111927;
+  --surface:      #141d2c;
+  --surface-2:    #1b2738;
+  --surface-3:    #243246;
+  --overlay:      rgba(3, 6, 12, 0.66);
+
+  --border:        #243044;
+  --border-strong: #33425a;
+  --ring:          #4f8fd4;
+
+  --fg:           #eef2f8;
+  --fg-secondary: #a9b6cb;
+  --fg-muted:     #6f7e97;
+  --fg-onbrand:   #0c1208;
+  --fg-onblue:    #ffffff;
+  --fg-ongold:    #2a1c00;
+
+  --primary:        #a1c23a;
+  --primary-fill:   #84ad28;
+  --primary-hover:  #95b933;
+  --secondary:      #6ba2d8;
+  --secondary-fill: #2e6aa8;
+  --link:           #7fb1e3;
+  --accent:         #f2c14e;
+  --accent-fill:    #f2a922;
+
+  --live:        #ff4d52;
+  --live-soft:   rgba(255, 77, 82, 0.14);
+  --win:         #56c96a;
+  --win-soft:    rgba(86, 201, 106, 0.14);
+  --loss:        #ff6b6b;
+  --draw:        #6f7e97;
+  --warning:     #f2c14e;
+  --warning-soft:rgba(242, 169, 34, 0.14);
+  --locked:      #6f7e97;
+  --offline:     #f2a922;
+
+  --gold:   #f2c14e;
+  --silver: #c2cddd;
+  --bronze: #cf8a4f;
+}
+
+/* ----------------------------------------------------------------------------
+   2. @theme  —  exposes tokens to Tailwind v4 utilities
+   ---------------------------------------------------------------------------- */
+@theme {
+  /* ---- Type families ---- */
+  --font-display: "Archivo", "Archivo Expanded", ui-sans-serif, system-ui, sans-serif;
+  --font-sans:    "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono:    "Geist Mono", ui-monospace, "SFMono-Regular", monospace;
+
+  /* ---- Pitch Green (primary) ---- */
+  --color-pitch-50:  #f4f8e6;
+  --color-pitch-100: #e6f0c6;
+  --color-pitch-200: #d2e394;
+  --color-pitch-300: #bbd45f;
+  --color-pitch-400: #a1c23a;
+  --color-pitch-500: #84ad28;  /* brand */
+  --color-pitch-600: #6b8f1f;
+  --color-pitch-700: #536f1b;
+  --color-pitch-800: #41571a;
+  --color-pitch-900: #36481a;
+  --color-pitch-950: #1b2709;
+
+  /* ---- Broadcast Blue (secondary) ---- */
+  --color-blue-50:  #eaf2fa;
+  --color-blue-100: #cfe0f1;
+  --color-blue-200: #a1c2e3;
+  --color-blue-300: #6ba2d8;
+  --color-blue-400: #3d79b5;
+  --color-blue-500: #215990;  /* brand */
+  --color-blue-600: #1c4a78;
+  --color-blue-700: #193d62;
+  --color-blue-800: #173351;
+  --color-blue-900: #142b44;
+  --color-blue-950: #0b1a2b;
+
+  /* ---- Trophy Gold (accent) ---- */
+  --color-gold-50:  #fdf6e6;
+  --color-gold-100: #fbe9be;
+  --color-gold-200: #f7d683;
+  --color-gold-300: #f2c14e;
+  --color-gold-400: #f2a922;
+  --color-gold-500: #d99008;
+  --color-gold-600: #b5790a;
+  --color-gold-700: #8f5e0f;
+  --color-gold-800: #744c13;
+  --color-gold-900: #623f14;
+  --color-gold-950: #382107;
+
+  /* ---- Ink (cool neutral) ---- */
+  --color-ink-50:  #f5f7fa;
+  --color-ink-100: #e8ecf2;
+  --color-ink-200: #d3dae5;
+  --color-ink-300: #b0bbcc;
+  --color-ink-400: #8492a8;
+  --color-ink-500: #5f6e86;
+  --color-ink-600: #475468;
+  --color-ink-700: #354054;
+  --color-ink-800: #222c3c;
+  --color-ink-850: #1a2230;
+  --color-ink-900: #121925;
+  --color-ink-950: #0a0e17;
+
+  /* ---- Semantic (map to runtime vars; flip with scheme) ---- */
+  --color-bg:           var(--bg);
+  --color-bg-elevated:  var(--bg-elevated);
+  --color-surface:      var(--surface);
+  --color-surface-2:    var(--surface-2);
+  --color-surface-3:    var(--surface-3);
+
+  --color-border:        var(--border);
+  --color-border-strong: var(--border-strong);
+
+  --color-fg:           var(--fg);
+  --color-fg-secondary: var(--fg-secondary);
+  --color-fg-muted:     var(--fg-muted);
+  --color-fg-onbrand:   var(--fg-onbrand);
+  --color-fg-onblue:    var(--fg-onblue);
+  --color-fg-ongold:    var(--fg-ongold);
+
+  --color-primary:        var(--primary);
+  --color-primary-fill:   var(--primary-fill);
+  --color-secondary:      var(--secondary);
+  --color-secondary-fill: var(--secondary-fill);
+  --color-link:           var(--link);
+  --color-accent:         var(--accent);
+  --color-accent-fill:    var(--accent-fill);
+
+  --color-live:        var(--live);
+  --color-live-soft:   var(--live-soft);
+  --color-win:         var(--win);
+  --color-win-soft:    var(--win-soft);
+  --color-loss:        var(--loss);
+  --color-draw:        var(--draw);
+  --color-warning:     var(--warning);
+  --color-warning-soft:var(--warning-soft);
+  --color-locked:      var(--locked);
+  --color-offline:     var(--offline);
+
+  --color-podium-gold:   var(--gold);
+  --color-podium-silver: var(--silver);
+  --color-podium-bronze: var(--bronze);
+
+  /* ---- Radii ---- */
+  --radius-chip:   9999px;  /* pills, badges, avatars            */
+  --radius-input:  0.625rem;/* 10px — inputs, small buttons      */
+  --radius-card:   1rem;    /* 16px — match cards, panels        */
+  --radius-sheet:  1.5rem;  /* 24px — modals, bottom sheets      */
+
+  /* ---- Shadows / elevation ---- */
+  --shadow-card:   0 1px 2px rgba(10, 14, 23, 0.06), 0 4px 16px -6px rgba(10, 14, 23, 0.12);
+  --shadow-raised: 0 8px 30px -8px rgba(10, 14, 23, 0.22);
+  --shadow-sheet:  0 -8px 40px -12px rgba(10, 14, 23, 0.35);
+  --shadow-glow-live: 0 0 0 1px rgba(216, 38, 43, 0.5), 0 6px 24px -8px rgba(216, 38, 43, 0.45);
+
+  /* ---- App layout metrics ---- */
+  --spacing-tabbar: 4.25rem; /* bottom tab bar height            */
+  --spacing-gutter: 1rem;    /* mobile screen gutter             */
+}
+
+/* ----------------------------------------------------------------------------
+   3. BASE — applied to the demo / app shell
+   ---------------------------------------------------------------------------- */
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Scores, ranks, points — always tabular */
+.tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+/* Focus ring — consistent across interactive elements */
+.twc-focus:focus-visible,
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}

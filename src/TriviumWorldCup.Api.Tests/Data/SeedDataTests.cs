@@ -374,7 +374,7 @@ public class SeedDataTests
     }
 
     [Fact]
-    public void Players_Each_Team_Has_At_Least_15_Players()
+    public void Players_Each_Team_Has_At_Least_23_Players()
     {
         var byTeam = PlayersData.All
             .GroupBy(p => p.TeamId)
@@ -383,8 +383,8 @@ public class SeedDataTests
         foreach (var team in TeamsData.All)
         {
             byTeam.TryGetValue(team.Id, out var count);
-            Assert.True(count >= 15,
-                $"Team {team.FifaCode} has only {count} players (minimum 15 required)");
+            Assert.True(count >= 23,
+                $"Team {team.FifaCode} has only {count} players (FIFA minimum 23 required)");
         }
     }
 

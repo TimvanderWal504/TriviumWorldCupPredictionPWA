@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-
-// ── Types ─────────────────────────────────────────────────────────────────────
+import { Clock } from 'lucide-react';
+import { flagUrl } from '../utils/flagUrl.ts';
 
 interface LiveFixtureDto {
   id: string;
@@ -33,122 +33,98 @@ interface LiveFixturesResponse {
   liveWindowActive: boolean;
 }
 
-// ── API helper ────────────────────────────────────────────────────────────────
-
 async function fetchLiveFixtures(): Promise<LiveFixturesResponse> {
   const res = await fetch('/fixtures/live', { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to load live fixtures (${res.status})`);
   return res.json() as Promise<LiveFixturesResponse>;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 function formatKickoff(kickoffUtc: string): string {
   return new Date(kickoffUtc).toLocaleString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
+    weekday: 'short', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
   });
 }
 
 function StatusBadge({ status }: { status: string }) {
   if (status === 'InProgress') {
     return (
-      <span className="inline-flex items-center gap-1 bg-red-600 text-white text-xs font-bold px-2 py-0.5 rounded">
-        <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse inline-block" />
+      <span className="inline-flex items-center gap-1.5 font-display font-bold text-[11px] px-2 py-0.5 rounded-md text-white"
+            style={{ background: 'var(--live)' }}>
+        <span className="live-dot w-1.5 h-1.5 rounded-full bg-white" />
         LIVE
       </span>
     );
   }
   if (status === 'Completed') {
-    return (
-      <span className="bg-slate-600 text-slate-200 text-xs font-semibold px-2 py-0.5 rounded">
-        FT
-      </span>
-    );
+    return <span className="font-display font-bold text-[11px] px-2 py-0.5 rounded-md bg-surface-3 text-fg-secondary">FT</span>;
   }
-  // Scheduled / Soon
   return (
-    <span className="bg-amber-700/70 text-amber-200 text-xs font-semibold px-2 py-0.5 rounded">
-      Soon
-    </span>
+    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md"
+          style={{ background: 'var(--warning-soft)', color: 'var(--warning)' }}>Soon</span>
   );
 }
 
-function ScoreDisplay({ fixture }: { fixture: LiveFixtureDto }) {
-  const hasScore =
-    fixture.homeScore !== null &&
-    fixture.awayScore !== null &&
-    (fixture.status === 'InProgress' || fixture.status === 'Completed');
-
-  if (hasScore) {
-    return (
-      <span className="text-2xl font-bold text-white tabular-nums">
-        {fixture.homeScore} – {fixture.awayScore}
-      </span>
-    );
-  }
-  return <span className="text-xl font-semibold text-slate-400">vs</span>;
-}
-
-// ── Fixture card ──────────────────────────────────────────────────────────────
-
-interface FixtureCardProps {
-  fixture: LiveFixtureDto;
-  goals: GoalEventDto[];
-}
+interface FixtureCardProps { fixture: LiveFixtureDto; goals: GoalEventDto[]; }
 
 function LiveFixtureCard({ fixture, goals }: FixtureCardProps) {
-  const fixtureGoals = goals.filter(g => g.fixtureId === fixture.id);
   const isLive = fixture.status === 'InProgress';
+  const hasScore = (fixture.status === 'InProgress' || fixture.status === 'Completed')
+    && fixture.homeScore !== null && fixture.awayScore !== null;
+  const homeLead = hasScore && (fixture.homeScore ?? 0) > (fixture.awayScore ?? 0);
+  const awayLead = hasScore && (fixture.awayScore ?? 0) > (fixture.homeScore ?? 0);
+  const fixtureGoals = goals.filter(g => g.fixtureId === fixture.id);
+
+  const cardStyle = isLive
+    ? { borderColor: 'transparent', boxShadow: 'var(--shadow-glow-live)' }
+    : { borderColor: 'var(--border)' };
 
   return (
-    <div
-      className={`rounded-xl border p-4 flex flex-col gap-3 ${
-        isLive
-          ? 'bg-slate-800 border-red-500/60'
-          : fixture.status === 'Completed'
-          ? 'bg-slate-800/70 border-slate-700'
-          : 'bg-slate-800 border-amber-500/40'
-      }`}
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between text-xs text-slate-400">
-        <span>
-          Match {fixture.matchNumber} &middot; Group {fixture.groupLetter} &middot; {fixture.venue}, {fixture.city}
-        </span>
+    <div className="rounded-card bg-surface p-4 flex flex-col gap-2.5 border" style={cardStyle}>
+      <div className="flex items-center justify-between text-[11px] text-fg-muted">
+        <span className="font-mono">Group {fixture.groupLetter} · {fixture.venue}</span>
         <StatusBadge status={fixture.status} />
       </div>
 
-      {/* Kickoff time */}
-      <div className="text-xs text-slate-400">{formatKickoff(fixture.kickoffUtc)}</div>
-
-      {/* Teams and score */}
-      <div className="flex items-center gap-3">
-        <span className="flex-1 text-right text-white font-semibold truncate">
-          {fixture.homeTeamName}
-        </span>
-        <ScoreDisplay fixture={fixture} />
-        <span className="flex-1 text-left text-white font-semibold truncate">
-          {fixture.awayTeamName}
-        </span>
+      <div className="flex flex-col gap-2">
+        {[
+          { id: fixture.homeTeamId, name: fixture.homeTeamName, score: fixture.homeScore, lead: homeLead },
+          { id: fixture.awayTeamId, name: fixture.awayTeamName, score: fixture.awayScore, lead: awayLead },
+        ].map(({ id, name, score, lead }) => (
+          <div key={name} className="flex items-center gap-2.5">
+            {flagUrl(id) && (
+              <img src={flagUrl(id)} alt="" width={22} height={15} className="flag shrink-0" />
+            )}
+            <span className={`flex-1 min-w-0 truncate font-semibold ${lead ? 'text-fg font-bold' : 'text-fg-secondary'}`}>
+              {name}
+            </span>
+            {hasScore
+              ? <span className={`font-display font-black text-[22px] tnum ${lead ? 'text-fg' : 'text-fg-muted'}`}>{score}</span>
+              : null}
+          </div>
+        ))}
       </div>
 
-      {/* Goal events */}
+      {fixture.status === 'Scheduled' && (
+        <div className="flex items-center gap-1.5 text-[11px] text-fg-muted">
+          <Clock size={12} />{formatKickoff(fixture.kickoffUtc)}
+        </div>
+      )}
+
       {fixtureGoals.length > 0 && (
-        <ul className="flex flex-col gap-1 pt-1 border-t border-slate-700">
-          {fixtureGoals.map((g, idx) => (
-            <li key={idx} className="text-xs text-slate-300 flex items-center gap-2">
-              <span className="text-slate-500 tabular-nums w-8 text-right">{g.minute}&apos;</span>
-              <span>{g.playerName}</span>
-              <span className="text-slate-500">({g.teamId})</span>
+        <ul className="flex flex-col gap-1.5 pt-2.5 border-t border-border text-[12px] text-fg-secondary">
+          {fixtureGoals.map((g, i) => (
+            <li key={i} className="flex items-center gap-2">
+              <span className="font-mono text-fg-muted w-6 text-right tnum">{g.minute}&apos;</span>
+              <span className="font-medium text-fg">{g.playerName}</span>
+              <span className="font-mono text-fg-muted text-[11px]">{g.teamId}</span>
               {g.type === 'OwnGoal' && (
-                <span className="text-red-400 text-xs">(og)</span>
+                <span className="text-[9px] font-extrabold px-1.5 py-px rounded"
+                      style={{ background: 'rgba(255,107,107,.16)', color: 'var(--loss)' }}>OG</span>
               )}
               {g.type === 'PenaltyInMatch' && (
-                <span className="text-yellow-400 text-xs">(pen)</span>
+                <span className="text-[9px] font-extrabold px-1.5 py-px rounded"
+                      style={{ background: 'rgba(242,193,78,.18)', color: 'var(--accent)' }}>PEN</span>
               )}
             </li>
           ))}
@@ -158,16 +134,8 @@ function LiveFixtureCard({ fixture, goals }: FixtureCardProps) {
   );
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
-
 const POLL_INTERVAL_MS = 20_000;
 
-/**
- * Live scores page — shows in-progress and recently completed fixtures with
- * goal events, polling every 20 seconds while the live window is active.
- * Standings/leaderboard points do not change mid-match; they update at full-time.
- * TWC-17
- */
 export function LiveScoresPage() {
   const [data, setData] = useState<LiveFixturesResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -175,10 +143,7 @@ export function LiveScoresPage() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   function stopPolling() {
-    if (intervalRef.current !== null) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
+    if (intervalRef.current !== null) { clearInterval(intervalRef.current); intervalRef.current = null; }
   }
 
   async function load() {
@@ -186,11 +151,7 @@ export function LiveScoresPage() {
       const response = await fetchLiveFixtures();
       setData(response);
       setLoadError(null);
-
-      // Stop polling if the live window is no longer active.
-      if (!response.liveWindowActive) {
-        stopPolling();
-      }
+      if (!response.liveWindowActive) stopPolling();
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Failed to load live scores.');
     } finally {
@@ -199,69 +160,49 @@ export function LiveScoresPage() {
   }
 
   useEffect(() => {
-    // Initial fetch
     void load();
-
-    // Start polling; the interval persists until liveWindowActive goes false or unmount.
-    intervalRef.current = setInterval(() => {
-      void load();
-    }, POLL_INTERVAL_MS);
-
-    return () => {
-      stopPolling();
-    };
+    intervalRef.current = setInterval(() => void load(), POLL_INTERVAL_MS);
+    return () => stopPolling();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20 text-slate-400">
-        Loading live scores…
-      </div>
-    );
-  }
+  if (loading) return <div className="flex items-center justify-center py-20 text-fg-muted">Loading live scores…</div>;
+  if (loadError) return <div className="flex items-center justify-center py-20 text-[13px]" style={{ color: 'var(--loss)' }}>{loadError}</div>;
 
-  if (loadError) {
-    return (
-      <div className="flex items-center justify-center py-20 text-red-400">
-        {loadError}
-      </div>
-    );
-  }
-
-  const noMatches = !data || data.fixtures.length === 0;
   const liveActive = data?.liveWindowActive === true;
+  const liveMatches = data?.fixtures.filter(f => f.status === 'InProgress') ?? [];
+  const otherMatches = data?.fixtures.filter(f => f.status !== 'InProgress') ?? [];
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-6">
-      <div className="flex items-center justify-between mb-1">
-        <h1 className="text-2xl font-bold text-white">Live Scores</h1>
-        {liveActive && (
-          <span className="flex items-center gap-1.5 text-xs text-red-400 font-medium">
-            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse inline-block" />
-            Live updates every 20s
-          </span>
-        )}
-      </div>
+    <div className="max-w-3xl mx-auto px-4 py-4 flex flex-col gap-3">
+      {liveActive && (
+        <div className="flex items-center gap-1.5 text-[12px] font-medium" style={{ color: 'var(--live)' }}>
+          <span className="live-dot w-2 h-2 rounded-full inline-block" style={{ background: 'var(--live)' }} />
+          Live updates every 20s
+        </div>
+      )}
 
-      <p className="text-slate-500 text-xs mb-6">
-        Standings update after each full-time result.
-      </p>
-
-      {noMatches && !liveActive ? (
-        <p className="text-slate-400 text-center py-16">
+      {liveMatches.length === 0 && !liveActive && (
+        <p className="text-fg-muted text-center py-16 text-sm">
           No matches currently live. Live scores will appear here when a match is in progress.
         </p>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {data!.fixtures.map(fixture => (
-            <LiveFixtureCard
-              key={fixture.id}
-              fixture={fixture}
-              goals={data!.goals}
-            />
-          ))}
-        </div>
+      )}
+
+      {liveMatches.map(f => (
+        <LiveFixtureCard key={f.id} fixture={f} goals={data?.goals ?? []} />
+      ))}
+
+      {otherMatches.length > 0 && (
+        <>
+          <p className="text-[11px] font-display font-bold uppercase tracking-[0.08em] text-fg-muted mt-1">
+            Earlier &amp; upcoming
+          </p>
+          <div className="flex flex-col gap-2">
+            {otherMatches.map(f => (
+              <LiveFixtureCard key={f.id} fixture={f} goals={data?.goals ?? []} />
+            ))}
+          </div>
+        </>
       )}
     </div>
   );

@@ -1,59 +1,40 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { ChevronDown } from 'lucide-react';
+import { flagUrl } from '../utils/flagUrl.ts';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+interface Team { id: string; name: string; fifaCode: string; countryCode: string; }
+interface Player { id: string; name: string; teamId: string; teamName: string; position: string; shirtNumber: number | null; }
+interface TournamentPrediction { championTeamId: string | null; goldenSixPlayerIds: string[]; submittedAt: string; }
 
-interface Team {
-  id: string;
-  name: string;
-  fifaCode: string;
-  countryCode: string;
-}
-
-interface Player {
-  id: string;
-  name: string;
-  teamId: string;
-  teamName: string;
-  position: string;
-  shirtNumber: number | null;
-}
-
-interface TournamentPrediction {
-  championTeamId: string | null;
-  goldenSixPlayerIds: string[];
-  submittedAt: string;
-}
-
-// ── Lock hint ─────────────────────────────────────────────────────────────────
-// The server enforces the real lock. This client-side date is only used to show
-// the locked banner — the server will reject any POST/PUT after first kickoff.
 const FIRST_KICKOFF = new Date('2026-06-11T19:00:00Z');
 
-// ── API helpers ───────────────────────────────────────────────────────────────
+// Position display order: FWD → MID → DEF → GK
+const POS_RANK: Record<string, number> = {
+  FWD: 0, Forward: 0, Striker: 0,
+  MID: 1, Midfielder: 1,
+  DEF: 2, Defender: 2,
+  GK: 3, Goalkeeper: 3,
+};
+function posRank(pos: string): number { return POS_RANK[pos] ?? 99; }
 
 async function fetchTeams(): Promise<Team[]> {
   const res = await fetch('/teams', { credentials: 'include' });
   if (!res.ok) return [];
   return res.json() as Promise<Team[]>;
 }
-
 async function fetchPlayers(): Promise<Player[]> {
   const res = await fetch('/players', { credentials: 'include' });
   if (!res.ok) return [];
   return res.json() as Promise<Player[]>;
 }
-
 async function fetchPrediction(): Promise<TournamentPrediction | null> {
   const res = await fetch('/predictions/tournament', { credentials: 'include' });
   if (res.status === 404) return null;
   if (res.ok) return res.json() as Promise<TournamentPrediction>;
   return null;
 }
-
 async function savePrediction(
-  method: 'POST' | 'PUT',
-  championTeamId: string,
-  goldenSixPlayerIds: string[],
+  method: 'POST' | 'PUT', championTeamId: string, goldenSixPlayerIds: string[],
 ): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch('/predictions/tournament', {
     method,
@@ -67,111 +48,217 @@ async function savePrediction(
   return { ok: false, error: body.error ?? `Error ${res.status}` };
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return <h2 className="font-display font-bold text-lg tracking-tight mb-1">{children}</h2>;
+}
 
-/**
- * Tournament prediction screen — champion team + Golden Six top scorers.
- * Editable until the first kickoff; locked server-side thereafter.
- */
+// ── Team grid + expandable player panel ─────────────────────────────────────
+
+interface TeamGridProps {
+  teams: Team[];
+  players: Player[];
+  selectedPlayers: Player[];
+  onAdd: (p: Player) => void;
+  onRemove: (id: string) => void;
+  disabled: boolean;
+}
+
+function TeamGrid({ teams, players, selectedPlayers, onAdd, onRemove, disabled }: TeamGridProps) {
+  const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!expandedTeamId || !panelRef.current) return;
+    const el = panelRef.current;
+    requestAnimationFrame(() => {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, [expandedTeamId]);
+
+  const selectedIds = new Set(selectedPlayers.map(p => p.id));
+  const full = selectedPlayers.length >= 6;
+
+  function toggleTeam(id: string) {
+    setExpandedTeamId(prev => prev === id ? null : id);
+  }
+
+  function teamPlayerCount(teamId: string): number {
+    return selectedPlayers.filter(p => p.teamId === teamId).length;
+  }
+
+  const sortedTeams = [...teams].sort((a, b) => a.fifaCode.localeCompare(b.fifaCode));
+
+  return (
+    <div className="space-y-2">
+      {/* Team grid */}
+      <div className="grid grid-cols-4 gap-1.5">
+        {sortedTeams.map(team => {
+          const count = teamPlayerCount(team.id);
+          const isOpen = expandedTeamId === team.id;
+          const url = flagUrl(team.fifaCode);
+
+          return (
+            <button
+              key={team.id}
+              type="button"
+              disabled={disabled && count === 0}
+              onClick={() => toggleTeam(team.id)}
+              className={`relative flex flex-col items-center gap-1 py-2.5 px-1 rounded-card border transition-colors text-center ${
+                isOpen
+                  ? 'border-secondary bg-blue-500/10'
+                  : count > 0
+                  ? 'border-pitch-500/60 bg-pitch-500/8'
+                  : 'border-border bg-surface hover:bg-surface-2'
+              } disabled:opacity-40 disabled:cursor-not-allowed`}
+            >
+              {url
+                ? <img src={url} alt={team.fifaCode} width={32} height={22} className="flag" />
+                : <span className="w-8 h-5 bg-surface-3 rounded inline-block" />}
+              <span className="font-mono text-[11px] font-semibold text-fg leading-none">{team.fifaCode}</span>
+              {count > 0 && (
+                <span
+                  className="absolute top-1 right-1 font-display font-bold text-[10px] w-4 h-4 rounded-chip grid place-items-center"
+                  style={{ background: 'var(--primary-fill)', color: 'var(--fg-onbrand)' }}
+                >
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Expanded player panel */}
+      {expandedTeamId && (() => {
+        const team = teams.find(t => t.id === expandedTeamId);
+        if (!team) return null;
+        const teamPlayers = players
+          .filter(p => p.teamId === expandedTeamId)
+          .sort((a, b) => posRank(a.position) - posRank(b.position) || a.name.localeCompare(b.name));
+
+        return (
+          <div ref={panelRef} className="rounded-card border border-secondary/50 bg-surface overflow-hidden scroll-mt-20">
+            {/* Panel header */}
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-surface-2">
+              <div className="flex items-center gap-2">
+                {flagUrl(team.fifaCode) && (
+                  <img src={flagUrl(team.fifaCode)} alt="" width={24} height={16} className="flag" />
+                )}
+                <span className="font-display font-bold text-[15px] tracking-tight">{team.name}</span>
+                <span className="font-mono text-[11px] text-fg-muted">{team.fifaCode}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setExpandedTeamId(null)}
+                className="text-fg-muted hover:text-fg transition-colors p-1"
+                aria-label="Close"
+              >
+                <ChevronDown size={16} />
+              </button>
+            </div>
+
+            {/* Player rows */}
+            {teamPlayers.length === 0
+              ? <p className="text-fg-muted text-sm px-4 py-3">No players found for this team.</p>
+              : teamPlayers.map(player => {
+                  const alreadySelected = selectedIds.has(player.id);
+                  const canAdd = !alreadySelected && !full;
+                  return (
+                    <div
+                      key={player.id}
+                      className={`flex items-center gap-3 px-4 py-2.5 border-b border-border last:border-0 transition-colors ${
+                        alreadySelected ? 'bg-pitch-500/8' : 'hover:bg-surface-2'
+                      }`}
+                    >
+                      <span className="font-medium text-[13px] text-fg flex-1 min-w-0 truncate">{player.name}</span>
+                      <span
+                        className="font-mono text-[11px] font-semibold px-1.5 py-0.5 rounded-chip shrink-0"
+                        style={{
+                          background: posRank(player.position) === 0 ? 'var(--live-soft)'
+                            : posRank(player.position) === 1 ? 'var(--win-soft)'
+                            : posRank(player.position) === 2 ? 'var(--warning-soft)'
+                            : 'var(--surface-3)',
+                          color: posRank(player.position) === 0 ? 'var(--live)'
+                            : posRank(player.position) === 1 ? 'var(--win)'
+                            : posRank(player.position) === 2 ? 'var(--warning)'
+                            : 'var(--fg-muted)',
+                        }}
+                      >
+                        {player.position}
+                      </span>
+                      {!disabled && (
+                        alreadySelected
+                          ? <button
+                              type="button"
+                              onClick={() => onRemove(player.id)}
+                              className="text-[11px] font-semibold transition-colors shrink-0"
+                              style={{ color: 'var(--win)' }}
+                            >
+                              ✓ Remove
+                            </button>
+                          : <button
+                              type="button"
+                              disabled={!canAdd}
+                              onClick={() => onAdd(player)}
+                              className="text-[11px] font-semibold transition-colors shrink-0 disabled:opacity-30"
+                              style={{ color: canAdd ? 'var(--secondary)' : undefined }}
+                            >
+                              + Add
+                            </button>
+                      )}
+                    </div>
+                  );
+                })}
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────────
+
 export function TournamentPredictionPage() {
-  const [teams, setTeams]     = useState<Team[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // Existing prediction (if any)
   const [existingPrediction, setExistingPrediction] = useState<TournamentPrediction | null>(null);
-
-  // Form state
-  const [championTeamId, setChampionTeamId]           = useState<string>('');
-  const [selectedPlayers, setSelectedPlayers]         = useState<Player[]>([]);
-
-  // Search state
-  const [teamSearch, setTeamSearch]       = useState('');
-  const [playerSearch, setPlayerSearch]   = useState('');
-
-  // Submission state
-  const [saving, setSaving]         = useState(false);
-  const [saveError, setSaveError]   = useState<string | null>(null);
+  const [championTeamId, setChampionTeamId] = useState('');
+  const [selectedPlayers, setSelectedPlayers] = useState<Player[]>([]);
+  const [teamSearch, setTeamSearch] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
-
-  // Client-side lock hint (server enforces the real lock)
   const isLocked = new Date() >= FIRST_KICKOFF;
 
   useEffect(() => {
-    Promise.all([fetchTeams(), fetchPlayers(), fetchPrediction()]).then(
-      ([teamsData, playersData, prediction]) => {
-        setTeams(teamsData);
-        setPlayers(playersData);
-        if (prediction) {
-          setExistingPrediction(prediction);
-          setChampionTeamId(prediction.championTeamId ?? '');
-          // Hydrate selected players from IDs
-          const selectedById = prediction.goldenSixPlayerIds
-            .map(id => playersData.find(p => p.id === id))
-            .filter((p): p is Player => p !== undefined);
-          setSelectedPlayers(selectedById);
-        }
-      },
-    ).finally(() => setLoading(false));
+    Promise.all([fetchTeams(), fetchPlayers(), fetchPrediction()]).then(([t, p, pred]) => {
+      setTeams(t);
+      setPlayers(p);
+      if (pred) {
+        setExistingPrediction(pred);
+        setChampionTeamId(pred.championTeamId ?? '');
+        setSelectedPlayers(pred.goldenSixPlayerIds.map(id => p.find(pl => pl.id === id)).filter((pl): pl is Player => pl !== undefined));
+      }
+    }).finally(() => setLoading(false));
   }, []);
-
-  // ── Filtered lists ──────────────────────────────────────────────────────────
 
   const filteredTeams = teams.filter(t =>
     t.name.toLowerCase().includes(teamSearch.toLowerCase()) ||
-    t.fifaCode.toLowerCase().includes(teamSearch.toLowerCase()),
+    t.fifaCode.toLowerCase().includes(teamSearch.toLowerCase())
   );
-
-  const selectedPlayerIds = new Set(selectedPlayers.map(p => p.id));
-
-  const filteredPlayers = players.filter(p => {
-    if (selectedPlayerIds.has(p.id)) return false;
-    const q = playerSearch.toLowerCase();
-    return (
-      p.name.toLowerCase().includes(q) ||
-      p.teamName.toLowerCase().includes(q) ||
-      p.position.toLowerCase().includes(q)
-    );
-  });
-
-  // ── Player selection ────────────────────────────────────────────────────────
-
-  function addPlayer(player: Player) {
-    if (selectedPlayers.length >= 6) return;
-    setSelectedPlayers(prev => [...prev, player]);
-  }
-
-  function removePlayer(playerId: string) {
-    setSelectedPlayers(prev => prev.filter(p => p.id !== playerId));
-  }
-
-  // ── Submit ──────────────────────────────────────────────────────────────────
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setSaveError(null);
     setSaveSuccess(false);
-
-    if (!championTeamId) {
-      setSaveError('Please select a champion team.');
-      return;
-    }
-    if (selectedPlayers.length !== 6) {
-      setSaveError('Please select exactly 6 players for the Golden Six.');
-      return;
-    }
-
+    if (!championTeamId) { setSaveError('Please select a champion team.'); return; }
+    if (selectedPlayers.length !== 6) { setSaveError('Please select exactly 6 players for the Golden Six.'); return; }
     setSaving(true);
-    const method = existingPrediction ? 'PUT' : 'POST';
-    const result = await savePrediction(method, championTeamId, selectedPlayers.map(p => p.id));
+    const result = await savePrediction(existingPrediction ? 'PUT' : 'POST', championTeamId, selectedPlayers.map(p => p.id));
     setSaving(false);
-
     if (result.ok) {
-      setExistingPrediction({
-        championTeamId,
-        goldenSixPlayerIds: selectedPlayers.map(p => p.id),
-        submittedAt: new Date().toISOString(),
-      });
+      setExistingPrediction({ championTeamId, goldenSixPlayerIds: selectedPlayers.map(p => p.id), submittedAt: new Date().toISOString() });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 4000);
     } else {
@@ -179,115 +266,114 @@ export function TournamentPredictionPage() {
     }
   }
 
-  // ── Render ──────────────────────────────────────────────────────────────────
-
-  if (loading) {
-    return <div className="p-8 text-slate-400">Loading tournament data…</div>;
-  }
+  if (loading) return <div className="p-8 text-fg-muted">Loading tournament data…</div>;
 
   const championTeam = teams.find(t => t.id === championTeamId);
 
   return (
-    <div className="max-w-2xl mx-auto p-6 space-y-8">
-      <h1 className="text-2xl font-bold text-white">Tournament Predictions</h1>
+    <div className="max-w-2xl mx-auto px-4 py-4 space-y-6">
+      <p className="text-[13px] text-fg-secondary leading-relaxed">
+        Select the team you predict will win the World Cup, and a Golden Six of top scorers.
+        Predictions lock at first kickoff.
+      </p>
 
-      {/* Locked banner */}
       {isLocked && (
-        <div className="bg-amber-950/60 border border-amber-700 text-amber-300 rounded-lg px-4 py-3 text-sm font-medium">
+        <div className="rounded-input px-4 py-3 text-sm font-medium border"
+             style={{ background: 'var(--warning-soft)', borderColor: 'transparent', color: 'var(--warning)' }}>
           Locked — predictions closed. The tournament has started.
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-8">
+      <form onSubmit={handleSubmit} className="space-y-6">
 
-        {/* ── Section 1: Champion ─────────────────────────────────────────── */}
+        {/* ── Champion ─────────────────────────────────────────────────────── */}
         <section>
-          <h2 className="text-lg font-semibold text-white mb-3">Champion</h2>
-          <p className="text-slate-400 text-sm mb-3">Select the team you predict will win the World Cup.</p>
+          <SectionLabel>Champion</SectionLabel>
+          <p className="text-fg-secondary text-[13px] mb-3">Select the team you predict will win the World Cup.</p>
 
-          <input
-            type="text"
-            value={teamSearch}
-            onChange={e => setTeamSearch(e.target.value)}
-            placeholder="Search teams…"
-            disabled={isLocked}
-            className="w-full bg-slate-700 text-white rounded-lg px-4 py-2.5 border border-slate-600
-                       focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500 mb-2
-                       disabled:opacity-50 disabled:cursor-not-allowed"
-          />
+          <input type="text" value={teamSearch} onChange={e => setTeamSearch(e.target.value)}
+            placeholder="Search teams…" disabled={isLocked}
+            className="w-full bg-surface-2 text-fg rounded-input px-4 py-2.5 border border-border placeholder:text-fg-muted mb-2 disabled:opacity-50" />
 
-          {championTeamId && championTeam && (
+          {championTeam && (
             <div className="mb-2 flex items-center gap-2 text-sm">
-              <span className="text-slate-400">Selected:</span>
-              <span className="text-white font-medium">{championTeam.fifaCode} — {championTeam.name}</span>
+              <span className="text-fg-muted">Selected:</span>
+              {flagUrl(championTeam.fifaCode) && (
+                <img src={flagUrl(championTeam.fifaCode)} alt="" width={22} height={15} className="flag" />
+              )}
+              <span className="font-mono font-semibold text-secondary">{championTeam.fifaCode}</span>
+              <span className="font-medium text-fg">{championTeam.name}</span>
               {!isLocked && (
-                <button
-                  type="button"
-                  onClick={() => setChampionTeamId('')}
-                  className="text-slate-500 hover:text-red-400 transition-colors text-xs ml-1"
-                >
+                <button type="button" onClick={() => setChampionTeamId('')}
+                  className="text-fg-muted hover:text-fg-secondary transition-colors text-xs ml-1">
                   Clear
                 </button>
               )}
             </div>
           )}
 
-          <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-600 bg-slate-800">
-            {filteredTeams.length === 0 ? (
-              <p className="text-slate-500 text-sm px-4 py-3">No teams match.</p>
-            ) : (
-              filteredTeams.map(team => (
-                <button
-                  key={team.id}
-                  type="button"
-                  disabled={isLocked}
-                  onClick={() => setChampionTeamId(team.id)}
-                  className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 transition-colors
-                    disabled:opacity-50 disabled:cursor-not-allowed
-                    ${team.id === championTeamId
-                      ? 'bg-blue-700/40 text-white'
-                      : 'text-slate-300 hover:bg-slate-700 hover:text-white'}`}
-                >
-                  <span className="font-mono text-xs text-slate-400 w-8">{team.fifaCode}</span>
-                  <span>{team.name}</span>
-                </button>
-              ))
-            )}
+          <div className="max-h-56 overflow-y-auto appscroll rounded-card border border-border bg-surface">
+            {filteredTeams.length === 0
+              ? <p className="text-fg-muted text-sm px-4 py-3">No teams match.</p>
+              : filteredTeams.map(team => (
+                  <button key={team.id} type="button" disabled={isLocked}
+                    onClick={() => setChampionTeamId(team.id)}
+                    className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 transition-colors disabled:opacity-50 ${
+                      team.id === championTeamId ? 'bg-blue-500/15' : 'hover:bg-surface-2'
+                    }`}>
+                    {flagUrl(team.fifaCode) && (
+                      <img src={flagUrl(team.fifaCode)} alt="" width={22} height={15} className="flag shrink-0" />
+                    )}
+                    <span className="font-mono text-xs text-fg-muted w-8">{team.fifaCode}</span>
+                    <span className={`font-medium ${team.id === championTeamId ? 'text-secondary' : 'text-fg'}`}>{team.name}</span>
+                  </button>
+                ))}
           </div>
         </section>
 
-        {/* ── Section 2: Golden Six ───────────────────────────────────────── */}
+        {/* ── Golden Six ───────────────────────────────────────────────────── */}
         <section>
-          <h2 className="text-lg font-semibold text-white mb-1">Golden Six</h2>
-          <p className="text-slate-400 text-sm mb-3">
-            Select exactly 6 players you predict will be the top scorers.
-            <span className={`ml-2 font-medium ${selectedPlayers.length === 6 ? 'text-green-400' : 'text-amber-400'}`}>
-              {selectedPlayers.length}/6 selected
+          <div className="flex items-center justify-between mb-1">
+            <SectionLabel>Golden Six</SectionLabel>
+            <span className="font-display font-bold text-[13px] tnum"
+                  style={{ color: selectedPlayers.length === 6 ? 'var(--win)' : 'var(--warning)' }}>
+              {selectedPlayers.length}/6
             </span>
+          </div>
+          <p className="text-fg-secondary text-[13px] mb-3">
+            Select exactly 6 players you predict will be the top scorers. Pick a national team below to see its squad.
           </p>
 
-          {/* Selected players list */}
+          {/* Selected players */}
           {selectedPlayers.length > 0 && (
-            <div className="mb-3 space-y-1.5">
+            <div className="mb-4 space-y-1.5">
               {selectedPlayers.map((player, idx) => (
-                <div
-                  key={player.id}
-                  className="flex items-center gap-3 bg-blue-900/30 border border-blue-700/40 rounded-lg px-3 py-2 text-sm"
-                >
-                  <span className="text-slate-500 w-4 text-xs">{idx + 1}.</span>
-                  <span className="text-white font-medium flex-1">{player.name}</span>
-                  <span className="text-slate-400 text-xs">{player.teamName}</span>
-                  <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-slate-700 text-slate-300">
+                <div key={player.id} className="flex items-center gap-3 rounded-input px-3 py-2 text-sm border"
+                     style={{ background: 'var(--win-soft)', borderColor: 'transparent' }}>
+                  <span className="text-fg-muted w-4 text-xs font-mono tnum">{idx + 1}.</span>
+                  <span className="font-medium text-fg flex-1 min-w-0 truncate">{player.name}</span>
+                  <span className="text-fg-muted text-xs shrink-0">{player.teamName}</span>
+                  <span
+                    className="font-mono text-[11px] font-semibold px-1.5 py-0.5 rounded-chip shrink-0"
+                    style={{
+                      background: posRank(player.position) === 0 ? 'var(--live-soft)'
+                        : posRank(player.position) === 1 ? 'var(--win-soft)'
+                        : posRank(player.position) === 2 ? 'var(--warning-soft)'
+                        : 'var(--surface-3)',
+                      color: posRank(player.position) === 0 ? 'var(--live)'
+                        : posRank(player.position) === 1 ? 'var(--win)'
+                        : posRank(player.position) === 2 ? 'var(--warning)'
+                        : 'var(--fg-muted)',
+                    }}
+                  >
                     {player.position}
                   </span>
                   {!isLocked && (
-                    <button
-                      type="button"
-                      onClick={() => removePlayer(player.id)}
-                      className="text-slate-500 hover:text-red-400 transition-colors ml-1 text-xs"
-                      aria-label={`Remove ${player.name}`}
-                    >
-                      Remove
+                    <button type="button"
+                      onClick={() => setSelectedPlayers(prev => prev.filter(p => p.id !== player.id))}
+                      className="text-fg-muted hover:text-fg transition-colors text-xs shrink-0"
+                      aria-label={`Remove ${player.name}`}>
+                      ✕
                     </button>
                   )}
                 </div>
@@ -295,65 +381,32 @@ export function TournamentPredictionPage() {
             </div>
           )}
 
-          {/* Player search input */}
-          {!isLocked && selectedPlayers.length < 6 && (
-            <>
-              <input
-                type="text"
-                value={playerSearch}
-                onChange={e => setPlayerSearch(e.target.value)}
-                placeholder="Search players by name, team, or position…"
-                className="w-full bg-slate-700 text-white rounded-lg px-4 py-2.5 border border-slate-600
-                           focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500 mb-2"
-              />
-
-              <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-600 bg-slate-800">
-                {filteredPlayers.length === 0 ? (
-                  <p className="text-slate-500 text-sm px-4 py-3">
-                    {playerSearch ? 'No players match.' : 'Type to search players.'}
-                  </p>
-                ) : (
-                  filteredPlayers.slice(0, 50).map(player => (
-                    <button
-                      key={player.id}
-                      type="button"
-                      onClick={() => addPlayer(player)}
-                      disabled={selectedPlayers.length >= 6}
-                      className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-3
-                                 text-slate-300 hover:bg-slate-700 hover:text-white transition-colors
-                                 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <span className="flex-1 font-medium">{player.name}</span>
-                      <span className="text-slate-400 text-xs">{player.teamName}</span>
-                      <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-slate-700 text-slate-300">
-                        {player.position}
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
-            </>
-          )}
+          {/* Team grid + expanded player panel */}
+          {!isLocked || selectedPlayers.length > 0 ? (
+            <TeamGrid
+              teams={teams}
+              players={players}
+              selectedPlayers={selectedPlayers}
+              onAdd={p => setSelectedPlayers(prev => prev.length < 6 ? [...prev, p] : prev)}
+              onRemove={id => setSelectedPlayers(prev => prev.filter(p => p.id !== id))}
+              disabled={isLocked}
+            />
+          ) : null}
         </section>
 
-        {/* ── Feedback ─────────────────────────────────────────────────────── */}
         {saveError && (
-          <p className="text-red-400 text-sm bg-red-950/40 rounded-lg px-4 py-2">{saveError}</p>
+          <p className="text-[13px] px-4 py-2 rounded-input" style={{ color: 'var(--loss)', background: 'var(--live-soft)' }}>{saveError}</p>
         )}
         {saveSuccess && (
-          <p className="text-green-400 text-sm bg-green-950/40 rounded-lg px-4 py-2">
-            {existingPrediction ? 'Prediction saved.' : 'Prediction created.'}
+          <p className="text-[13px] px-4 py-2 rounded-input" style={{ color: 'var(--win)', background: 'var(--win-soft)' }}>
+            Prediction saved.
           </p>
         )}
 
-        {/* ── Save button ────────────────────────────────────────────────── */}
         {!isLocked && (
-          <button
-            type="submit"
-            disabled={saving}
-            className="bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:cursor-not-allowed
-                       text-white font-semibold rounded-lg px-6 py-2.5 transition-colors"
-          >
+          <button type="submit" disabled={saving}
+            className="font-semibold rounded-input px-6 py-2.5 transition-colors disabled:opacity-50"
+            style={{ background: 'var(--primary-fill)', color: 'var(--fg-onbrand)' }}>
             {saving ? 'Saving…' : existingPrediction ? 'Update prediction' : 'Save prediction'}
           </button>
         )}
