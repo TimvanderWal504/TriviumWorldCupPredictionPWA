@@ -9,8 +9,7 @@
 - TWC-20 (Entra) remains BLOCKED.
 
 ## Planned waves
-- **Wave 7** — TWC-32 knockout resolver (group standings → R32, 8 best third-placed allocation, round propagation, idempotent). Must precede the knockout E2E.
-- **Wave 8** — E2E suite (epic TWC-21): TWC-22 foundation first, then TWC-23–TWC-30 in parallel; TWC-31 (knockout E2E) after Wave 7.
+- **Wave 8** — E2E suite (epic TWC-21): TWC-22 foundation ✅, area specs TWC-23–TWC-30 in parallel; TWC-31 (knockout E2E) unblocked by TWC-32 ✅.
 - **Wave 9 — final** — TWC-20 real Entra integration (human-gated on the Entra app registration).
 
 ## Accepted (Done)
@@ -48,7 +47,7 @@
 - **TWC-18** ✅ — Push notifications: opt-in Web Push reminders (VAPID)
 
 ### Wave 8a — E2E foundation
-- **TWC-22** ✅ — Playwright harness: `e2e/` directory, 9 page objects, login/switch helper, DB seed/reset (non-prod gated), kickoff-override + result-injection endpoints, football API stub. 16/16 smoke tests pass. **PR #9 open — merge to unblock Wave 8b.** (`feature/TWC-17`)
+- **TWC-22** ✅ — Playwright harness: `e2e/` directory, 9 page objects, login/switch helper, DB seed/reset (non-prod gated), kickoff-override + result-injection endpoints, football API stub. 16/16 smoke tests pass. (`feature/TWC-17`, PR #9 merged)
 
 ### Wave 8 — E2E
 - **TWC-22** ✅ — Playwright harness: `e2e/` project, mock-auth login helper, seed/reset helper, time/result control endpoints (`/e2e/*`, non-Production), page objects for all 8 screens, 16/16 smoke tests green (`feature/TWC-22-impl`)
@@ -75,7 +74,7 @@
 
 ### .NET API
 ```
-dotnet test TriviumWorldCup.sln   # 324 tests
+dotnet test TriviumWorldCup.sln   # 351 tests
 dotnet run --project src/TriviumWorldCup.Api  # Swagger at http://localhost:5009/swagger
 ```
 
@@ -103,6 +102,5 @@ BASE_URL=http://localhost:5173 npx playwright test  # Vite dev + dotnet run
 ```
 
 ## Next action
-1. **Wave 7** — implement TWC-32 (knockout resolver); this unblocks the knockout flow end to end.
-2. **Wave 8 continued** — area specs TWC-23–TWC-28 in parallel (mvp-scope); TWC-29/30 (post-mvp) in parallel; TWC-31 (knockout E2E) after TWC-32.
-3. **Wave 9 (final)** — TWC-20 real Entra, once the app registration is provided.
+1. **Wave 8** — area specs TWC-23–TWC-28 in parallel (mvp-scope); TWC-29/30 (post-mvp) in parallel; TWC-31 (knockout E2E, unblocked by TWC-32).
+2. **Wave 9 (final)** — TWC-20 real Entra, once the app registration is provided.
