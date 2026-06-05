@@ -41,6 +41,7 @@ services:
       Auth__Provider:               ${AUTH__PROVIDER:-link}
       ConnectionStrings__Postgres:  "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       Football__ApiKey:             ${FOOTBALL__APIKEY:-}
+      ADMIN_USER_ID:                ${ADMIN_USER_ID:-00000000-0000-0000-0000-000000000000}
       Push__VapidPublicKey:         ${PUSH__VAPIDPUBLICKEY:-}
       Push__VapidPrivateKey:        ${PUSH__VAPIDPRIVATEKEY:-}
       Push__VapidSubject:           ${PUSH__VAPIDSUBJECT:-}

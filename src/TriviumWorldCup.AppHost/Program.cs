@@ -5,6 +5,7 @@ var footballApiKey  = builder.AddParameter("football-api-key",  secret: true);
 var vapidPublicKey  = builder.AddParameter("vapid-public-key");
 var vapidPrivateKey = builder.AddParameter("vapid-private-key", secret: true);
 var vapidSubject    = builder.AddParameter("vapid-subject");
+var adminUserId     = builder.AddParameter("admin-user-id",  secret: true);
 
 // ── PostgreSQL ────────────────────────────────────────────────────────────────
 var postgres = builder.AddPostgres("pg")
@@ -17,6 +18,7 @@ var db = postgres.AddDatabase("Postgres");
 var api = builder.AddProject<Projects.TriviumWorldCup_Api>("api")
     .WithReference(db)
     .WaitFor(postgres)
+    .WithEnvironment("ADMIN_USER_ID",           adminUserId)
     .WithEnvironment("Football__ApiKey",        footballApiKey)
     .WithEnvironment("Push__VapidPublicKey",    vapidPublicKey)
     .WithEnvironment("Push__VapidPrivateKey",   vapidPrivateKey)
