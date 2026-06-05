@@ -37,7 +37,8 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      ASPNETCORE_ENVIRONMENT:       ${ASPNETCORE_ENVIRONMENT:-Staging}
+      ASPNETCORE_ENVIRONMENT:       ${ASPNETCORE_ENVIRONMENT:-Production}
+      Auth__Provider:               ${AUTH__PROVIDER:-link}
       ConnectionStrings__Postgres:  "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       Football__ApiKey:             ${FOOTBALL__APIKEY:-}
       Push__VapidPublicKey:         ${PUSH__VAPIDPUBLICKEY:-}

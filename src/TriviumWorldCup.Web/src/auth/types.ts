@@ -22,6 +22,8 @@ export interface AuthContextValue {
   isLoading: boolean;
   /** True when the authenticated user has completed profile setup. */
   hasProfile: boolean;
+  /** True when the API is running the link auth provider (admin-managed users). */
+  isLinkAuth: boolean;
   /** Sign out the current user. */
   signOut: () => Promise<void>;
   /** Called after profile creation to re-hydrate auth state. */

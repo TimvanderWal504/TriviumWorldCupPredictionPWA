@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using TriviumWorldCup.Api.Admin;
 using TriviumWorldCup.Api.Auth;
-using TriviumWorldCup.Api.Auth.Mock;
+using TriviumWorldCup.Api.Auth.Link;
 using TriviumWorldCup.Api.Data;
 using TriviumWorldCup.Api.Domain;
 using TriviumWorldCup.Api.E2E;
@@ -57,6 +57,8 @@ builder.Services.AddMarten(opts =>
     opts.Schema.For<ResultOverride>().Identity(o => o.Id);
     // PushSubscription — Web Push device subscription (TWC-18).
     opts.Schema.For<PushSubscription>().Identity(p => p.Id);
+    // InviteUser — admin-managed users for the link auth provider.
+    opts.Schema.For<InviteUser>().Identity(u => u.Id);
 }).UseLightweightSessions();
 
 // Scoring recompute service — TWC-8
@@ -103,9 +105,11 @@ if (app.Environment.IsDevelopment())
 // Auth middleware — resolves current user for all downstream handlers
 app.UseCurrentUser();
 
-// Mock auth endpoints — only registered when mock provider is active
-if (app.Configuration["Auth:Provider"]?.ToLowerInvariant() != "entra")
-    app.MapMockAuthEndpoints();
+// Auth endpoints — link provider (includes /auth/me and /auth/link/login)
+// TWC-20: swap for EntraAuthEndpoints when Entra is wired up.
+var activeProvider = (app.Configuration["Auth:Provider"] ?? "link").ToLowerInvariant();
+if (activeProvider != "entra")
+    app.MapLinkAuthEndpoints();
 
 // Health endpoint — used by Docker Compose health check
 app.MapHealthChecks("/health", new HealthCheckOptions

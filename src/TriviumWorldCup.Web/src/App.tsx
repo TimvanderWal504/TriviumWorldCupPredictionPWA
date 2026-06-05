@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Radio, ListChecks, Trophy, BarChart3, User } from 'lucide-react';
 import { AuthProvider } from './auth/AuthContext.tsx';
-import { DevUserSwitcher } from './auth/DevUserSwitcher.tsx';
 import { OfflineBanner } from './components/OfflineBanner.tsx';
 import { ProfileSetupModal } from './auth/ProfileSetupModal.tsx';
 import { AdminPage } from './pages/AdminPage.tsx';
@@ -15,7 +14,6 @@ import { StandingsPage } from './pages/StandingsPage.tsx';
 import { TournamentPredictionPage } from './pages/TournamentPredictionPage.tsx';
 import { useAuth } from './auth/useAuth.ts';
 
-const IS_PROD = import.meta.env.PROD;
 
 type Tab = 'live' | 'predict' | 'bracket' | 'ranks' | 'me';
 // 'tournament' is a sub-page within the 'predict' tab, not a top-level subPage
@@ -125,12 +123,8 @@ function AppShell() {
             {pageTitle}
           </h1>
 
-          {/* Right — DEV switcher or empty spacer */}
-          <div className="shrink-0">
-            {!IS_PROD && user && hasProfile
-              ? <DevUserSwitcher />
-              : <div className="w-[52px]" />}
-          </div>
+          {/* Right — spacer keeps title centred */}
+          <div className="shrink-0 w-[52px]" />
         </header>
       )}
 
@@ -141,7 +135,7 @@ function AppShell() {
             <p className="font-display font-black text-[13px] tracking-[0.25em] text-pitch-500 uppercase mb-3">TWC 2026</p>
             <h1 className="font-display font-black text-4xl tracking-tight mb-3">Trivium World Cup<br />2026</h1>
             <p className="text-fg-secondary text-base mb-8 max-w-xs">Prediction pool — sign in to start predicting.</p>
-            {!IS_PROD && <DevUserSwitcher />}
+            <p className="text-fg-muted text-sm">Open your personal login link to sign in.</p>
           </div>
 
         ) : tab === 'live' ? (

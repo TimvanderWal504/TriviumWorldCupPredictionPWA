@@ -1,6 +1,7 @@
 using Marten;
 using Microsoft.AspNetCore.Mvc;
 using TriviumWorldCup.Api.Auth;
+using TriviumWorldCup.Api.Auth.Link;
 using TriviumWorldCup.Api.Domain;
 using TriviumWorldCup.Api.Knockout;
 using TriviumWorldCup.Api.Scoring;
@@ -317,6 +318,96 @@ public static class AdminEndpoints
         .WithName("SetKnockoutSlotResult")
         .WithSummary("Manually sets the result of a knockout slot, propagates bracket, and triggers recompute.");
 
+        // ── GET /admin/users ──────────────────────────────────────────────────
+        // Returns all InviteUsers. Only meaningful when Auth:Provider = "link".
+        group.MapGet("/users", async (
+            HttpContext context,
+            IDocumentStore store,
+            CancellationToken ct) =>
+        {
+            var user = context.GetAppUser();
+            if (!user.IsInRole("admin"))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            await using var session = store.LightweightSession();
+            var users = await session.Query<InviteUser>()
+                .OrderBy(u => u.DisplayName)
+                .ToListAsync(ct);
+
+            return Results.Ok(users.Select(u => new
+            {
+                u.Id,
+                u.DisplayName,
+                u.Roles,
+                u.CreatedAt,
+                loginPath = $"/auth/link/login?id={u.Id}",
+            }));
+        })
+        .WithName("GetInviteUsers")
+        .WithSummary("Lists all admin-managed users (link auth provider).");
+
+        // ── POST /admin/users ─────────────────────────────────────────────────
+        group.MapPost("/users", async (
+            HttpContext context,
+            [FromBody] CreateUserRequest request,
+            IDocumentSession session,
+            CancellationToken ct) =>
+        {
+            var user = context.GetAppUser();
+            if (!user.IsInRole("admin"))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            if (string.IsNullOrWhiteSpace(request.DisplayName))
+                return Results.BadRequest(new { error = "DisplayName is required." });
+
+            var newUser = new InviteUser
+            {
+                Id          = Guid.NewGuid().ToString(),
+                DisplayName = request.DisplayName.Trim(),
+                Roles       = ["user"],
+                CreatedAt   = DateTimeOffset.UtcNow,
+            };
+
+            session.Store(newUser);
+            await session.SaveChangesAsync(ct);
+
+            return Results.Created(
+                $"/admin/users/{newUser.Id}",
+                new
+                {
+                    newUser.Id,
+                    newUser.DisplayName,
+                    newUser.Roles,
+                    newUser.CreatedAt,
+                    loginPath = $"/auth/link/login?id={newUser.Id}",
+                });
+        })
+        .WithName("CreateInviteUser")
+        .WithSummary("Creates a new admin-managed user and returns their login link (link auth provider).");
+
+        // ── DELETE /admin/users/{id} ──────────────────────────────────────────
+        group.MapDelete("/users/{id}", async (
+            string id,
+            HttpContext context,
+            IDocumentSession session,
+            CancellationToken ct) =>
+        {
+            var user = context.GetAppUser();
+            if (!user.IsInRole("admin"))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            var target = await session.LoadAsync<InviteUser>(id, ct);
+            if (target is null)
+                return Results.NotFound(new { error = $"User '{id}' not found." });
+
+            session.Delete<InviteUser>(id);
+            await session.SaveChangesAsync(ct);
+
+            return Results.NoContent();
+        })
+        .WithName("DeleteInviteUser")
+        .WithSummary("Deletes an admin-managed user (link auth provider).");
+
         // ── POST /admin/recompute ─────────────────────────────────────────────
         group.MapPost("/recompute", async (
             HttpContext context,
@@ -352,6 +443,9 @@ public static class AdminEndpoints
         return new Guid(hash);
     }
 }
+
+/// <summary>Request body for POST /admin/users.</summary>
+public sealed record CreateUserRequest(string DisplayName);
 
 /// <summary>Request body for POST /admin/fixtures/{id}/result.</summary>
 public sealed record SetResultRequest(int HomeScore, int AwayScore);

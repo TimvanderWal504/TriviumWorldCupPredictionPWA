@@ -10,9 +10,23 @@ interface OverrideRecord {
   targetType: string; targetId: string; description: string;
 }
 
+interface InviteUserDto {
+  id: string;
+  displayName: string;
+  roles: string[];
+  createdAt: string;
+  loginPath: string;
+}
+
 export function AdminPage() {
-  const { user } = useAuth();
+  const { user, isLinkAuth } = useAuth();
   const isAdmin = user?.roles?.includes('admin') ?? false;
+
+  const [inviteUsers, setInviteUsers] = useState<InviteUserDto[]>([]);
+  const [newUserName, setNewUserName] = useState('');
+  const [createdLoginUrl, setCreatedLoginUrl] = useState<string | null>(null);
+  const [userError, setUserError] = useState<string | null>(null);
+  const [userBusy, setUserBusy] = useState(false);
 
   const [ingestion, setIngestion] = useState<IngestionStatus | null>(null);
   const [ingestionError, setIngestionError] = useState<string | null>(null);
@@ -28,8 +42,47 @@ export function AdminPage() {
   useEffect(() => {
     if (!isAdmin) return;
     fetchIngestion(); fetchOverrides();
+    if (isLinkAuth) fetchInviteUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAdmin]);
+  }, [isAdmin, isLinkAuth]);
+
+  function fetchInviteUsers() {
+    fetch('/admin/users', { credentials: 'include' })
+      .then(r => r.json())
+      .then((data: InviteUserDto[]) => setInviteUsers(data))
+      .catch(() => {});
+  }
+
+  async function handleCreateUser(e: React.FormEvent) {
+    e.preventDefault();
+    setUserError(null);
+    setCreatedLoginUrl(null);
+    if (!newUserName.trim()) { setUserError('Name is required.'); return; }
+    setUserBusy(true);
+    try {
+      const res = await fetch('/admin/users', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: newUserName.trim() }),
+      });
+      if (!res.ok) { const b = await res.json().catch(() => ({})); setUserError((b as { error?: string }).error ?? `HTTP ${res.status}`); return; }
+      const created = await res.json() as InviteUserDto;
+      setCreatedLoginUrl(window.location.origin + created.loginPath);
+      setNewUserName('');
+      fetchInviteUsers();
+    } catch (err) {
+      setUserError(String(err));
+    } finally {
+      setUserBusy(false);
+    }
+  }
+
+  async function handleDeleteUser(id: string) {
+    if (!confirm('Remove this user? Their predictions stay but they can no longer log in.')) return;
+    await fetch(`/admin/users/${id}`, { method: 'DELETE', credentials: 'include' });
+    fetchInviteUsers();
+    setCreatedLoginUrl(null);
+  }
 
   if (!isAdmin) {
     return (
@@ -96,6 +149,81 @@ export function AdminPage() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-4 space-y-6">
+
+
+
+      {/* Users — link auth provider only */}
+      {isLinkAuth && (
+        <section className="rounded-card bg-surface border border-border p-5 space-y-4">
+          <h2 className="font-display font-bold text-lg tracking-tight">Users</h2>
+
+          {/* Create user */}
+          <form onSubmit={handleCreateUser} className="flex gap-2 items-end">
+            <div className="flex-1">
+              <label htmlFor="newUserName" className={labelCls}>Display name</label>
+              <input
+                id="newUserName" type="text" value={newUserName}
+                onChange={e => setNewUserName(e.target.value)}
+                placeholder="e.g. Jan" className={`${inputCls} w-full`}
+              />
+            </div>
+            <button type="submit" disabled={userBusy}
+              className="px-4 py-2 rounded-input text-sm font-semibold transition-colors disabled:opacity-50"
+              style={{ background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }}>
+              {userBusy ? 'Creating…' : 'Create user'}
+            </button>
+          </form>
+          {userError && <p className="text-sm" style={{ color: 'var(--loss)' }}>{userError}</p>}
+
+          {/* Login link after creation */}
+          {createdLoginUrl && (
+            <div className="rounded-input p-3 space-y-1" style={{ background: 'var(--win-soft)' }}>
+              <p className="text-[11px] font-display font-bold uppercase tracking-wider" style={{ color: 'var(--win)' }}>
+                User created — share this login link:
+              </p>
+              <div className="flex gap-2 items-center">
+                <code className="text-xs break-all flex-1" style={{ color: 'var(--fg)' }}>{createdLoginUrl}</code>
+                <button
+                  onClick={() => navigator.clipboard.writeText(createdLoginUrl)}
+                  className="px-2.5 py-1 rounded-input text-[12px] font-semibold shrink-0"
+                  style={{ background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }}>
+                  Copy
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* User list */}
+          {inviteUsers.length > 0 && (
+            <div className="divide-y divide-border">
+              {inviteUsers.map(u => (
+                <div key={u.id} className="flex items-center justify-between py-2.5 gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-sm text-fg truncate">{u.displayName}</p>
+                    <p className="text-[11px] text-fg-muted font-mono truncate">{window.location.origin}/auth/link/login?id={u.id}</p>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      onClick={() => navigator.clipboard.writeText(`${window.location.origin}/auth/link/login?id=${u.id}`)}
+                      className="px-2.5 py-1 rounded-input text-[12px] font-semibold bg-surface-3 text-fg-secondary">
+                      Copy link
+                    </button>
+                    <button
+                      onClick={() => handleDeleteUser(u.id)}
+                      className="px-2.5 py-1 rounded-input text-[12px] font-semibold"
+                      style={{ background: 'var(--live-soft)', color: 'var(--loss)' }}>
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {inviteUsers.length === 0 && (
+            <p className="text-sm text-fg-muted">No users yet. Create one above.</p>
+          )}
+        </section>
+      )}
 
       {/* Ingestion health */}
       <section className="rounded-card bg-surface border border-border p-5 space-y-4">

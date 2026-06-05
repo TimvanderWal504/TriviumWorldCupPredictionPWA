@@ -50,6 +50,14 @@ public static class TournamentSeed
         foreach (var player in PlayersData.All)
             session.Store(player);
 
+        // Store initial user profiles
+        foreach (var invite in InviteUsersData.All)
+            session.Store(invite);
+
+        // Store initial user profiles
+        foreach (var profile in UserProfilesData.All)
+            session.Store(profile);
+
         await session.SaveChangesAsync(cancellationToken);
     }
 }

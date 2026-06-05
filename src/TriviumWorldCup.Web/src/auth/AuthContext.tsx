@@ -10,13 +10,22 @@ export const AuthContext = createContext<AuthContextValue | null>(null);
 interface MeResponse {
   authenticated: boolean;
   user: AppUser | null;
+  authProvider?: string;
 }
 
-async function fetchCurrentUser(): Promise<AppUser | null> {
+interface MeResult {
+  user: AppUser | null;
+  authProvider: string | null;
+}
+
+async function fetchCurrentUser(): Promise<MeResult> {
   const res = await fetch('/auth/me', { credentials: 'include' });
-  if (!res.ok) return null;
+  if (!res.ok) return { user: null, authProvider: null };
   const data = (await res.json()) as MeResponse;
-  return data.authenticated ? data.user : null;
+  return {
+    user: data.authenticated ? data.user : null,
+    authProvider: data.authProvider ?? null,
+  };
 }
 
 async function checkProfileExists(_userId: string): Promise<boolean> {
@@ -44,11 +53,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [hasProfile, setHasProfile] = useState(false);
+  const [authProvider, setAuthProvider] = useState<string | null>(null);
+
+  const isLinkAuth = authProvider === 'link';
 
   const loadAuthState = useCallback(async () => {
     try {
-      const currentUser = await fetchCurrentUser();
+      const { user: currentUser, authProvider: provider } = await fetchCurrentUser();
       setUser(currentUser);
+      setAuthProvider(provider);
       if (currentUser) {
         const profileExists = await checkProfileExists(currentUser.userId);
         setHasProfile(profileExists);
@@ -68,7 +81,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [loadAuthState]);
 
   const signOut = useCallback(async () => {
-    await postSignOut();
+    await fetch('/auth/link/logout', { method: 'POST', credentials: 'include' });
     setUser(null);
     setHasProfile(false);
   }, []);
@@ -76,12 +89,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Called by ProfileSetupModal after successful POST /profile.
   // Re-fetches /auth/me so the display name reflects the chosen profile name.
   const onProfileCreated = useCallback(async () => {
-    const updatedUser = await fetchCurrentUser();
+    const { user: updatedUser } = await fetchCurrentUser();
     setUser(updatedUser);
     setHasProfile(true);
   }, []);
 
-  const value: AuthContextValue = { user, isLoading, hasProfile, signOut, onProfileCreated };
+  const value: AuthContextValue = { user, isLoading, hasProfile, isLinkAuth, signOut, onProfileCreated };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
