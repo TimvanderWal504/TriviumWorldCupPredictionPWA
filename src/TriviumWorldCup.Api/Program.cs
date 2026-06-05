@@ -156,11 +156,10 @@ app.MapKnockoutSlotEndpoints();
 // Knockout prediction endpoints -- GET/POST/PUT /predictions/knockout/{slotKey}
 app.MapKnockoutPredictionEndpoints();
 
-// E2E test-control endpoints — only registered outside Production (TWC-22)
+// E2E test-control endpoints — Development only (TWC-22).
 // Provides seed/reset, fixture kickoff override, and deterministic result injection.
-// Cannot run in Production: the mock auth provider guard prevents this too, but
-// we apply an independent environment check for defence-in-depth.
-if (!app.Environment.IsProduction())
+// Intentionally excluded from Staging and Production.
+if (app.Environment.IsDevelopment())
     app.MapTestControlEndpoints();
 
 // ── Tournament seed ───────────────────────────────────────────────────────────
