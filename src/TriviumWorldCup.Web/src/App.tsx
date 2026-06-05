@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Radio, ListChecks, Trophy, BarChart3, User } from 'lucide-react';
+import { Radio, ListChecks, Trophy, BarChart3, User, NotebookPen } from 'lucide-react';
 import { AuthProvider } from './auth/AuthContext.tsx';
 import { OfflineBanner } from './components/OfflineBanner.tsx';
 import { ProfileSetupModal } from './auth/ProfileSetupModal.tsx';
@@ -15,9 +15,9 @@ import { TournamentPredictionPage } from './pages/TournamentPredictionPage.tsx';
 import { useAuth } from './auth/useAuth.ts';
 
 
-type Tab = 'live' | 'predict' | 'bracket' | 'ranks' | 'me';
+type Tab = 'live' | 'predict' | 'bracket' | 'ranks' | 'rules' | 'me';
 // 'tournament' is a sub-page within the 'predict' tab, not a top-level subPage
-type SubPage = 'profile' | 'rules' | 'admin' | null;
+type SubPage = 'profile' | 'admin' | null;
 type PredictView = 'group' | 'tournament';
 
 const ALL_TABS: { id: Tab; label: string; Icon: React.FC<{ size?: number }> }[] = [
@@ -25,6 +25,7 @@ const ALL_TABS: { id: Tab; label: string; Icon: React.FC<{ size?: number }> }[] 
   { id: 'predict', label: 'Predict', Icon: ListChecks },
   { id: 'bracket', label: 'Bracket', Icon: Trophy },
   { id: 'ranks',   label: 'Ranks',   Icon: BarChart3 },
+  { id: 'rules',   label: 'Rules',   Icon: NotebookPen },
   { id: 'me',      label: 'Me',      Icon: User },
 ];
 
@@ -33,12 +34,12 @@ const TAB_TITLES: Record<Tab, string> = {
   predict: 'Predictions',
   bracket: 'Knockout Bracket',
   ranks:   'Leaderboard',
+  rules:   'Rules & Scoring',
   me:      'My Standings',
 };
 
 const SUB_TITLES: Record<NonNullable<SubPage>, string> = {
   profile: 'Profile',
-  rules:   'Rules & Scoring',
   admin:   'Admin',
 };
 
@@ -158,12 +159,14 @@ function AppShell() {
         ) : tab === 'ranks' ? (
           <LeaderboardPage />
 
+        ) : tab === 'rules' ? (
+          <RulesPage />
+
         ) : tab === 'me' ? (
           <div>
             <div className="px-4 pt-4 pb-2 flex flex-wrap gap-2">
               <SubPill active={subPage === null} onClick={() => setSubPage(null)}>Standings</SubPill>
               <SubPill active={subPage === 'profile'} onClick={() => setSubPage('profile')}>Profile</SubPill>
-              <SubPill active={subPage === 'rules'} onClick={() => setSubPage('rules')}>Rules</SubPill>
               {user.roles?.includes('admin') && (
                 <SubPill active={subPage === 'admin'} onClick={() => setSubPage('admin')} accent>Admin</SubPill>
               )}
@@ -175,7 +178,6 @@ function AppShell() {
               </button>
             </div>
             {subPage === 'profile' ? <ProfilePage />
-              : subPage === 'rules'   ? <RulesPage />
               : subPage === 'admin'   ? <AdminPage />
               : <StandingsPage />}
           </div>
