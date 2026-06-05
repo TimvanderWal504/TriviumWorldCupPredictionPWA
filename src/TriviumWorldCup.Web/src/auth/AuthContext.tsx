@@ -36,10 +36,6 @@ async function checkProfileExists(_userId: string): Promise<boolean> {
   return false;
 }
 
-async function postSignOut(): Promise<void> {
-  await fetch('/auth/mock/logout', { method: 'POST', credentials: 'include' });
-}
-
 interface AuthProviderProps {
   children: ReactNode;
 }
