@@ -174,44 +174,56 @@ public class KnockoutMatchScorerTests
         Assert.Equal(20, pts);
     }
 
-    // ── Wrong winner: 0 regardless of score ──────────────────────────────────
+    // ── Wrong winner + wrong score: 0 ────────────────────────────────────────
 
     [Fact]
-    public void WrongWinner_Returns0_Final()
+    public void WrongWinner_WrongScore_Returns0_Final()
     {
+        // Wrong winner AND wrong score — no points at all.
+        var pts = KnockoutMatchScorer.Compute("BRA", 3, 1, "ARG", 2, 1, Round.Final);
+        Assert.Equal(0, pts);
+    }
+
+    [Fact]
+    public void WrongWinner_WrongScore_Returns0_QF()
+    {
+        var pts = KnockoutMatchScorer.Compute("BRA", 3, 0, "ARG", 2, 1, Round.QF);
+        Assert.Equal(0, pts);
+    }
+
+    [Fact]
+    public void WrongWinner_WrongScore_Returns0_R32()
+    {
+        var pts = KnockoutMatchScorer.Compute("BRA", 1, 0, "ARG", 0, 0, Round.R32);
+        Assert.Equal(0, pts);
+    }
+
+    // ── Exact score but wrong winner: score bonus only (3 × multiplier) ─────────
+    // The score bonus is independent — earned even when the advancing team is wrong.
+
+    [Fact]
+    public void ExactScore_WrongWinner_EarnsScoreBonusOnly_Final()
+    {
+        // Predicted BRA wins 2-1; actual ARG wins 2-1 — score exact, winner wrong.
+        // 0 (wrong winner) + 3 (exact score) = 3 × 3.0 = 9
         var pts = KnockoutMatchScorer.Compute("BRA", 2, 1, "ARG", 2, 1, Round.Final);
-        Assert.Equal(0, pts);
+        Assert.Equal(9, pts);
     }
 
     [Fact]
-    public void WrongWinner_Returns0_QF()
+    public void ExactScore_WrongWinner_EarnsScoreBonusOnly_SF()
     {
-        var pts = KnockoutMatchScorer.Compute("BRA", 2, 1, "ARG", 2, 1, Round.QF);
-        Assert.Equal(0, pts);
-    }
-
-    [Fact]
-    public void WrongWinner_Returns0_R32()
-    {
-        var pts = KnockoutMatchScorer.Compute("BRA", 0, 0, "ARG", 0, 0, Round.R32);
-        Assert.Equal(0, pts);
-    }
-
-    // ── Exact score but wrong winner: 0 (score bonus only when winner correct) ─
-
-    [Fact]
-    public void ExactScore_WrongWinner_Returns0()
-    {
-        // Predicted BRA wins 2-1; actual ARG wins 2-1 — score is exact but winner wrong.
-        var pts = KnockoutMatchScorer.Compute("BRA", 2, 1, "ARG", 2, 1, Round.Final);
-        Assert.Equal(0, pts);
-    }
-
-    [Fact]
-    public void ExactScore_WrongWinner_Returns0_SF()
-    {
+        // 0 + 3 = 3 × 2.5 = 7 (integer truncation of 7.5)
         var pts = KnockoutMatchScorer.Compute("ENG", 1, 0, "FRA", 1, 0, Round.SF);
-        Assert.Equal(0, pts);
+        Assert.Equal(7, pts);
+    }
+
+    [Fact]
+    public void ExactScore_WrongWinner_EarnsScoreBonusOnly_R32()
+    {
+        // 0 + 3 = 3 × 1.0 = 3
+        var pts = KnockoutMatchScorer.Compute("BRA", 0, 0, "ARG", 0, 0, Round.R32);
+        Assert.Equal(3, pts);
     }
 
     // ── Advance-vs-score independence ─────────────────────────────────────────
@@ -309,8 +321,9 @@ public class KnockoutMatchScorerTests
     [Fact]
     public void SF_WrongWinner_EqualToThirdPlace_WrongWinner()
     {
-        var sfPts = KnockoutMatchScorer.Compute("FRA", 1, 0, "ESP", 1, 0, Round.SF);
-        var tpPts = KnockoutMatchScorer.Compute("FRA", 1, 0, "ESP", 1, 0, Round.ThirdPlace);
+        // Wrong winner + wrong score: both rounds give 0, confirming SF == ThirdPlace.
+        var sfPts = KnockoutMatchScorer.Compute("FRA", 2, 0, "ESP", 1, 0, Round.SF);
+        var tpPts = KnockoutMatchScorer.Compute("FRA", 2, 0, "ESP", 1, 0, Round.ThirdPlace);
         Assert.Equal(0, sfPts);
         Assert.Equal(0, tpPts);
     }

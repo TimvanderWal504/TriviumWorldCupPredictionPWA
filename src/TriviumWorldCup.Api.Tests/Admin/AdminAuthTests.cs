@@ -1,5 +1,4 @@
 using TriviumWorldCup.Api.Auth;
-using TriviumWorldCup.Api.Auth.Mock;
 
 namespace TriviumWorldCup.Api.Tests.Admin;
 
@@ -53,12 +52,10 @@ public class AdminAuthTests
     // ── Admin user passes ────────────────────────────────────────────────────
 
     [Fact]
-    public void DianaAdmin_PassesAdminGuard()
+    public void AdminUser_PassesAdminGuard()
     {
-        // Diana is the only seeded admin user.
-        var diana = MockUsers.FindById("a1b2c3d4-0004-0004-0004-000000000004");
-        Assert.NotNull(diana);
-        Assert.True(AdminGuard(diana));
+        var admin = new AppUser("a1b2c3d4-0004-0004-0004-000000000004", "Admin", ["user", "admin"]);
+        Assert.True(AdminGuard(admin));
     }
 
     [Fact]
@@ -82,25 +79,6 @@ public class AdminAuthTests
         Assert.True(AdminGuard(user));
     }
 
-    // ── MockUsers: exactly one admin ─────────────────────────────────────────
-
-    [Fact]
-    public void ExactlyOneSeedUser_IsAdmin()
-    {
-        var admins = MockUsers.All.Where(u => u.IsInRole("admin")).ToList();
-        Assert.Single(admins);
-        Assert.Equal("a1b2c3d4-0004-0004-0004-000000000004", admins[0].UserId);
-        Assert.Equal("Diana", admins[0].DisplayName);
-    }
-
-    [Fact]
-    public void AllOtherSeedUsers_AreNotAdmin()
-    {
-        var nonAdmins = MockUsers.All.Where(u => !u.IsInRole("admin")).ToList();
-        Assert.Equal(4, nonAdmins.Count);
-        Assert.DoesNotContain(nonAdmins, u => u.DisplayName == "Diana");
-    }
-
     // ── IngestionStatusStore defaults ────────────────────────────────────────
 
     [Fact]
@@ -121,8 +99,8 @@ public class AdminAuthTests
         var store = new TriviumWorldCup.Api.Admin.IngestionStatusStore();
         var now = DateTimeOffset.UtcNow;
 
-        store.LastAttemptedPoll = now;
-        store.TotalPollCount    = 5;
+        store.LastAttemptedPoll  = now;
+        store.TotalPollCount     = 5;
         store.LastSuccessfulPoll = now;
         store.ErrorCount         = 2;
         store.LastError          = "Connection timeout";
@@ -146,7 +124,7 @@ public class AdminAuthTests
         {
             Id               = id,
             AdminUserId      = "a1b2c3d4-0004-0004-0004-000000000004",
-            AdminDisplayName = "Diana",
+            AdminDisplayName = "Admin",
             OverriddenAt     = now,
             TargetType       = "fixture",
             TargetId         = "42",
@@ -154,7 +132,7 @@ public class AdminAuthTests
         };
 
         Assert.Equal(id, overrideRecord.Id);
-        Assert.Equal("Diana", overrideRecord.AdminDisplayName);
+        Assert.Equal("Admin", overrideRecord.AdminDisplayName);
         Assert.Equal("fixture", overrideRecord.TargetType);
         Assert.Equal("42", overrideRecord.TargetId);
         Assert.Equal("Set result 2-1", overrideRecord.Description);

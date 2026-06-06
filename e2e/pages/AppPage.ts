@@ -7,15 +7,15 @@ import { type Page, type Locator } from '@playwright/test';
 export class AppPage {
   readonly page: Page;
 
-  /** The top navigation bar — only visible when authenticated with a profile. */
+  /** The bottom navigation bar — only visible when authenticated with a profile. */
   readonly nav: Locator;
 
   /** The sign-in prompt shown to unauthenticated visitors. */
   readonly signinPrompt: Locator;
 
   constructor(page: Page) {
-    this.page    = page;
-    this.nav     = page.getByTestId('app-nav');
+    this.page         = page;
+    this.nav          = page.getByTestId('app-nav');
     this.signinPrompt = page.getByTestId('signin-prompt');
   }
 
@@ -30,55 +30,74 @@ export class AppPage {
     return this.nav.isVisible();
   }
 
-  /** Click a named nav item by its visible text. */
+  /** Click a named bottom-nav tab button by its visible label. */
   async navTo(label: string): Promise<void> {
     await this.nav.getByRole('button', { name: label }).click();
   }
 
-  /** Navigate to the Predictions page via the nav bar. */
+  /** Navigate to the Group Predictions page via the bottom nav. */
   async goToPredictions(): Promise<void> {
-    await this.navTo('Predictions');
+    await this.navTo('Predict');
   }
 
-  /** Navigate to the Tournament page via the nav bar. */
+  /**
+   * Navigate to the Tournament Prediction sub-page.
+   * Tournament is a sub-pill inside the Predict tab — click Predict first,
+   * then click the Tournament pill.
+   */
   async goToTournament(): Promise<void> {
-    await this.navTo('Tournament');
+    await this.navTo('Predict');
+    await this.page.getByRole('button', { name: 'Tournament' }).click();
   }
 
-  /** Navigate to the Knockout Bracket page via the nav bar. */
+  /** Navigate to the Knockout Bracket tab (only visible once bracket is open). */
   async goToKnockout(): Promise<void> {
     await this.navTo('Bracket');
   }
 
-  /** Navigate to My Standings via the nav bar. */
+  /**
+   * Navigate to My Standings.
+   * The Me tab shows Standings by default.
+   */
   async goToStandings(): Promise<void> {
-    await this.navTo('My Standings');
+    await this.navTo('Me');
   }
 
-  /** Navigate to Leaderboard via the nav bar. */
+  /** Navigate to the Leaderboard (Ranks tab). */
   async goToLeaderboard(): Promise<void> {
-    await this.navTo('Leaderboard');
+    await this.navTo('Ranks');
   }
 
-  /** Navigate to Live scores via the nav bar. */
+  /**
+   * Navigate to Live Scores.
+   * The Live tab only appears when liveWindowActive=true — waits for it to become
+   * visible before clicking, so tests that set a fixture to InProgress beforehand
+   * do not need an explicit wait.
+   */
   async goToLive(): Promise<void> {
-    await this.navTo('Live');
+    const liveBtn = this.nav.getByRole('button', { name: 'Live' });
+    await liveBtn.waitFor({ state: 'visible', timeout: 10_000 });
+    await liveBtn.click();
   }
 
-  /** Navigate to Rules via the nav bar. */
+  /** Navigate to the Rules page (top-level tab). */
   async goToRules(): Promise<void> {
     await this.navTo('Rules');
   }
 
-  /** Navigate to Admin via the nav bar (only visible for admin users). */
+  /**
+   * Navigate to the Admin page (admin users only).
+   * Admin is a sub-pill inside the Me tab — click Me first, then Admin.
+   */
   async goToAdmin(): Promise<void> {
-    await this.navTo('Admin');
+    await this.navTo('Me');
+    await this.page.getByRole('button', { name: 'Admin' }).click();
   }
 
-  /** Sign out using the nav bar Sign out button. */
+  /** Sign out using the Sign out button inside the Me tab. */
   async signOut(): Promise<void> {
-    await this.nav.getByRole('button', { name: 'Sign out' }).click();
-    // Wait for the sign-in prompt to appear
+    await this.navTo('Me');
+    await this.page.getByRole('button', { name: 'Sign out' }).click();
     await this.signinPrompt.waitFor({ state: 'visible', timeout: 10_000 });
   }
 }

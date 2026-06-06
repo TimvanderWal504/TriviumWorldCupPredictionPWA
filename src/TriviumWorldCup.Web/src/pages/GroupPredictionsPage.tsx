@@ -70,7 +70,8 @@ interface FixtureCardProps {
 }
 
 function FixtureCard({ fixture, prediction, onSaved }: FixtureCardProps) {
-  const locked = isLocked(fixture.kickoffUtc);
+  const played = fixture.status === 'Completed';
+  const locked = isLocked(fixture.kickoffUtc) || played;
   const [homeInput, setHomeInput] = useState(prediction !== undefined ? String(prediction.homeScore) : '');
   const [awayInput, setAwayInput] = useState(prediction !== undefined ? String(prediction.awayScore) : '');
   const [saving, setSaving] = useState(false);
@@ -138,7 +139,7 @@ function FixtureCard({ fixture, prediction, onSaved }: FixtureCardProps) {
             : undefined
           }
         >
-          {saving ? 'Saving…' : saved ? 'Saved' : locked ? 'Locked' : unpredicted ? 'Unpredicted' : 'Predicted'}
+          {saving ? 'Saving…' : saved ? 'Saved' : played ? 'Played' : locked ? 'Locked' : unpredicted ? 'Unpredicted' : 'Predicted'}
         </span>
       </div>
 

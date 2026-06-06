@@ -3,44 +3,41 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using TriviumWorldCup.Api.Auth;
+using TriviumWorldCup.Api.Auth.Link;
 
 namespace TriviumWorldCup.Api.Tests.Auth;
 
 /// <summary>
-/// Verifies that the mock provider is refused in Production and accepted in non-Production environments.
+/// Verifies AddAuthAbstraction registers the correct provider and rejects unknown values.
 /// </summary>
 public class ProductionGuardTests
 {
     [Fact]
-    public void AddAuthAbstraction_MockProviderInProduction_Throws()
+    public void AddAuthAbstraction_LinkProvider_RegistersLinkIdentityProvider()
     {
         var services = new ServiceCollection();
-        var config = BuildConfig("mock");
+        var config = BuildConfig("link");
         var env = new TestHostEnvironment("Production");
 
-        var ex = Assert.Throws<InvalidOperationException>(() =>
-            services.AddAuthAbstraction(config, env));
-
-        Assert.Contains("mock identity provider", ex.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Production", ex.Message);
-    }
-
-    [Theory]
-    [InlineData("Development")]
-    [InlineData("Staging")]
-    [InlineData("Demo")]
-    public void AddAuthAbstraction_MockProviderInNonProduction_DoesNotThrow(string envName)
-    {
-        var services = new ServiceCollection();
-        var config = BuildConfig("mock");
-        var env = new TestHostEnvironment(envName);
-
-        // Should not throw
         services.AddAuthAbstraction(config, env);
 
-        var sp = services.BuildServiceProvider();
-        var provider = sp.GetRequiredService<IIdentityProvider>();
-        Assert.NotNull(provider);
+        var descriptor = services.FirstOrDefault(s => s.ServiceType == typeof(IIdentityProvider));
+        Assert.NotNull(descriptor);
+        Assert.Equal(typeof(LinkIdentityProvider), descriptor.ImplementationType);
+    }
+
+    [Fact]
+    public void AddAuthAbstraction_DefaultsToLink_WhenKeyMissing()
+    {
+        var services = new ServiceCollection();
+        var config = BuildConfig(providerValue: null); // no "Auth:Provider" key
+        var env = new TestHostEnvironment("Production");
+
+        services.AddAuthAbstraction(config, env);
+
+        var descriptor = services.FirstOrDefault(s => s.ServiceType == typeof(IIdentityProvider));
+        Assert.NotNull(descriptor);
+        Assert.Equal(typeof(LinkIdentityProvider), descriptor.ImplementationType);
     }
 
     [Fact]
@@ -54,20 +51,6 @@ public class ProductionGuardTests
             services.AddAuthAbstraction(config, env));
 
         Assert.Contains("bogus-provider", ex.Message);
-    }
-
-    [Fact]
-    public void AddAuthAbstraction_DefaultsToMockWhenKeyMissing_InDevelopment()
-    {
-        var services = new ServiceCollection();
-        // No "Auth:Provider" key in config — should default to mock
-        var config = BuildConfig(providerValue: null);
-        var env = new TestHostEnvironment("Development");
-
-        services.AddAuthAbstraction(config, env);
-
-        var sp = services.BuildServiceProvider();
-        Assert.NotNull(sp.GetRequiredService<IIdentityProvider>());
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

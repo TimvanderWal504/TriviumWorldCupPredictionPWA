@@ -240,6 +240,64 @@ public static class AdminEndpoints
         .WithName("GetOverrides")
         .WithSummary("Returns the most recent 50 manual overrides, newest first.");
 
+        // ── DELETE /admin/overrides/{id} ──────────────────────────────────────
+        // Deletes an override record and reverts the underlying data change so
+        // auto-ingestion can take over again. Triggers a full recompute.
+        group.MapDelete("/overrides/{id}", async (
+            Guid id,
+            HttpContext context,
+            IDocumentSession session,
+            ScoringRecomputeService scoringService,
+            CancellationToken ct) =>
+        {
+            var user = context.GetAppUser();
+            if (!user.IsInRole("admin"))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            var record = await session.LoadAsync<ResultOverride>(id, ct);
+            if (record is null)
+                return Results.NotFound(new { error = $"Override '{id}' not found." });
+
+            switch (record.TargetType?.ToLowerInvariant())
+            {
+                case "fixture":
+                    var fixture = await session.LoadAsync<Fixture>(record.TargetId, ct);
+                    if (fixture is not null)
+                    {
+                        fixture.HomeScore = null;
+                        fixture.AwayScore = null;
+                        fixture.Status    = MatchStatus.Scheduled;
+                        session.Store(fixture);
+                    }
+                    break;
+
+                case "goalevent":
+                    if (Guid.TryParse(record.TargetId, out var goalId))
+                        session.Delete<GoalEvent>(goalId);
+                    break;
+
+                case "knockoutslot":
+                    var slot = await session.LoadAsync<KnockoutSlot>(record.TargetId, ct);
+                    if (slot is not null)
+                    {
+                        slot.HomeScore    = null;
+                        slot.AwayScore    = null;
+                        slot.WinnerTeamId = null;
+                        slot.Status       = MatchStatus.Scheduled;
+                        session.Store(slot);
+                    }
+                    break;
+            }
+
+            session.Delete(record);
+            await session.SaveChangesAsync(ct);
+            await scoringService.RecomputeAllAsync(ct);
+
+            return Results.NoContent();
+        })
+        .WithName("DeleteOverride")
+        .WithSummary("Deletes a manual override and reverts the underlying fixture/slot/goal to pre-override state.");
+
         // ── POST /admin/knockout/{slotKey}/result ─────────────────────────────
         group.MapPost("/knockout/{slotKey}/result", async (
             string slotKey,

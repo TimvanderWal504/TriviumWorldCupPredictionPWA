@@ -32,6 +32,7 @@ export function AdminPage() {
   const [ingestionError, setIngestionError] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<OverrideRecord[]>([]);
   const [overridesError, setOverridesError] = useState<string | null>(null);
+  const [deletingOverride, setDeletingOverride] = useState<string | null>(null);
   const [fixtureId, setFixtureId] = useState('');
   const [homeScore, setHomeScore] = useState('');
   const [awayScore, setAwayScore] = useState('');
@@ -127,6 +128,23 @@ export function AdminPage() {
       setFixtureId(''); setHomeScore(''); setAwayScore('');
       await fetchOverrides(); await fetchIngestion();
     } catch (err) { setResultError(String(err)); }
+  }
+
+  async function handleDeleteOverride(id: string) {
+    if (!confirm('Remove this override and revert the underlying result/event? Scores will be recomputed.')) return;
+    setDeletingOverride(id);
+    try {
+      const res = await fetch(`/admin/overrides/${id}`, { method: 'DELETE', credentials: 'include' });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        alert((b as { error?: string }).error ?? `HTTP ${res.status}`);
+        return;
+      }
+      await fetchOverrides();
+      await fetchIngestion();
+    } finally {
+      setDeletingOverride(null);
+    }
   }
 
   async function handleForceRecompute() {
@@ -332,6 +350,7 @@ export function AdminPage() {
                   <th className="py-2 pr-4">Type</th>
                   <th className="py-2 pr-4">Target</th>
                   <th className="py-2">Description</th>
+                  <th className="py-2"></th>
                 </tr>
               </thead>
               <tbody>
@@ -342,6 +361,15 @@ export function AdminPage() {
                     <td className="py-2 pr-4 text-fg-secondary">{o.targetType}</td>
                     <td className="py-2 pr-4 font-mono text-xs text-fg-secondary">{o.targetId}</td>
                     <td className="py-2 text-fg-secondary">{o.description}</td>
+                    <td className="py-2 pl-3">
+                      <button
+                        disabled={deletingOverride === o.id}
+                        onClick={() => handleDeleteOverride(o.id)}
+                        className="px-2 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap transition-colors disabled:opacity-40"
+                        style={{ background: 'var(--live-soft)', color: 'var(--loss)' }}>
+                        {deletingOverride === o.id ? '…' : 'Revert'}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

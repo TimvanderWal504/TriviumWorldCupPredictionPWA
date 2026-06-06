@@ -27,7 +27,7 @@ Drive the TWC backlog to "Done" in dependency order, MVP first, by launching foc
 - Canonical scoring/format: Confluence space TWCP → "Rules & Scoring (canonical)" (page 27820033).
 - Architecture reference: Confluence space TWCP → "Design & Architecture" (page 27852801).
 - Repo conventions, stack, and the always-on disciplines live in CLAUDE.md at the repo root. Read it first every run.
-- Stack: React + Tailwind PWA; .NET Minimal API (Wolverine, Marten/Npgsql); PostgreSQL; Quartz.NET ingestion; Entra ID single-tenant auth; Docker Compose on an AWOW AK12 fronted by a Cloudflare Tunnel.
+- Stack: React + Tailwind PWA; .NET Minimal API (Wolverine, Marten/Npgsql); PostgreSQL; Quartz.NET ingestion; link auth (current, TWC-33); Entra ID single-tenant (planned, TWC-20); Docker Compose on an AWOW AK12 fronted by a Cloudflare Tunnel.
 </project_context>
 
 <inputs>
@@ -59,8 +59,8 @@ Dependency-ordered for the known TWC backlog. Re-validate before use.
 - Wave 5 — post-MVP (parallel): TWC-14 knockout bracket + screens; TWC-16 admin; TWC-19 backups.
 - Wave 6 — post-MVP: TWC-15 knockout scoring (after TWC-8 and TWC-14); TWC-17 live updates; TWC-18 push reminders.
 - Wave 7 — knockout resolver: TWC-32 — populate R32 from final group standings (winners, runners-up, 8 best third-placed) and propagate winners/losers through the rounds. Completes the knockout flow (pairs with TWC-14 skeleton/UI and TWC-15 scoring); must land before the knockout E2E.
-- Wave 8 — E2E suite (epic TWC-21): TWC-22 foundation first (harness, mock-auth login, seeding, stubbing, time/result control, CI), then the area specs in parallel — TWC-23 auth/profile, TWC-24 group predictions, TWC-25 champion + Golden Six, TWC-26 standings/scoring, TWC-27 leaderboard/visibility/tiebreaker, TWC-28 app-shell smoke, TWC-29 admin, TWC-30 live updates. TWC-31 knockout E2E runs after Wave 7's resolver.
-- Wave 9 — final: TWC-20 real Entra integration. Done last; swaps the mock provider for the real one behind the auth abstraction. Human-gated on the Entra app registration.
+- Wave 8 — E2E suite (epic TWC-21): TWC-22 foundation first (harness, link-auth login, seeding, stubbing, time/result control, CI), then the area specs in parallel — TWC-23 auth/profile, TWC-24 group predictions, TWC-25 champion + Golden Six, TWC-26 standings/scoring, TWC-27 leaderboard/visibility/tiebreaker, TWC-28 app-shell smoke, TWC-29 admin, TWC-30 live updates. TWC-31 knockout E2E runs after Wave 7's resolver.
+- Wave 9 — final: TWC-20 real Entra integration. Done last; swaps the link provider for the real one behind the auth abstraction. Human-gated on the Entra app registration.
 </execution_waves>
 
 <phase_3_dispatch>

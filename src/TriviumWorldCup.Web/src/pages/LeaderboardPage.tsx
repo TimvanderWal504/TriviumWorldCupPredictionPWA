@@ -147,51 +147,52 @@ function DrillDownPanel({ drillDown, isOwnProfile, onClose }: DrillDownPanelProp
           </div>
         )}
 
-        {/* Group predictions */}
+        {/* Group predictions — locked matches only, most recent first */}
         <div>
-          <SectionLabel>
-            Match predictions{!isOwnProfile && <span className="text-fg-muted font-normal normal-case"> (locked only)</span>}
-          </SectionLabel>
-          {drillDown.groupPredictions.length === 0 ? (
-            <p className="text-fg-muted text-sm">
-              {isOwnProfile ? 'No match predictions submitted yet.' : 'No locked match predictions to show.'}
-            </p>
-          ) : (
-            <div className="space-y-1.5">
-              {drillDown.groupPredictions.map(pred => {
-                const hasResult = pred.actualHome !== null && pred.actualAway !== null;
-                return (
-                  <div key={pred.fixtureId} className="flex items-center justify-between rounded-input px-4 py-3 text-sm bg-surface-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="font-mono font-semibold text-fg text-xs">{pred.homeTeamId}</span>
-                      <span className="text-fg-muted text-xs">vs</span>
-                      <span className="font-mono font-semibold text-fg text-xs">{pred.awayTeamId}</span>
-                    </div>
-                    <div className="flex items-center gap-4 shrink-0 ml-4">
-                      <div className="text-center">
-                        <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Predicted</p>
-                        <p className="font-semibold text-fg tnum">{pred.predictedHome}–{pred.predictedAway}</p>
+          <SectionLabel>Match predictions <span className="text-fg-muted font-normal normal-case">(started &amp; finished)</span></SectionLabel>
+          {(() => {
+            const played = [...drillDown.groupPredictions]
+              .filter(p => p.locked)
+              .sort((a, b) => new Date(b.kickoffUtc).getTime() - new Date(a.kickoffUtc).getTime());
+            return played.length === 0 ? (
+              <p className="text-fg-muted text-sm">No started or finished matches yet.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {played.map(pred => {
+                  const hasResult = pred.actualHome !== null && pred.actualAway !== null;
+                  return (
+                    <div key={pred.fixtureId} className="flex items-center justify-between rounded-input px-4 py-3 text-sm bg-surface-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-mono font-semibold text-fg text-xs">{pred.homeTeamId}</span>
+                        <span className="text-fg-muted text-xs">vs</span>
+                        <span className="font-mono font-semibold text-fg text-xs">{pred.awayTeamId}</span>
                       </div>
-                      {hasResult ? (
+                      <div className="flex items-center gap-4 shrink-0 ml-4">
                         <div className="text-center">
-                          <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Result</p>
-                          <p className="font-semibold text-fg-secondary tnum">{pred.actualHome}–{pred.actualAway}</p>
+                          <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Predicted</p>
+                          <p className="font-semibold text-fg tnum">{pred.predictedHome}–{pred.predictedAway}</p>
                         </div>
-                      ) : pred.locked ? (
-                        <div className="text-center">
-                          <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Result</p>
-                          <p className="text-fg-muted text-xs">TBD</p>
-                        </div>
-                      ) : null}
+                        {hasResult ? (
+                          <div className="text-center">
+                            <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Result</p>
+                            <p className="font-semibold text-fg-secondary tnum">{pred.actualHome}–{pred.actualAway}</p>
+                          </div>
+                        ) : (
+                          <div className="text-center">
+                            <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Result</p>
+                            <p className="text-fg-muted text-xs">TBD</p>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
 
-        <p className="text-[12px] text-fg-muted">Match-by-match predictions become visible once each match has locked.</p>
+        <p className="text-[12px] text-fg-muted">Predictions are shown once a match has started, newest first.</p>
       </div>
     </div>
   );

@@ -6,7 +6,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 // When run via Aspire, these are injected automatically.
 // Fallback values are used for standalone `npm run dev`.
 const apiTarget = process.env['services__api__http__0'] ?? 'http://localhost:5009';
-const devPort = parseInt(process.env['PORT'] ?? '5173');
+const devPort = parseInt('64505');
 
 // https://vite.dev/config/
 export default defineConfig({

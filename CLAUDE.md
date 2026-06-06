@@ -12,7 +12,7 @@ Internal PWA prediction pool for the FIFA World Cup 2026. Org members sign in wi
 - Backend: .NET Minimal API (Wolverine, Marten / Npgsql).
 - Database: PostgreSQL.
 - Result ingestion: Quartz.NET worker polling a football data API.
-- Auth: behind a provider abstraction. The MVP uses a mock/dev provider (switch between seeded demo users, no credentials); real Entra ID (single-tenant, org members only) is added **last** (TWC-20) and swapped in via config. Feature code never imports MSAL/Entra directly.
+- Auth: behind a provider abstraction. Currently uses the **link auth provider** (admin-managed users, login via personal URL — TWC-33); real Entra ID (single-tenant, org members only) is added last (TWC-20) and swapped in via config. Feature code never imports MSAL/Entra directly.
 - Hosting: Docker Compose on an AWOW AK12, fronted by a Cloudflare Tunnel.
 
 ## Always-on rules
@@ -29,7 +29,10 @@ Internal PWA prediction pool for the FIFA World Cup 2026. Org members sign in wi
 - Keep `PROGRESS.md` current so a fresh session can resume.
 
 ## Build & test
-_To be populated by TWC-2 (scaffold / infra)._ Until the scaffold exists, discover build and test commands by reading the repo — do not assume them.
+Full commands are in `PROGRESS.md`. Short form:
+- API: `dotnet test TriviumWorldCup.sln`
+- Frontend: `cd src/TriviumWorldCup.Web && npm run build && npm test`
+- Full stack: `docker compose up -d`
 
 ## Secrets — never commit
 The Entra client secret, Cloudflare Tunnel token, football API key, and VAPID keys live in environment variables / `.claude/settings.local.json` / a secrets store. They must never appear in `CLAUDE.md`, `.mcp.json`, or `.claude/settings.json`.

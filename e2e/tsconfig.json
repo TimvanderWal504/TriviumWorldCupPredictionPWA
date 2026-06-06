@@ -2,15 +2,14 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "commonjs",
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM"],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "outDir": "../dist-e2e",
-    "baseUrl": ".",
     "paths": {
-      "@helpers/*": ["helpers/*"],
-      "@pages/*": ["pages/*"]
+      "@helpers/*": ["./helpers/*"],
+      "@pages/*": ["./pages/*"]
     }
   },
   "include": ["**/*.ts"],
