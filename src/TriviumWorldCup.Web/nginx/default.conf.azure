@@ -20,8 +20,8 @@ server {
     # the same environment. ACA's internal DNS uses the Azure resolver.
     # The $api_backend variable forces runtime resolution (avoids startup failure
     # if the API app is briefly unavailable during a rolling deploy).
-    resolver 168.63.129.16 valid=10s ipv6=off;
-    set $api_backend http://twc-api;
+    resolver 168.63.129.16 valid=30s ipv6=off;
+    set $api_backend http://twc-api.internal.bravesea-4935fc14.germanywestcentral.azurecontainerapps.io;
 
     # Gzip compression
     gzip on;
