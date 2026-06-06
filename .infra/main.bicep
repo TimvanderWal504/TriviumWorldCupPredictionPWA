@@ -290,7 +290,7 @@ resource apiApp 'Microsoft.App/containerApps@2023-05-01' = {
           name: 'api'
           // Use placeholder on first deploy (no image in ACR yet). GitHub Actions updates this on first push.
           image: empty(apiImageTag) ? 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest' : '${acr.properties.loginServer}/twc-api:${apiImageTag}'
-          resources: { cpu: json('0.25'), memory: '0.5Gi' }
+          resources: { cpu: json('0.5'), memory: '1.0Gi' } // 0.5Gi OOMKills on Marten startup schema warmup
           env: [
             { name: 'ASPNETCORE_ENVIRONMENT', value: 'Production' }
             { name: 'Auth__Provider', value: 'link' }
