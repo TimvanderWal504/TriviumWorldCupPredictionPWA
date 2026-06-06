@@ -30,15 +30,19 @@ public static class IngestionServiceExtensions
             services.AddScoped<ScoringRecomputeService>();
         }
 
-        // Typed HTTP client for API-Football v3
-        services.AddHttpClient<FootballApiClient>(client =>
+        // Typed HTTP client for API-Football v3.
+        // Register against the interface so ResultIngestionJob can resolve IFootballApiClient.
+        services.AddHttpClient<IFootballApiClient, FootballApiClient>(client =>
         {
             client.BaseAddress = new Uri("https://v3.football.api-sports.io/");
-            if (!string.IsNullOrWhiteSpace(apiKey))
-            {
-                client.DefaultRequestHeaders.Add("x-apisports-key", apiKey);
-            }
+            client.DefaultRequestHeaders.Add("x-apisports-key", apiKey ?? "");
         });
+
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            // No key — skip Quartz entirely. The job would fail every 90 seconds otherwise.
+            return services;
+        }
 
         // Quartz scheduler — single trigger, every 90 seconds
         services.AddQuartz(q =>
