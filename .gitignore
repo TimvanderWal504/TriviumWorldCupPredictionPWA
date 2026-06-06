@@ -9,6 +9,7 @@
 secrets/
 appsettings.Development.json
 main.parameters.local.json
+main.parameters.production.local.json
 
 # --- Cloudflare Tunnel credentials ---
 *.cloudflared.json
