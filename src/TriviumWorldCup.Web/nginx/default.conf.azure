@@ -20,9 +20,10 @@ server {
     # the same environment. ACA's internal DNS uses the Azure resolver.
     # The $api_backend variable forces runtime resolution (avoids startup failure
     # if the API app is briefly unavailable during a rolling deploy).
-    resolver 168.63.129.16 valid=30s ipv6=off;
-    # API_UPSTREAM is injected at container startup via /docker-entrypoint.d/20-envsubst-api.sh
-    # Value comes from the ACA environment variable set by Bicep (apiApp ingress FQDN).
+    # Both NGINX_RESOLVER and API_UPSTREAM are injected by /docker-entrypoint.d/20-envsubst-api.sh:
+    #   NGINX_RESOLVER — read from /etc/resolv.conf at startup (works for Docker, ACA, K8s)
+    #   API_UPSTREAM   — set by the orchestrator (Bicep/Compose) as a container env var
+    resolver ${NGINX_RESOLVER} valid=30s ipv6=off;
     set $api_backend ${API_UPSTREAM};
 
     # Gzip compression
