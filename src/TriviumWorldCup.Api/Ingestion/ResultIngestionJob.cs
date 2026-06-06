@@ -57,7 +57,29 @@ public class ResultIngestionJob(
         statusStore.LastAttemptedPoll = DateTimeOffset.UtcNow;
         statusStore.TotalPollCount++;
 
-        // ── 1. Fetch current status of all group-stage fixtures from API ──────
+        // ── 1. Check local DB for live window — no API call unless a match is on ─
+        // The fixture seed data has all kickoff times, so we can determine the live
+        // window entirely from our own DB without spending a Football API request.
+        var now = DateTimeOffset.UtcNow;
+        var liveWindowStart = now.AddHours(-3);
+        var liveWindowEnd   = now.AddMinutes(30);
+
+        await using var checkSession = store.LightweightSession();
+        var anyLiveInDb = await checkSession
+            .Query<Fixture>()
+            .Where(f => f.Status != MatchStatus.Completed
+                     && f.Status != MatchStatus.Cancelled
+                     && f.KickoffUtc >= liveWindowStart
+                     && f.KickoffUtc <= liveWindowEnd)
+            .AnyAsync(ct);
+
+        if (!anyLiveInDb)
+        {
+            logger.LogDebug("ResultIngestionJob: no fixtures in live window — skipping API call");
+            return;
+        }
+
+        // ── 2. Fetch current status of all group-stage fixtures from API ──────
         IReadOnlyList<ApiFixture> allApiFixtures;
         try
         {
@@ -77,17 +99,7 @@ public class ResultIngestionJob(
             return;
         }
 
-        // ── 2. Check for live window ──────────────────────────────────────────
-        var now = DateTimeOffset.UtcNow;
-        var liveWindowStart = now.AddHours(-3);
-        var liveWindowEnd   = now.AddMinutes(30);
-
-        var anyLive = allApiFixtures.Any(f =>
-        {
-            if (f.IsLive) return true;
-            if (!DateTimeOffset.TryParse(f.Date, out var kickoff)) return false;
-            return kickoff >= liveWindowStart && kickoff <= liveWindowEnd;
-        });
+        var anyLive = allApiFixtures.Any(f => f.IsLive);
 
         // ── 3. Load already-completed fixtures from Marten ───────────────────
         await using var session = store.LightweightSession();
