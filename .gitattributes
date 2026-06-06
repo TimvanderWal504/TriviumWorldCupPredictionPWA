@@ -1,0 +1,14 @@
+# Default: normalise line endings to LF in the repo, checkout as-is
+* text=auto
+
+# Shell scripts and nginx configs must always use LF — CRLF breaks them on Linux
+*.sh text eol=lf
+nginx/*.conf text eol=lf
+nginx/*.conf.azure text eol=lf
+nginx/*.conf.azure.template text eol=lf
+
+# Bicep / JSON / YAML: normalise but don't force eol
+*.bicep text
+*.json text
+*.yml text
+*.yaml text
