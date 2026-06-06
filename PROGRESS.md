@@ -112,31 +112,45 @@ BASE_URL=http://localhost:80 npx playwright test   # Docker Compose
 BASE_URL=http://localhost:64505 npx playwright test  # Vite dev + dotnet run
 ```
 
+## Azure Migration — Staging ✅ (6 June 2026)
+
+Staging environment fully provisioned on Azure (Visual Studio Enterprise subscription, resource group `twc-rg`).
+
+**Branch strategy:**
+- `staging` → GitHub Environment `staging` (this subscription) — auto-deploys on push
+- `main` → GitHub Environment `production` (future production tenant) — auto-deploys on push
+
+**Staging resources (all live):**
+
+| Resource | Name | Location |
+|---|---|---|
+| Container Registry | `triviumworldcupacr.azurecr.io` | germanywestcentral |
+| ACA Environment | `twc-dev` | germanywestcentral |
+| API Container App | `twc-api` (internal ingress) | germanywestcentral |
+| Web Container App | `twc-web` (external HTTPS) | germanywestcentral |
+| PostgreSQL 16 | `twc-pg-stg.postgres.database.azure.com` | northeurope |
+| Key Vault | `twc-kv-stg-2026` | westeurope |
+
+**Web app URL:** `https://twc-web.bravesea-4935fc14.germanywestcentral.azurecontainerapps.io`
+
+**CI/CD:** GitHub Actions (`.github/workflows/deploy-azure.yml`) — OIDC service principal `twc-github-actions-staging` wired; staging environment secrets + variables set. First deploy triggered by pushing to `staging` branch.
+
+**Infrastructure notes:**
+- Bicep: `.infra/main.bicep` — has `postgresLocation` + `keyVaultLocation` params to work around Visual Studio subscription quota restrictions (germanywestcentral and westeurope restricted for Postgres Flexible Server).
+- Container Apps deploy with placeholder image on first Bicep run; GitHub Actions replaces with real images on first push to `staging`.
+- PostgreSQL in northeurope is cross-region from ACA (germanywestcentral) — fine for staging, co-locate for production.
+
+**Remaining / pending:**
+- `git push origin staging` — triggers first real image build + deploy (currently running placeholder)
+- Seed admin user: navigate to `<webAppFqdn>/auth/link/login?id=c0c53bf2-8c04-4f08-86ee-10d25e895fee`
+- Production tenant: create new Azure subscription, copy `.infra/main.parameters.local.json` → `main.parameters.production.local.json`, create OIDC SP in prod tenant, set GitHub `production` environment secrets, then push to `main`
+- Custom domain (optional)
+- Entra app registration for TWC-20 (not blocking Azure deployment)
+
+AK12 continues to run in parallel until staging is verified stable.
+
 ## Next action
-## Azure Migration (non-blocking, parallel to Wave 9)
-
-Infrastructure-as-Code generated 5 June 2026. Moves the stack from Docker Compose on AK12
-to Azure Container Apps + managed PostgreSQL.
-
-**Deliverables committed in another branch:**
-- `.infra/main.bicep` — parameterized Bicep (ACR, Log Analytics, ACA environment, PostgreSQL Flexible Server, Key Vault, API + Web Container Apps)
-- `.infra/main.parameters.json` — parameter template (fill in names/passwords/keys)
-- `src/TriviumWorldCup.Web/nginx/default.conf.azure` — Azure nginx config (`http://twc-api` upstream instead of `http://api:8080`)
-- `.docs/AZURE_MIGRATION.md` — step-by-step deployment guide
-- `.github/workflows/deploy-azure.yml` — CI/CD pipeline (already present; builds images, pushes to ACR, updates Container Apps on push to main)
-
-**Pending decisions / actions (human-gated):**
-- Fill in `.infra/main.parameters.json` (ACR name, Postgres password, VAPID keys, admin user ID)
-- Update `src/TriviumWorldCup.Web/Dockerfile` to use `default.conf.azure` for Azure builds
-- Run `az deployment group create` (5–12 min; see `.docs/AZURE_MIGRATION.md`)
-- Create GitHub OIDC service principal + set repo secrets/variables
-- Entra app registration (needed for TWC-20 — not required for initial Azure deployment)
-- Azure region + cost sign-off (~€40–60/month at MVP SKUs)
-- Custom domain (optional; auto-generated ACA FQDN works immediately)
-
-AK12 continues to work until Azure is confirmed stable.
-
-
-1. **Seed admin user on AK12** — if the DB was already seeded before the admin user seed was added, create Tim manually: Admin page → Users → Create, or clear and re-seed the DB.
-2. **Azure migration** — fill in `.infra/main.parameters.json` and follow `.docs/AZURE_MIGRATION.md`.
-3. **Wave 9 (final)** — TWC-20 real Entra, once the app registration is provided. When ready: add `EntraIdentityProvider`, set `Auth:Provider=entra` in Portainer/Azure env vars, leave link auth as-is for fallback.
+1. **`git push origin staging`** — triggers first GitHub Actions build; after ~5 min the web app URL serves the real app.
+2. **Seed admin user on staging** — navigate to `https://twc-web.bravesea-4935fc14.germanywestcentral.azurecontainerapps.io/auth/link/login?id=c0c53bf2-8c04-4f08-86ee-10d25e895fee`
+3. **Seed admin user on AK12** — if the DB was already seeded before the admin user seed was added, create Tim manually: Admin page → Users → Create, or clear and re-seed the DB.
+4. **Wave 9 (final)** — TWC-20 real Entra, once the app registration is provided. When ready: add `EntraIdentityProvider`, set `Auth:Provider=entra` in Azure env vars, leave link auth as-is for fallback.

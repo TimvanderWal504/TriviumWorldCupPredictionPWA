@@ -10,8 +10,14 @@
 
 // ── Parameters ────────────────────────────────────────────────────────────────
 
-@description('Azure region. Defaults to the resource group location.')
+@description('Azure region for Container Apps, ACR, Log Analytics. Defaults to the resource group location.')
 param location string = resourceGroup().location
+
+@description('Azure region for PostgreSQL Flexible Server. Override when the main location has restricted Postgres quota (e.g. germanywestcentral on Visual Studio subscriptions).')
+param postgresLocation string = location
+
+@description('Azure region for Key Vault. Can differ from postgresLocation if already deployed.')
+param keyVaultLocation string = postgresLocation
 
 @description('Azure Container Registry name (globally unique, alphanumeric only).')
 param acrName string
@@ -71,7 +77,7 @@ var logAnalyticsName = '${acaEnvironmentName}-logs'
 var postgresDb = 'triviumworldcup'
 var postgresConnectionString = 'Host=${postgresServer.properties.fullyQualifiedDomainName};Port=5432;Database=${postgresDb};Username=${postgresAdminUser};Password=${postgresAdminPassword};Ssl Mode=Require;Trust Server Certificate=false;'
 var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d' // AcrPull built-in role
-var kvSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e0' // Key Vault Secrets User
+var kvSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6' // Key Vault Secrets User
 
 // ── Managed Identity (used by Container Apps to pull from ACR + read Key Vault) ──
 
@@ -133,7 +139,7 @@ resource acaEnv 'Microsoft.App/managedEnvironments@2023-05-01' = {
 
 resource postgresServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-06-01-preview' = {
   name: postgresServerName
-  location: location
+  location: postgresLocation
   sku: {
     name: postgresSkuName
     tier: 'Burstable' // change to GeneralPurpose for production
@@ -177,7 +183,7 @@ resource postgresFirewallAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewa
 
 resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
   name: keyVaultName
-  location: location
+  location: keyVaultLocation
   properties: {
     sku: { family: 'A', name: 'standard' }
     tenantId: subscription().tenantId
@@ -281,7 +287,8 @@ resource apiApp 'Microsoft.App/containerApps@2023-05-01' = {
       containers: [
         {
           name: 'api'
-          image: '${acr.properties.loginServer}/twc-api:${apiImageTag}'
+          // Use placeholder on first deploy (no image in ACR yet). GitHub Actions updates this on first push.
+          image: empty(apiImageTag) ? 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest' : '${acr.properties.loginServer}/twc-api:${apiImageTag}'
           resources: { cpu: json('0.25'), memory: '0.5Gi' }
           env: [
             { name: 'ASPNETCORE_ENVIRONMENT', value: 'Production' }
@@ -335,7 +342,8 @@ resource webApp 'Microsoft.App/containerApps@2023-05-01' = {
       containers: [
         {
           name: 'web'
-          image: '${acr.properties.loginServer}/twc-web:${webImageTag}'
+          // Use placeholder on first deploy (no image in ACR yet). GitHub Actions updates this on first push.
+          image: empty(webImageTag) ? 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest' : '${acr.properties.loginServer}/twc-web:${webImageTag}'
           resources: { cpu: json('0.25'), memory: '0.5Gi' }
           // nginx proxies /api/* and /auth/* to the API app.
           // The API's internal ACA hostname is its app name within the environment.
