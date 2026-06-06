@@ -44,7 +44,9 @@ public static class IngestionServiceExtensions
             return services;
         }
 
-        // Quartz scheduler — single trigger, every 90 seconds
+        // Quartz scheduler — single trigger, every 20 seconds
+        // Only fires API calls during live windows (DB check gates each execution).
+        // Pro plan: 7,500 req/day; worst case 4 matches × 630 polls = 2,520/day.
         services.AddQuartz(q =>
         {
             var jobKey = new JobKey("ResultIngestionJob", "Ingestion");
@@ -57,7 +59,7 @@ public static class IngestionServiceExtensions
                 .ForJob(jobKey)
                 .WithIdentity("ResultIngestionTrigger", "Ingestion")
                 .WithSimpleSchedule(s => s
-                    .WithIntervalInSeconds(90)
+                    .WithIntervalInSeconds(20)
                     .RepeatForever())
                 // Start 10 seconds after app startup to allow the DB to initialise
                 .StartAt(DateBuilder.FutureDate(10, IntervalUnit.Second)));
