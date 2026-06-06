@@ -59,7 +59,8 @@ builder.Services.AddMarten(opts =>
     opts.Schema.For<PushSubscription>().Identity(p => p.Id);
     // InviteUser — admin-managed users for the link auth provider.
     opts.Schema.For<InviteUser>().Identity(u => u.Id);
-}).UseLightweightSessions();
+}).UseLightweightSessions()
+  .ApplyAllDatabaseChangesOnStartup(); // Warm up all collection schemas on startup instead of lazily per-request
 
 // Scoring recompute service — TWC-8
 builder.Services.AddScoped<ScoringRecomputeService>();
