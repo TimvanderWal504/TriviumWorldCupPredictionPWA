@@ -97,7 +97,14 @@ function DrillDownPanel({ drillDown, isOwnProfile, onClose }: DrillDownPanelProp
 
       <div className="rounded-card bg-surface border border-border p-5 space-y-5">
         <div>
-          <h2 className="font-display font-bold text-xl tracking-tight">{drillDown.displayName}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className={`font-display font-bold text-xl tracking-tight ${isOwnProfile ? 'text-secondary' : ''}`}>
+              {drillDown.displayName}
+            </h2>
+            {isOwnProfile && (
+              <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-500/10 text-secondary">You</span>
+            )}
+          </div>
           <p className="text-[13px] text-fg-muted mt-0.5">{drillDown.totalPoints} pts</p>
         </div>
 
