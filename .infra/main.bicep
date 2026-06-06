@@ -350,6 +350,9 @@ resource webApp 'Microsoft.App/containerApps@2023-05-01' = {
           // The web Docker image must use default.conf.azure (see nginx/ folder).
           env: [
             { name: 'NODE_ENV', value: 'production' }
+            // nginx substitutes ${API_UPSTREAM} at startup via /docker-entrypoint.d/20-envsubst-api.sh.
+            // Using the ingress FQDN (port 80) rather than the container port (8080).
+            { name: 'API_UPSTREAM', value: 'http://${apiApp.properties.configuration.ingress.fqdn}' }
           ]
         }
       ]
@@ -359,7 +362,7 @@ resource webApp 'Microsoft.App/containerApps@2023-05-01' = {
       }
     }
   }
-  dependsOn: [acrPullAssignment, apiApp]
+  dependsOn: [acrPullAssignment]
 }
 
 // ── Outputs ───────────────────────────────────────────────────────────────────

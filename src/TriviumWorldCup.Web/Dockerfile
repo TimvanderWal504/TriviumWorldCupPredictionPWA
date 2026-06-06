@@ -19,8 +19,15 @@ RUN rm -rf /usr/share/nginx/html/*
 # Copy built React app
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Copy nginx site config — Azure variant uses ACA internal DNS (twc-api) instead of Docker DNS (api)
-COPY nginx/default.conf.azure /etc/nginx/conf.d/default.conf
+# Copy nginx config as a template — API_UPSTREAM is substituted at startup by the entrypoint script.
+# The template is placed in conf.d/ (not templates/) to avoid nginx's default envsubst which
+# would also clobber nginx's own $variables ($host, $remote_addr, etc.).
+COPY nginx/default.conf.azure /etc/nginx/conf.d/default.conf.template
+
+# Entrypoint script: runs envsubst '$API_UPSTREAM' before nginx starts.
+# nginx Docker image executes all scripts in /docker-entrypoint.d/ on startup.
+COPY nginx/20-envsubst-api.sh /docker-entrypoint.d/20-envsubst-api.sh
+RUN chmod +x /docker-entrypoint.d/20-envsubst-api.sh
 
 EXPOSE 80
 

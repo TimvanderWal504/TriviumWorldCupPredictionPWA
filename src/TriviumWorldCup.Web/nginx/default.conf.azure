@@ -21,7 +21,9 @@ server {
     # The $api_backend variable forces runtime resolution (avoids startup failure
     # if the API app is briefly unavailable during a rolling deploy).
     resolver 168.63.129.16 valid=30s ipv6=off;
-    set $api_backend http://twc-api.internal.bravesea-4935fc14.germanywestcentral.azurecontainerapps.io;
+    # API_UPSTREAM is injected at container startup via /docker-entrypoint.d/20-envsubst-api.sh
+    # Value comes from the ACA environment variable set by Bicep (apiApp ingress FQDN).
+    set $api_backend ${API_UPSTREAM};
 
     # Gzip compression
     gzip on;
