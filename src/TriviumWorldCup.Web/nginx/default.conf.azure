@@ -1,0 +1,166 @@
+# Azure Container Apps variant of default.conf
+# Key difference: api upstream points to the API app's internal ACA hostname
+# rather than Docker Compose DNS ("api").
+#
+# On Azure Container Apps, services in the same environment are reachable by
+# their app name. The ACA ingress layer terminates at port 80 (HTTP) so the
+# upstream is http://<api-app-name> — NOT :8080 (that's the container port,
+# internal to ACA). Replace "twc-api" below if you used a different apiAppName.
+#
+# Date generated: 2026-06-05
+
+server {
+    listen       80;
+    server_name  _;
+
+    root   /usr/share/nginx/html;
+    index  index.html;
+
+    # On Azure Container Apps, internal services resolve by app name within
+    # the same environment. ACA's internal DNS uses the Azure resolver.
+    # The $api_backend variable forces runtime resolution (avoids startup failure
+    # if the API app is briefly unavailable during a rolling deploy).
+    resolver 168.63.129.16 valid=10s ipv6=off;
+    set $api_backend http://twc-api;
+
+    # Gzip compression
+    gzip on;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+    gzip_min_length 1000;
+
+    # Proxy /api/* to the .NET API service
+    location /api/ {
+        rewrite            ^/api/(.*)$ /$1 break;
+        proxy_pass         $api_backend;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+
+    # Proxy /auth/* to the .NET API (auth endpoints including /auth/me and link provider)
+    location /auth/ {
+        proxy_pass         $api_backend;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+
+    # Proxy /profile to the .NET API (user profile endpoints)
+    location /profile {
+        proxy_pass         $api_backend;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+
+    # Proxy /predictions to the .NET API (group and tournament predictions)
+    location /predictions {
+        proxy_pass         $api_backend;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+
+    # Proxy /fixtures to the .NET API (group-stage fixture list)
+    location /fixtures {
+        proxy_pass         $api_backend;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+
+    # Proxy /teams to the .NET API (team list)
+    location /teams {
+        proxy_pass         $api_backend;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+
+    # Proxy /players to the .NET API (player roster)
+    location /players {
+        proxy_pass         $api_backend;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+
+    # Proxy /scores to the .NET API (standings endpoints)
+    location /scores {
+        proxy_pass         $api_backend;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+
+    # Proxy /leaderboard to the .NET API (leaderboard endpoints)
+    location /leaderboard {
+        proxy_pass         $api_backend;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+
+    # Proxy /knockout to the .NET API (knockout bracket slots)
+    location /knockout {
+        proxy_pass         $api_backend;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+
+    # Proxy /admin to the .NET API (admin endpoints)
+    location /admin {
+        proxy_pass         $api_backend;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+
+    # Proxy /push to the .NET API (push subscription endpoints)
+    location /push {
+        proxy_pass         $api_backend;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+
+    # NOTE: /e2e endpoints are NOT proxied here.
+    # TestControlEndpoints are only registered when ASPNETCORE_ENVIRONMENT != Production.
+    # In Production on Azure this route intentionally returns 404.
+
+    # SPA fallback — serve index.html for all non-file routes
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Cache static assets aggressively
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+}

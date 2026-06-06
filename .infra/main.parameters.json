@@ -1,0 +1,62 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "westeurope"
+    },
+    "acrName": {
+      "value": "triviumworldcupacr"
+    },
+    "acaEnvironmentName": {
+      "value": "twc-env"
+    },
+    "apiAppName": {
+      "value": "twc-api"
+    },
+    "webAppName": {
+      "value": "twc-web"
+    },
+    "apiImageTag": {
+      "value": "latest"
+    },
+    "webImageTag": {
+      "value": "latest"
+    },
+    "postgresServerName": {
+      "value": "twc-db-server"
+    },
+    "postgresAdminUser": {
+      "value": "pgadmin"
+    },
+    "postgresAdminPassword": {
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<RG_NAME>/providers/Microsoft.KeyVault/vaults/<BOOTSTRAP_KEYVAULT>"
+        },
+        "secretName": "postgres-admin-password"
+      }
+    },
+    "postgresSkuName": {
+      "value": "Standard_B1ms"
+    },
+    "keyVaultName": {
+      "value": "twc-kv"
+    },
+    "footballApiKey": {
+      "value": ""
+    },
+    "vapidPublicKey": {
+      "value": ""
+    },
+    "vapidPrivateKey": {
+      "value": ""
+    },
+    "vapidSubject": {
+      "value": "mailto:you@example.com"
+    },
+    "adminUserId": {
+      "value": ""
+    }
+  }
+}

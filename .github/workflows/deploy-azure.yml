@@ -1,0 +1,98 @@
+
+# Build the web + api images on the GitHub runner, push them to Azure Container
+# Registry, then roll the Azure Container Apps to the new image.
+#
+# ── One-time setup you must do (none of these secrets are sent to anyone) ──────
+# 1. Create the Azure resources (or use the Bicep/az script — ask):
+#      - Azure Container Registry (ACR)
+#      - Azure Container Apps environment + two apps: one for web, one for api
+#      - Azure Database for PostgreSQL Flexible Server (managed)  ← replaces the
+#        postgres + backup containers; the api's connection string points here
+# 2. Create an Entra app/service principal with a GitHub OIDC federated
+#    credential for this repo, and grant it on the resource group:
+#      - AcrPush   (push images)
+#      - Contributor (update the container apps)
+# 3. In GitHub → repo Settings:
+#      Secrets:   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+#      Variables: ACR_NAME (without .azurecr.io), AZURE_RG,
+#                 ACA_WEB_APP, ACA_API_APP
+#    (You fill these in GitHub — never put them in the repo.)
+#
+# ── Adaptations needed for it to actually run on Azure (not done by this file) ─
+#  - nginx upstream: the web image proxies /api to `api:8080` via Docker DNS,
+#    which does not exist on Container Apps. Point it at the api app's internal
+#    address for the Azure build (separate default.conf — happy to generate it).
+#  - Drop cloudflared (Container Apps provides public HTTPS ingress) and the
+#    postgres/backup containers (use the managed database above).
+ 
+name: Build and deploy to Azure
+ 
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+ 
+permissions:
+  id-token: write   # required for Azure OIDC login
+  contents: read
+ 
+env:
+  ACR_NAME: ${{ vars.ACR_NAME }}
+  RESOURCE_GROUP: ${{ vars.AZURE_RG }}
+  WEB_APP: ${{ vars.ACA_WEB_APP }}
+  API_APP: ${{ vars.ACA_API_APP }}
+  IMAGE_TAG: ${{ github.sha }}
+ 
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+ 
+      - name: Azure login (OIDC, no stored secret)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+ 
+      - name: Log in to ACR
+        run: az acr login --name "$ACR_NAME"
+ 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+ 
+      - name: Build & push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./src/TriviumWorldCup.Api
+          file: ./src/TriviumWorldCup.Api/Dockerfile
+          push: true
+          tags: |
+            ${{ env.ACR_NAME }}.azurecr.io/twc-api:${{ env.IMAGE_TAG }}
+            ${{ env.ACR_NAME }}.azurecr.io/twc-api:latest
+ 
+      - name: Build & push Web image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./src/TriviumWorldCup.Web
+          file: ./src/TriviumWorldCup.Web/Dockerfile
+          push: true
+          tags: |
+            ${{ env.ACR_NAME }}.azurecr.io/twc-web:${{ env.IMAGE_TAG }}
+            ${{ env.ACR_NAME }}.azurecr.io/twc-web:latest
+ 
+      - name: Deploy API to Container Apps
+        run: |
+          az containerapp update \
+            --name "$API_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$ACR_NAME.azurecr.io/twc-api:$IMAGE_TAG"
+ 
+      - name: Deploy Web to Container Apps
+        run: |
+          az containerapp update \
+            --name "$WEB_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$ACR_NAME.azurecr.io/twc-web:$IMAGE_TAG"
