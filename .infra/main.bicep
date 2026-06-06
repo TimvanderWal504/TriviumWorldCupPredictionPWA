@@ -278,9 +278,10 @@ resource apiApp 'Microsoft.App/containerApps@2023-05-01' = {
         }
       ]
       ingress: {
-        external: false   // internal only — not reachable from the public internet
+        external: false      // internal only — not reachable from the public internet
         targetPort: 8080
         transport: 'http'
+        allowInsecure: true  // nginx proxies over HTTP; without this ACA redirects to HTTPS (301)
       }
     }
     template: {
