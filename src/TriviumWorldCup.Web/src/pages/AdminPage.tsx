@@ -227,6 +227,11 @@ export function AdminPage() {
                       Copy link
                     </button>
                     <button
+                      onClick={() => navigator.clipboard.writeText(u.id)}
+                      className="px-2.5 py-1 rounded-input text-[12px] font-semibold bg-surface-3 text-fg-secondary">
+                      Copy ID
+                    </button>
+                    <button
                       onClick={() => handleDeleteUser(u.id)}
                       className="px-2.5 py-1 rounded-input text-[12px] font-semibold"
                       style={{ background: 'var(--live-soft)', color: 'var(--loss)' }}>

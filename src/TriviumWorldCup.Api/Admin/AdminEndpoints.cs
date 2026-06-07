@@ -466,6 +466,56 @@ public static class AdminEndpoints
         .WithName("DeleteInviteUser")
         .WithSummary("Deletes an admin-managed user (link auth provider).");
 
+        // ── POST /admin/users/{userId}/predictions/inject ────────────────────
+        // Bulk-upserts explicit group-stage predictions supplied by the caller.
+        // Body: array of { fixtureId, home, away } — fixture IDs are "1"–"72".
+        // Lock checks are bypassed — admin privilege. Idempotent (upsert semantics).
+        group.MapPost("/users/{userId}/predictions/inject", async (
+            string userId,
+            [FromBody] List<InjectPredictionItem> items,
+            HttpContext context,
+            IDocumentSession session,
+            CancellationToken ct) =>
+        {
+            var caller = context.GetAppUser();
+            if (!caller.IsInRole("admin"))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            if (items is not { Count: > 0 })
+                return Results.BadRequest(new { error = "Request body must be a non-empty array." });
+
+            // Validate all referenced fixture IDs exist
+            var fixtureIds = items.Select(i => i.FixtureId).Distinct().ToList();
+            var existingIds = (await session.Query<Fixture>()
+                .Select(f => f.Id)
+                .ToListAsync(ct))
+                .ToHashSet();
+
+            var unknown = fixtureIds.Where(id => !existingIds.Contains(id)).ToList();
+            if (unknown.Count > 0)
+                return Results.UnprocessableEntity(new { error = $"Unknown fixture ID(s): {string.Join(", ", unknown)}" });
+
+            var now = DateTimeOffset.UtcNow;
+            foreach (var item in items)
+            {
+                session.Store(new GroupPrediction
+                {
+                    Id          = $"{userId}_{item.FixtureId}",
+                    UserId      = userId,
+                    FixtureId   = item.FixtureId,
+                    HomeScore   = item.Home,
+                    AwayScore   = item.Away,
+                    SubmittedAt = now,
+                });
+            }
+
+            await session.SaveChangesAsync(ct);
+
+            return Results.Ok(new { userId, injected = items.Count });
+        })
+        .WithName("InjectUserPredictions")
+        .WithSummary("Upserts explicit group-stage predictions for a user. Body: [{fixtureId, home, away}]. Bypasses lock checks. Idempotent.");
+
         // ── POST /admin/recompute ─────────────────────────────────────────────
         group.MapPost("/recompute", async (
             HttpContext context,
@@ -507,6 +557,9 @@ public sealed record CreateUserRequest(string DisplayName);
 
 /// <summary>Request body for POST /admin/fixtures/{id}/result.</summary>
 public sealed record SetResultRequest(int HomeScore, int AwayScore);
+
+/// <summary>One item in the POST /admin/users/{userId}/predictions/inject body.</summary>
+public sealed record InjectPredictionItem(string FixtureId, int Home, int Away);
 
 /// <summary>Request body for POST /admin/fixtures/{id}/goals.</summary>
 public sealed record AddGoalRequest(Guid PlayerId, string Type, int Minute);
