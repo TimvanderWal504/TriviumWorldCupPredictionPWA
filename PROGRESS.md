@@ -149,6 +149,37 @@ Staging environment fully provisioned on Azure (Visual Studio Enterprise subscri
 
 AK12 continues to run in parallel until staging is verified stable.
 
+## Unversioned work (staging branch, 7 June 2026)
+
+### Magic link — self-service sign-up + form-based login
+- **`Auth/Link/InviteUser.cs`** — added nullable `Email` property (null for admin-created users).
+- **`Program.cs`** — added Marten email index (`Index(u => u.Email!)`).
+- **`appsettings.json`** — added `Auth:Link:AllowedDomains: ["trivium-esolutions.com"]` domain whitelist.
+- **`Auth/Link/LinkAuthEndpoints.cs`** — two new anonymous endpoints:
+  - `POST /auth/link/signup` — validates email domain, checks for duplicate, creates `InviteUser`, returns `{ token }` once.
+  - `POST /auth/link/login` — accepts `{ email, token }`, looks up user by email, verifies GUID, sets `twc_link_session` cookie.
+- **`Data/SeedData/InviteUsersData.cs`** — admin seed user now carries `Email = "tim.vanderwal@trivium-esolutions.com"` (upserted on restart).
+- **`auth/SignUpPage.tsx`** (new) — email input form; on success shows token once with copy button + "Go to sign in" link.
+- **`auth/LoginPage.tsx`** (new) — email + token form; on success calls `reload()` from `AuthContext`.
+- **`auth/AuthContext.tsx`** + **`auth/types.ts`** — added `reload: loadAuthState` to context value.
+- **`App.tsx`** — added `AuthGateway` component (login/signup toggle); replaces old "open your personal login link" prompt.
+
+### ET/Penalties in knockout bracket + ingestion fix
+- **`Domain/Enums.cs`** — extended `MatchStatus` with `ExtraTime = 4` and `PenaltyShootout = 5` (appended; safe for existing int-serialised data).
+- **`Domain/KnockoutSlot.cs`** — added `PenaltyHomeScore` and `PenaltyAwayScore` nullable int fields; `HomeScore/AwayScore` documented as 90-min score.
+- **`Ingestion/FootballApiClient.cs`** — added `ApiScore` / `ApiScoreEntry` DTOs; mapped `score.fulltime` → `ScoreFullTimeHome/Away` and `score.penalty` → `ScorePenaltyHome/Away`.
+- **`Ingestion/ResultIngestionJob.cs`** — two critical fixes:
+  1. Live-window check now also queries `KnockoutSlot` (was only checking `Fixture`; during knockout phase all group fixtures are `Completed`, so the job always exited early).
+  2. New Step 8: matches live/completed API fixtures to `KnockoutSlot` by team pair; sets `ExtraTime` / `PenaltyShootout` / `Completed` status; stores 90-min score; stores penalty scores; determines `WinnerTeamId` from AET total or penalty outcome; triggers `PropagateAllKnockoutResultsAsync` on any update.
+- **`Tournament/KnockoutSlotEndpoints.cs`** — `KnockoutSlotDto` now includes `PenaltyHomeScore` and `PenaltyAwayScore`.
+- **`pages/KnockoutBracketPage.tsx`** — bracket cards: live border colour; `ET` / `PEN` / `LIVE` status badges; per-team penalty scores in brackets when won on penalties; "After extra time" / "Won on penalties" footer. AET inferred when `homeScore == awayScore && winnerTeamId != null && penaltyHomeScore == null`.
+
+### Admin prediction injection endpoint
+- **`Admin/AdminEndpoints.cs`** — `POST /admin/users/{userId}/predictions/inject` accepts `[{ fixtureId, home, away }]` JSON body; validates all fixture IDs exist (422 on unknown); upserts `GroupPrediction` documents bypassing lock checks; returns `{ userId, injected: N }`. Idempotent.
+- **`pages/AdminPage.tsx`** — removed inject button; added "Copy ID" button per user row for convenient `userId` lookup when calling the inject endpoint.
+
+**Build status:** `dotnet test` and `npx tsc --noEmit` both pass with zero errors.
+
 ## Next action
 1. **`git push origin staging`** — triggers first GitHub Actions build; after ~5 min the web app URL serves the real app.
 2. **Seed admin user on staging** — navigate to `https://twc-web.bravesea-4935fc14.germanywestcentral.azurecontainerapps.io/auth/link/login?id=c0c53bf2-8c04-4f08-86ee-10d25e895fee`
