@@ -73,6 +73,20 @@ public class ResultIngestionJob(
                      && f.KickoffUtc <= liveWindowEnd)
             .AnyAsync(ct);
 
+        // Also check knockout slots — during the knockout phase all group Fixtures are
+        // Completed so the query above returns false even when a knockout match is live.
+        if (!anyLiveInDb)
+        {
+            anyLiveInDb = await checkSession
+                .Query<KnockoutSlot>()
+                .Where(s => s.Status != MatchStatus.Completed
+                         && s.Status != MatchStatus.Cancelled
+                         && s.KickoffUtc != null
+                         && s.KickoffUtc >= liveWindowStart
+                         && s.KickoffUtc <= liveWindowEnd)
+                .AnyAsync(ct);
+        }
+
         if (!anyLiveInDb)
         {
             logger.LogDebug("ResultIngestionJob: no fixtures in live window — skipping API call");
@@ -247,21 +261,100 @@ public class ResultIngestionJob(
                 goalEvents.Count(e => e.Player?.Name != null));
         }
 
-        if (ingestedCount > 0 || anyLive)
+        // ── 8. Process live and completed knockout fixtures ───────────────────────
+        // The API call above returns all fixtures for the tournament, so knockout
+        // fixtures are already in allApiFixtures. We match them to KnockoutSlot
+        // documents by team pair and update scores / status in real-time.
+        var knockoutSlots = await session
+            .Query<KnockoutSlot>()
+            .Where(s => s.HomeTeamId != null
+                     && s.AwayTeamId != null
+                     && s.Status != MatchStatus.Completed
+                     && s.Status != MatchStatus.Cancelled)
+            .ToListAsync(ct);
+
+        var knockoutUpdated = 0;
+        if (knockoutSlots.Count > 0)
+        {
+            var knockoutByTeamPair = knockoutSlots
+                .ToDictionary(s => (s.HomeTeamId!, s.AwayTeamId!));
+
+            foreach (var apiFixture in allApiFixtures.Where(f => f.IsLive || f.IsFullTime))
+            {
+                var homeCode = FootballApiTeamMap.Resolve(apiFixture.HomeTeamId, apiFixture.HomeTeamName);
+                var awayCode = FootballApiTeamMap.Resolve(apiFixture.AwayTeamId, apiFixture.AwayTeamName);
+                if (homeCode == null || awayCode == null) continue;
+                if (!knockoutByTeamPair.TryGetValue((homeCode, awayCode), out var slot)) continue;
+
+                if (apiFixture.IsLive)
+                {
+                    slot.Status = apiFixture.StatusShort is "ET" or "BT"
+                                ? MatchStatus.ExtraTime
+                                : apiFixture.StatusShort is "P"
+                                ? MatchStatus.PenaltyShootout
+                                : MatchStatus.InProgress;
+                    slot.HomeScore = apiFixture.HomeGoals;
+                    slot.AwayScore = apiFixture.AwayGoals;
+                    if (slot.Status == MatchStatus.PenaltyShootout)
+                    {
+                        slot.PenaltyHomeScore = apiFixture.ScorePenaltyHome;
+                        slot.PenaltyAwayScore = apiFixture.ScorePenaltyAway;
+                    }
+                }
+                else // IsFullTime
+                {
+                    // Store the 90-minute score (score.fulltime) — this is what the prediction
+                    // scoring system compares against. Falls back to goals total if not available.
+                    slot.HomeScore = apiFixture.ScoreFullTimeHome ?? apiFixture.HomeGoals;
+                    slot.AwayScore = apiFixture.ScoreFullTimeAway ?? apiFixture.AwayGoals;
+                    slot.Status    = MatchStatus.Completed;
+
+                    // Determine winner
+                    if (slot.HomeScore > slot.AwayScore)
+                        slot.WinnerTeamId = slot.HomeTeamId;
+                    else if (slot.AwayScore > slot.HomeScore)
+                        slot.WinnerTeamId = slot.AwayTeamId;
+                    else if (apiFixture.StatusShort is "AET")
+                    {
+                        // ET tipped the balance — HomeGoals/AwayGoals hold the AET total
+                        if (apiFixture.HomeGoals > apiFixture.AwayGoals)
+                            slot.WinnerTeamId = slot.HomeTeamId;
+                        else if (apiFixture.AwayGoals > apiFixture.HomeGoals)
+                            slot.WinnerTeamId = slot.AwayTeamId;
+                    }
+                    else if (apiFixture.StatusShort is "PEN")
+                    {
+                        slot.PenaltyHomeScore = apiFixture.ScorePenaltyHome;
+                        slot.PenaltyAwayScore = apiFixture.ScorePenaltyAway;
+                        if (slot.PenaltyHomeScore > slot.PenaltyAwayScore)
+                            slot.WinnerTeamId = slot.HomeTeamId;
+                        else if (slot.PenaltyAwayScore > slot.PenaltyHomeScore)
+                            slot.WinnerTeamId = slot.AwayTeamId;
+                    }
+
+                    logger.LogInformation(
+                        "ResultIngestionJob: knockout slot {SlotKey} completed — {Home} {HomeScore}-{AwayScore} {Away}, winner={Winner}",
+                        slot.SlotKey, homeCode, slot.HomeScore, slot.AwayScore, awayCode,
+                        slot.WinnerTeamId ?? "TBD");
+                }
+
+                session.Store(slot);
+                knockoutUpdated++;
+            }
+        }
+
+        if (ingestedCount > 0 || anyLive || knockoutUpdated > 0)
         {
             await session.SaveChangesAsync(ct);
         }
 
-        if (ingestedCount > 0)
+        if (ingestedCount > 0 || knockoutUpdated > 0)
         {
-            // Trigger knockout bracket resolver after each batch.
-            // ResolveGroupStageAsync exits early if the group stage is not yet complete.
             logger.LogInformation(
-                "ResultIngestionJob: {Count} fixture(s) ingested — triggering bracket resolution and score recompute",
-                ingestedCount);
+                "ResultIngestionJob: {GroupCount} group fixture(s), {KnockoutCount} knockout slot(s) updated — triggering bracket resolution and score recompute",
+                ingestedCount, knockoutUpdated);
             await bracketResolver.ResolveGroupStageAsync(ct);
-
-            // Trigger scoring recompute after each batch
+            await bracketResolver.PropagateAllKnockoutResultsAsync(ct);
             await scoringService.RecomputeAllAsync(ct);
         }
 

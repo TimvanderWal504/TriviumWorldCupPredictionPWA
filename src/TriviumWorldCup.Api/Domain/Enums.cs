@@ -23,7 +23,9 @@ public enum MatchStatus
     Scheduled,
     InProgress,
     Completed,
-    Cancelled
+    Cancelled,
+    ExtraTime,        // Live: match is in extra time (ET / break before penalties)
+    PenaltyShootout,  // Live: penalty shootout in progress
 }
 
 public enum SlotSourceType

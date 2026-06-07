@@ -107,8 +107,12 @@ public class FootballApiClient : IFootballApiClient
                 HomeTeamName = w.Teams?.Home?.Name ?? string.Empty,
                 AwayTeamId  = w.Teams?.Away?.Id ?? 0,
                 AwayTeamName = w.Teams?.Away?.Name ?? string.Empty,
-                HomeGoals   = w.Goals?.Home,
-                AwayGoals   = w.Goals?.Away,
+                HomeGoals         = w.Goals?.Home,
+                AwayGoals         = w.Goals?.Away,
+                ScoreFullTimeHome = w.Score?.Fulltime?.Home,
+                ScoreFullTimeAway = w.Score?.Fulltime?.Away,
+                ScorePenaltyHome  = w.Score?.Penalty?.Home,
+                ScorePenaltyAway  = w.Score?.Penalty?.Away,
             })
             .ToList();
     }
@@ -134,8 +138,15 @@ public sealed class ApiFixture
     public string   HomeTeamName { get; set; } = string.Empty;
     public int      AwayTeamId   { get; set; }
     public string   AwayTeamName { get; set; } = string.Empty;
-    public int?     HomeGoals    { get; set; }
-    public int?     AwayGoals    { get; set; }
+    /// <summary>Running total goals at the current moment (includes ET goals, excludes penalty shootout).</summary>
+    public int?     HomeGoals           { get; set; }
+    public int?     AwayGoals           { get; set; }
+    /// <summary>90-minute score from score.fulltime — null while the match is still in progress.</summary>
+    public int?     ScoreFullTimeHome   { get; set; }
+    public int?     ScoreFullTimeAway   { get; set; }
+    /// <summary>Penalty shootout score from score.penalty — non-null when StatusShort is "P" or "PEN".</summary>
+    public int?     ScorePenaltyHome    { get; set; }
+    public int?     ScorePenaltyAway    { get; set; }
 
     /// <summary>Returns true if this fixture is finished (FT, PEN, or AET).</summary>
     public bool IsFullTime => StatusShort is "FT" or "PEN" or "AET";
@@ -193,6 +204,9 @@ internal sealed class ApiFixtureWrapper
 
     [JsonPropertyName("goals")]
     public ApiGoals? Goals { get; set; }
+
+    [JsonPropertyName("score")]
+    public ApiScore? Score { get; set; }
 }
 
 internal sealed class ApiFixtureDetail
@@ -232,6 +246,24 @@ internal sealed class ApiTeam
 }
 
 internal sealed class ApiGoals
+{
+    [JsonPropertyName("home")]
+    public int? Home { get; set; }
+
+    [JsonPropertyName("away")]
+    public int? Away { get; set; }
+}
+
+internal sealed class ApiScore
+{
+    [JsonPropertyName("fulltime")]
+    public ApiScoreEntry? Fulltime { get; set; }
+
+    [JsonPropertyName("penalty")]
+    public ApiScoreEntry? Penalty { get; set; }
+}
+
+internal sealed class ApiScoreEntry
 {
     [JsonPropertyName("home")]
     public int? Home { get; set; }

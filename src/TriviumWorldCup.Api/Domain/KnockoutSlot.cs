@@ -38,8 +38,16 @@ public class KnockoutSlot
 
     public MatchStatus Status { get; set; } = MatchStatus.Scheduled;
 
+    /// <summary>90-minute score — used by the prediction scoring system.</summary>
     public int? HomeScore { get; set; }
     public int? AwayScore { get; set; }
+
+    /// <summary>
+    /// Penalty shootout scores — set when the match was decided by penalties (StatusShort "PEN").
+    /// Null for matches decided in 90 min or extra time.
+    /// </summary>
+    public int? PenaltyHomeScore { get; set; }
+    public int? PenaltyAwayScore { get; set; }
 
     /// <summary>
     /// FIFA code of the match winner — populated by TWC-9 when the slot result is recorded.
