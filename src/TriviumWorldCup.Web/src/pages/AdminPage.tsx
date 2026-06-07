@@ -40,6 +40,13 @@ export function AdminPage() {
   const [resultError, setResultError] = useState<string | null>(null);
   const [recomputeMsg, setRecomputeMsg] = useState<string | null>(null);
 
+  const [pushTargetUserId, setPushTargetUserId] = useState('');
+  const [pushTitle, setPushTitle] = useState('Test notification');
+  const [pushBody, setPushBody] = useState('This is a test notification from the admin panel.');
+  const [pushMsg, setPushMsg] = useState<string | null>(null);
+  const [pushError, setPushError] = useState<string | null>(null);
+  const [pushBusy, setPushBusy] = useState(false);
+
   useEffect(() => {
     if (!isAdmin) return;
     fetchIngestion(); fetchOverrides();
@@ -155,6 +162,35 @@ export function AdminPage() {
       const body = await res.json();
       setRecomputeMsg((body as { message?: string }).message ?? 'Recompute triggered.');
     } catch (err) { setRecomputeMsg(`Error: ${String(err)}`); }
+  }
+
+  async function handleSendTestPush(e: React.FormEvent) {
+    e.preventDefault();
+    setPushMsg(null);
+    setPushError(null);
+    setPushBusy(true);
+    try {
+      const res = await fetch('/admin/push/test', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: pushTargetUserId.trim() || null,
+          title: pushTitle.trim() || null,
+          body: pushBody.trim() || null,
+        }),
+      });
+      const data = await res.json() as { sent?: number; message?: string; detail?: string };
+      if (!res.ok) {
+        setPushError(data.detail ?? `HTTP ${res.status}`);
+        return;
+      }
+      setPushMsg(data.message ?? `Sent ${data.sent} notification(s).`);
+    } catch (err) {
+      setPushError(String(err));
+    } finally {
+      setPushBusy(false);
+    }
   }
 
   function formatDate(iso: string | null): string {
@@ -300,6 +336,45 @@ export function AdminPage() {
           </button>
           {recomputeMsg && <p className="mt-2 text-sm" style={{ color: 'var(--win)' }}>{recomputeMsg}</p>}
         </div>
+      </section>
+
+      {/* Push notifications test */}
+      <section className="rounded-card bg-surface border border-border p-5 space-y-4">
+        <h2 className="font-display font-bold text-lg tracking-tight">Push Notifications</h2>
+        <form onSubmit={handleSendTestPush} className="space-y-3">
+          <div>
+            <label htmlFor="pushTargetUserId" className={labelCls}>Target user ID <span className="normal-case font-normal">(leave blank to send to yourself)</span></label>
+            <input
+              id="pushTargetUserId" type="text" value={pushTargetUserId}
+              onChange={e => setPushTargetUserId(e.target.value)}
+              placeholder="Leave blank for yourself"
+              className={`${inputCls} w-full max-w-sm`}
+            />
+          </div>
+          <div>
+            <label htmlFor="pushTitle" className={labelCls}>Title</label>
+            <input
+              id="pushTitle" type="text" value={pushTitle}
+              onChange={e => setPushTitle(e.target.value)}
+              className={`${inputCls} w-full max-w-sm`}
+            />
+          </div>
+          <div>
+            <label htmlFor="pushBody" className={labelCls}>Body</label>
+            <input
+              id="pushBody" type="text" value={pushBody}
+              onChange={e => setPushBody(e.target.value)}
+              className={`${inputCls} w-full max-w-sm`}
+            />
+          </div>
+          <button type="submit" disabled={pushBusy}
+            className="px-4 py-2 rounded-input text-sm font-semibold transition-colors disabled:opacity-50"
+            style={{ background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }}>
+            {pushBusy ? 'Sending…' : 'Send test notification'}
+          </button>
+          {pushError && <p className="text-sm" style={{ color: 'var(--loss)' }}>{pushError}</p>}
+          {pushMsg   && <p className="text-sm" style={{ color: 'var(--win)' }}>{pushMsg}</p>}
+        </form>
       </section>
 
       {/* Manual result override */}

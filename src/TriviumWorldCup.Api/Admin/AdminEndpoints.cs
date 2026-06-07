@@ -5,6 +5,7 @@ using TriviumWorldCup.Api.Auth.Link;
 using TriviumWorldCup.Api.Domain;
 using TriviumWorldCup.Api.Knockout;
 using TriviumWorldCup.Api.Scoring;
+using WebPush;
 
 namespace TriviumWorldCup.Api.Admin;
 
@@ -516,6 +517,85 @@ public static class AdminEndpoints
         .WithName("InjectUserPredictions")
         .WithSummary("Upserts explicit group-stage predictions for a user. Body: [{fixtureId, home, away}]. Bypasses lock checks. Idempotent.");
 
+        // ── POST /admin/push/test ─────────────────────────────────────────────
+        // Sends a test push notification to the caller's subscriptions (or a target user's).
+        group.MapPost("/push/test", async (
+            HttpContext context,
+            [FromBody] TestPushRequest request,
+            IDocumentStore store,
+            WebPushClient webPushClient,
+            IConfiguration config,
+            CancellationToken ct) =>
+        {
+            var caller = context.GetAppUser();
+            if (!caller.IsInRole("admin"))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            var vapidPublicKey  = config["Push:VapidPublicKey"]  ?? string.Empty;
+            var vapidPrivateKey = config["Push:VapidPrivateKey"] ?? string.Empty;
+            var vapidSubject    = config["Push:VapidSubject"]    ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(vapidPublicKey) ||
+                string.IsNullOrWhiteSpace(vapidPrivateKey) ||
+                string.IsNullOrWhiteSpace(vapidSubject))
+                return Results.Problem("VAPID keys are not configured on the server.", statusCode: 503);
+
+            var targetUserId = string.IsNullOrWhiteSpace(request.UserId) ? caller.UserId : request.UserId;
+            var title = string.IsNullOrWhiteSpace(request.Title) ? "Test notification" : request.Title;
+            var body  = string.IsNullOrWhiteSpace(request.Body)  ? "This is a test notification from the admin panel." : request.Body;
+
+            await using var session = store.LightweightSession();
+            var subs = await session.Query<TriviumWorldCup.Api.Domain.PushSubscription>()
+                .Where(s => s.UserId == targetUserId)
+                .ToListAsync(ct);
+
+            if (subs.Count == 0)
+                return Results.Ok(new { sent = 0, message = "No push subscriptions found for this user." });
+
+            var vapidDetails = new VapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+            var payload = System.Text.Json.JsonSerializer.Serialize(new { title, body });
+            var expiredEndpoints = new List<string>();
+            var sentCount = 0;
+
+            foreach (var sub in subs)
+            {
+                var webPushSub = new WebPush.PushSubscription
+                {
+                    Endpoint = sub.Endpoint,
+                    P256DH   = sub.P256dh,
+                    Auth     = sub.Auth,
+                };
+                try
+                {
+                    await webPushClient.SendNotificationAsync(webPushSub, payload, vapidDetails);
+                    sentCount++;
+                }
+                catch (WebPushException ex) when ((int)ex.StatusCode == 410)
+                {
+                    expiredEndpoints.Add(sub.Endpoint);
+                }
+                catch { /* swallow; sentCount reflects success only */ }
+            }
+
+            if (expiredEndpoints.Count > 0)
+            {
+                var toDelete = await session.Query<TriviumWorldCup.Api.Domain.PushSubscription>()
+                    .Where(s => s.Endpoint.IsOneOf(expiredEndpoints))
+                    .ToListAsync(ct);
+                foreach (var s in toDelete)
+                    session.Delete(s);
+                await session.SaveChangesAsync(ct);
+            }
+
+            return Results.Ok(new
+            {
+                sent    = sentCount,
+                message = $"Sent {sentCount} of {subs.Count} notification(s).",
+            });
+        })
+        .WithName("SendTestPush")
+        .WithSummary("Sends a test push notification to the caller or a target user. Admin only.");
+
         // ── POST /admin/recompute ─────────────────────────────────────────────
         group.MapPost("/recompute", async (
             HttpContext context,
@@ -566,3 +646,6 @@ public sealed record AddGoalRequest(Guid PlayerId, string Type, int Minute);
 
 /// <summary>Request body for POST /admin/knockout/{slotKey}/result.</summary>
 public sealed record SetKnockoutResultRequest(int HomeScore, int AwayScore, string WinnerTeamId);
+
+/// <summary>Request body for POST /admin/push/test.</summary>
+public sealed record TestPushRequest(string? UserId, string? Title, string? Body);
