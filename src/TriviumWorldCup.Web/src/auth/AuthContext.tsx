@@ -90,7 +90,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setHasProfile(true);
   }, []);
 
-  const value: AuthContextValue = { user, isLoading, hasProfile, isLinkAuth, signOut, onProfileCreated };
+  const value: AuthContextValue = { user, isLoading, hasProfile, isLinkAuth, signOut, onProfileCreated, reload: loadAuthState };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

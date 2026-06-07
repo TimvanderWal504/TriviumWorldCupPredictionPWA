@@ -3,6 +3,8 @@ import { Radio, ListChecks, Trophy, BarChart3, User, NotebookPen } from 'lucide-
 import { AuthProvider } from './auth/AuthContext.tsx';
 import { OfflineBanner } from './components/OfflineBanner.tsx';
 import { ProfileSetupModal } from './auth/ProfileSetupModal.tsx';
+import { LoginPage } from './auth/LoginPage.tsx';
+import { SignUpPage } from './auth/SignUpPage.tsx';
 import { AdminPage } from './pages/AdminPage.tsx';
 import { GroupPredictionsPage } from './pages/GroupPredictionsPage.tsx';
 import { KnockoutBracketPage } from './pages/KnockoutBracketPage.tsx';
@@ -42,6 +44,26 @@ const SUB_TITLES: Record<NonNullable<SubPage>, string> = {
   profile: 'Profile',
   admin:   'Admin',
 };
+
+type AuthView = 'login' | 'signup';
+
+function AuthGateway() {
+  const { reload } = useAuth();
+  const [view, setView] = useState<AuthView>('login');
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen py-20 px-4">
+      <p className="font-display font-black text-[13px] tracking-[0.25em] text-pitch-500 uppercase mb-3">TWC 2026</p>
+      <h1 className="font-display font-black text-4xl tracking-tight mb-8 text-center">
+        Trivium World Cup<br />2026
+      </h1>
+      {view === 'login'
+        ? <LoginPage onLoggedIn={reload} onSwitchToSignUp={() => setView('signup')} />
+        : <SignUpPage onSwitchToLogin={() => setView('login')} />
+      }
+    </div>
+  );
+}
 
 function AppShell() {
   const { user, isLoading, hasProfile, signOut } = useAuth();
@@ -132,11 +154,8 @@ function AppShell() {
       {/* ── Main content ── */}
       <main className="flex-1 overflow-y-auto pb-[4.25rem]">
         {!user ? (
-          <div data-testid="signin-prompt" className="flex flex-col items-center justify-center min-h-screen py-20 text-center px-4">
-            <p className="font-display font-black text-[13px] tracking-[0.25em] text-pitch-500 uppercase mb-3">TWC 2026</p>
-            <h1 className="font-display font-black text-4xl tracking-tight mb-3">Trivium World Cup<br />2026</h1>
-            <p className="text-fg-secondary text-base mb-8 max-w-xs">Prediction pool — sign in to start predicting.</p>
-            <p className="text-fg-muted text-sm">Open your personal login link to sign in.</p>
+          <div data-testid="signin-prompt">
+            <AuthGateway />
           </div>
 
         ) : tab === 'live' ? (

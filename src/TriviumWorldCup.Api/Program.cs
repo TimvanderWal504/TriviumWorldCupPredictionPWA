@@ -58,7 +58,7 @@ builder.Services.AddMarten(opts =>
     // PushSubscription — Web Push device subscription (TWC-18).
     opts.Schema.For<PushSubscription>().Identity(p => p.Id);
     // InviteUser — admin-managed users for the link auth provider.
-    opts.Schema.For<InviteUser>().Identity(u => u.Id);
+    opts.Schema.For<InviteUser>().Identity(u => u.Id).Index(u => u.Email!);
 }).UseLightweightSessions()
   .ApplyAllDatabaseChangesOnStartup(); // Warm up all collection schemas on startup instead of lazily per-request
 

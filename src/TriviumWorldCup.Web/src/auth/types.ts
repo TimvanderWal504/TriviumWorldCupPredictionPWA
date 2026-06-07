@@ -28,4 +28,6 @@ export interface AuthContextValue {
   signOut: () => Promise<void>;
   /** Called after profile creation to re-hydrate auth state. */
   onProfileCreated: () => Promise<void>;
+  /** Re-fetches auth state from the server (e.g. after form login). */
+  reload: () => Promise<void>;
 }
