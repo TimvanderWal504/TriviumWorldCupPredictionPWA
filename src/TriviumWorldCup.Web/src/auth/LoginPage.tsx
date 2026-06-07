@@ -26,10 +26,10 @@ export function LoginPage({ onLoggedIn, onSwitchToSignUp }: LoginPageProps) {
         await onLoggedIn();
       } else {
         const body = await res.json().catch(() => ({})) as { error?: string };
-        setError(body.error ?? 'Ongeldige inloggegevens. Controleer je e-mailadres en token.');
+        setError(body.error ?? 'Invalid credentials. Check your email address and token.');
       }
     } catch {
-      setError('Kon de server niet bereiken. Controleer je verbinding.');
+      setError('Could not reach the server. Check your connection.');
     } finally {
       setSubmitting(false);
     }
@@ -37,14 +37,14 @@ export function LoginPage({ onLoggedIn, onSwitchToSignUp }: LoginPageProps) {
 
   return (
     <div className="bg-surface rounded-sheet shadow-sheet w-full max-w-md p-8 border border-border">
-      <h2 className="font-display font-bold text-2xl tracking-tight mb-1">Inloggen</h2>
+      <h2 className="font-display font-bold text-2xl tracking-tight mb-1">Sign in</h2>
       <p className="text-fg-secondary mb-6 text-sm">
-        Vul je e-mailadres en jouw persoonlijke token in.
+        Enter your email address and personal token.
       </p>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label htmlFor="login-email" className="block text-sm font-medium text-fg-secondary mb-1">
-            E-mailadres
+            Email address
           </label>
           <input
             id="login-email"
@@ -53,7 +53,7 @@ export function LoginPage({ onLoggedIn, onSwitchToSignUp }: LoginPageProps) {
             onChange={e => setEmail(e.target.value)}
             required
             autoFocus
-            placeholder="naam@bedrijf.nl"
+            placeholder="name@company.com"
             className="w-full bg-surface-2 text-fg rounded-input px-4 py-2.5 border border-border placeholder:text-fg-muted"
           />
         </div>
@@ -84,17 +84,17 @@ export function LoginPage({ onLoggedIn, onSwitchToSignUp }: LoginPageProps) {
           className="w-full font-semibold rounded-input py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ background: 'var(--primary-fill)', color: 'var(--fg-onbrand)' }}
         >
-          {submitting ? 'Inloggen…' : 'Inloggen'}
+          {submitting ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
 
       <p className="text-sm text-fg-muted text-center mt-6">
-        Nog geen account?{' '}
+        Don't have an account?{' '}
         <button
           onClick={onSwitchToSignUp}
           className="text-fg-secondary hover:text-fg transition-colors font-medium"
         >
-          Account aanmaken
+          Create account
         </button>
       </p>
     </div>

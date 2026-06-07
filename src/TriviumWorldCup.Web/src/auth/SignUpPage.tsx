@@ -25,10 +25,10 @@ export function SignUpPage({ onSwitchToLogin }: SignUpPageProps) {
       if (res.ok && body.token) {
         setToken(body.token);
       } else {
-        setError(body.error ?? `Onverwachte fout (${res.status}).`);
+        setError(body.error ?? `Unexpected error (${res.status}).`);
       }
     } catch {
-      setError('Kon de server niet bereiken. Controleer je verbinding.');
+      setError('Could not reach the server. Check your connection.');
     } finally {
       setSubmitting(false);
     }
@@ -44,16 +44,16 @@ export function SignUpPage({ onSwitchToLogin }: SignUpPageProps) {
   if (token) {
     return (
       <div className="bg-surface rounded-sheet shadow-sheet w-full max-w-md p-8 border border-border">
-        <h2 className="font-display font-bold text-2xl tracking-tight mb-1">Account aangemaakt</h2>
+        <h2 className="font-display font-bold text-2xl tracking-tight mb-1">Account created</h2>
         <p className="text-fg-secondary mb-2 text-sm">
-          Bewaar onderstaande token zorgvuldig — dit is je wachtwoord om in te loggen.
+          Save the token below — it is your password to sign in.
         </p>
         <p className="text-fg-muted text-xs mb-5">
-          De token wordt maar eenmalig getoond. Sla hem op in een wachtwoordmanager of noteer hem.
+          This token is shown only once. Store it in a password manager or write it down.
         </p>
         <div
           className="bg-surface-2 rounded-input border border-border px-4 py-3 font-mono text-sm break-all mb-3 select-all cursor-text"
-          aria-label="Jouw login-token"
+          aria-label="Your login token"
         >
           {token}
         </div>
@@ -62,13 +62,13 @@ export function SignUpPage({ onSwitchToLogin }: SignUpPageProps) {
           className="w-full font-semibold rounded-input py-2.5 transition-colors mb-6"
           style={{ background: 'var(--primary-fill)', color: 'var(--fg-onbrand)' }}
         >
-          {copied ? 'Gekopieerd!' : 'Kopieer token'}
+          {copied ? 'Copied!' : 'Copy token'}
         </button>
         <button
           onClick={onSwitchToLogin}
           className="w-full text-sm text-fg-secondary hover:text-fg transition-colors"
         >
-          Naar inloggen
+          Go to sign in
         </button>
       </div>
     );
@@ -76,14 +76,14 @@ export function SignUpPage({ onSwitchToLogin }: SignUpPageProps) {
 
   return (
     <div className="bg-surface rounded-sheet shadow-sheet w-full max-w-md p-8 border border-border">
-      <h2 className="font-display font-bold text-2xl tracking-tight mb-1">Account aanmaken</h2>
+      <h2 className="font-display font-bold text-2xl tracking-tight mb-1">Create account</h2>
       <p className="text-fg-secondary mb-6 text-sm">
-        Vul je werk-e-mailadres in. Je krijgt daarna een token om mee in te loggen.
+        Enter your work email address. You will receive a token to sign in with.
       </p>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label htmlFor="signup-email" className="block text-sm font-medium text-fg-secondary mb-1">
-            E-mailadres
+            Email address
           </label>
           <input
             id="signup-email"
@@ -92,7 +92,7 @@ export function SignUpPage({ onSwitchToLogin }: SignUpPageProps) {
             onChange={e => setEmail(e.target.value)}
             required
             autoFocus
-            placeholder="naam@bedrijf.nl"
+            placeholder="name@company.com"
             className="w-full bg-surface-2 text-fg rounded-input px-4 py-2.5 border border-border placeholder:text-fg-muted"
           />
         </div>
@@ -109,17 +109,17 @@ export function SignUpPage({ onSwitchToLogin }: SignUpPageProps) {
           className="w-full font-semibold rounded-input py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ background: 'var(--primary-fill)', color: 'var(--fg-onbrand)' }}
         >
-          {submitting ? 'Aanmaken…' : 'Account aanmaken'}
+          {submitting ? 'Creating…' : 'Create account'}
         </button>
       </form>
 
       <p className="text-sm text-fg-muted text-center mt-6">
-        Al een account?{' '}
+        Already have an account?{' '}
         <button
           onClick={onSwitchToLogin}
           className="text-fg-secondary hover:text-fg transition-colors font-medium"
         >
-          Inloggen
+          Sign in
         </button>
       </p>
     </div>

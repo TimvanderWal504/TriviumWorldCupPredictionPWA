@@ -27,12 +27,12 @@ public static class LinkAuthEndpoints
         {
             var email = request.Email?.Trim().ToLowerInvariant();
             if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
-                return Results.BadRequest(new { error = "Vul een geldig e-mailadres in." });
+                return Results.BadRequest(new { error = "A valid email address is required." });
 
             var domain = email.Split('@')[1];
             var allowedDomains = config.GetSection("Auth:Link:AllowedDomains").Get<string[]>() ?? [];
             if (allowedDomains.Length == 0 || !allowedDomains.Contains(domain, StringComparer.OrdinalIgnoreCase))
-                return Results.UnprocessableEntity(new { error = "Dit e-maildomein is niet toegestaan." });
+                return Results.UnprocessableEntity(new { error = "This email domain is not authorised for sign-up." });
 
             await using var session = store.LightweightSession();
             var existing = await session.Query<InviteUser>()
@@ -40,7 +40,7 @@ public static class LinkAuthEndpoints
                 .FirstOrDefaultAsync(ct);
 
             if (existing is not null)
-                return Results.Conflict(new { error = "Er bestaat al een account voor dit e-mailadres." });
+                return Results.Conflict(new { error = "An account for this email address already exists." });
 
             var localPart = email.Split('@')[0];
             var displayName = char.ToUpperInvariant(localPart[0]) + localPart[1..];
@@ -58,7 +58,7 @@ public static class LinkAuthEndpoints
         })
         .WithName("LinkSignup")
         .WithTags("auth-link")
-        .WithSummary("Self-service signup — maakt een InviteUser aan voor toegestane e-maildomeinen en retourneert eenmalig de token.")
+        .WithSummary("Self-service signup — creates an InviteUser for an allowed email domain and returns the token once.")
         .AllowAnonymous();
 
         // POST /auth/link/login
@@ -74,7 +74,7 @@ public static class LinkAuthEndpoints
             var token = request.Token?.Trim();
 
             if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(token))
-                return Results.BadRequest(new { error = "E-mailadres en token zijn verplicht." });
+                return Results.BadRequest(new { error = "Email address and token are required." });
 
             await using var session = store.LightweightSession();
             var user = await session.Query<InviteUser>()
@@ -99,7 +99,7 @@ public static class LinkAuthEndpoints
         })
         .WithName("LinkFormLogin")
         .WithTags("auth-link")
-        .WithSummary("Form-login — valideert e-mail + token en geeft een 30-daagse sessiecookie.")
+        .WithSummary("Form login — validates email + token and issues a 30-day session cookie.")
         .AllowAnonymous();
 
         // GET /auth/link/login?id=<userId>
