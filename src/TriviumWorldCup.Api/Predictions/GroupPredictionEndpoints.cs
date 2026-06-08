@@ -86,6 +86,52 @@ public static class GroupPredictionEndpoints
         .WithName("CreateGroupPrediction")
         .WithSummary("Creates a group-stage prediction for the current user.");
 
+        // POST /predictions/inject — bulk-upsert group-stage predictions for the current user.
+        // Body: [{fixtureId, home, away}]. Idempotent (upsert semantics). No lock enforcement.
+        group.MapPost("/inject", async (
+            [FromBody] List<InjectPredictionItem> items,
+            HttpContext context,
+            IDocumentSession session,
+            CancellationToken ct) =>
+        {
+            var user = context.GetAppUser();
+            if (!user.IsAuthenticated)
+                return Results.Unauthorized();
+
+            if (items is not { Count: > 0 })
+                return Results.BadRequest(new { error = "Request body must be a non-empty array." });
+
+            var fixtureIds = items.Select(i => i.FixtureId).Distinct().ToList();
+            var existingIds = (await session.Query<Fixture>()
+                .Select(f => f.Id)
+                .ToListAsync(ct))
+                .ToHashSet();
+
+            var unknown = fixtureIds.Where(id => !existingIds.Contains(id)).ToList();
+            if (unknown.Count > 0)
+                return Results.UnprocessableEntity(new { error = $"Unknown fixture ID(s): {string.Join(", ", unknown)}" });
+
+            var now = DateTimeOffset.UtcNow;
+            foreach (var item in items)
+            {
+                session.Store(new GroupPrediction
+                {
+                    Id          = BuildId(user.UserId, item.FixtureId),
+                    UserId      = user.UserId,
+                    FixtureId   = item.FixtureId,
+                    HomeScore   = item.Home,
+                    AwayScore   = item.Away,
+                    SubmittedAt = now,
+                });
+            }
+
+            await session.SaveChangesAsync(ct);
+
+            return Results.Ok(new { userId = user.UserId, injected = items.Count });
+        })
+        .WithName("InjectPredictions")
+        .WithSummary("Bulk-upserts group-stage predictions for the current user. Body: [{fixtureId, home, away}]. Idempotent.");
+
         // PUT /predictions/group/{fixtureId} — update an existing prediction.
         group.MapPut("/{fixtureId}", async (
             string fixtureId,
@@ -167,3 +213,6 @@ public sealed record GroupPredictionDto(
     int HomeScore,
     int AwayScore,
     DateTimeOffset SubmittedAt);
+
+/// <summary>One item in the POST /predictions/group/inject body.</summary>
+public sealed record InjectPredictionItem(string FixtureId, int Home, int Away);
