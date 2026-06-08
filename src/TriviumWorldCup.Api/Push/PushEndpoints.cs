@@ -20,7 +20,7 @@ public static class PushEndpoints
         // GET /push/vapid-public-key — unauthenticated; browser needs this to call PushManager.subscribe
         group.MapGet("/vapid-public-key", (IConfiguration config) =>
         {
-            var publicKey = config["Push:VapidPublicKey"] ?? string.Empty;
+            var publicKey = (config["Push:VapidPublicKey"] ?? string.Empty).Trim();
             return Results.Ok(new { publicKey });
         })
         .WithName("GetVapidPublicKey")
