@@ -31,12 +31,12 @@ async function fetchVapidPublicKey(): Promise<string | null> {
 }
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  // Strip all whitespace — Azure / Windows env vars can embed \r or \n inside the value.
-  const cleaned = base64String.replace(/\s/g, '');
+  // Retain only valid Base64URL characters, removing whitespace and hidden control characters
+  const cleaned = base64String.replace(/[^A-Za-z0-9\-_]/g, '');
   const padding = '='.repeat((4 - (cleaned.length % 4)) % 4);
-  const base64  = (cleaned + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const base64 = (cleaned + padding).replace(/-/g, '+').replace(/_/g, '/');
   const rawData = atob(base64);
-  const output  = new Uint8Array(rawData.length);
+  const output = new Uint8Array(rawData.length);
   for (let i = 0; i < rawData.length; ++i) output[i] = rawData.charCodeAt(i);
   return output;
 }
@@ -49,6 +49,12 @@ async function getCurrentSubscription(): Promise<PushSubscription | null> {
 
 async function subscribeUser(vapidPublicKey: string): Promise<{ ok: boolean; error?: string }> {
   try {
+    // In dev mode the service worker is not registered, so .ready hangs forever.
+    // Fail fast with a clear message rather than blocking the UI.
+    const existing = await navigator.serviceWorker.getRegistration();
+    if (!existing) {
+      return { ok: false, error: 'No service worker registered — push notifications require a production build.' };
+    }
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(vapidPublicKey).buffer as ArrayBuffer });
     const json = sub.toJSON();
@@ -125,7 +131,6 @@ export function ProfilePage() {
   };
 
   const handlePushToggle = async () => {
-    console.log("set permissions")
     setPushError(null); setPushSuccess(null);
     if (!vapidPublicKey) { setPushError('Push notifications are not available (server not configured).'); return; }
     setPushLoading(true);
