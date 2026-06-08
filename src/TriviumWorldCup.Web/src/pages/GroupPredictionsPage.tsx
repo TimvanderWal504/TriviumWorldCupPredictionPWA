@@ -191,10 +191,7 @@ export function GroupPredictionsPage({ onAllGroupsComplete }: GroupPredictionsPa
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeGroup, setActiveGroup] = useState<string>('A');
 
-  // Tab bar scroll indicator state
   const tabsRef = useRef<HTMLDivElement>(null);
-  const [thumbLeft, setThumbLeft] = useState(0);   // percentage 0–100
-  const [thumbWidth, setThumbWidth] = useState(100); // percentage 0–100
 
   // Refs to avoid stale-closure issues in effects
   const loadedRef = useRef(false);
@@ -242,36 +239,6 @@ export function GroupPredictionsPage({ onAllGroupsComplete }: GroupPredictionsPa
     btn?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
   }, [activeGroup]);
 
-  // Track tab bar scroll position for the thin indicator bar
-  useEffect(() => {
-    const el = tabsRef.current;
-    if (!el) return;
-
-    const update = () => {
-      const { scrollLeft, scrollWidth, clientWidth } = el;
-      const maxScroll = scrollWidth - clientWidth;
-      if (maxScroll <= 0) {
-        setThumbWidth(100);
-        setThumbLeft(0);
-      } else {
-        const tw = Math.round((clientWidth / scrollWidth) * 100);
-        setThumbWidth(tw);
-        setThumbLeft((scrollLeft / maxScroll) * (100 - tw));
-      }
-    };
-
-    update();
-    el.addEventListener('scroll', update, { passive: true });
-
-    // ResizeObserver picks up children being added (tabs render after fixtures load)
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-
-    return () => {
-      el.removeEventListener('scroll', update);
-      ro.disconnect();
-    };
-  }, []);
 
   // Auto-advance when every unlocked fixture in the active group has a prediction
   useEffect(() => {
@@ -337,18 +304,26 @@ export function GroupPredictionsPage({ onAllGroupsComplete }: GroupPredictionsPa
         ))}
       </div>
 
-      {/* Thin scroll-position indicator under the tabs */}
-      <div className="relative h-[3px] bg-surface-3 rounded-full mb-3 mt-1.5 overflow-hidden">
-        <div
-          className="absolute inset-y-0 rounded-full"
-          style={{
-            background: 'var(--secondary)',
-            width: `${thumbWidth}%`,
-            left: `${thumbLeft}%`,
-            transition: 'left 120ms ease, width 120ms ease',
-          }}
-        />
-      </div>
+      {/* Active-group position indicator */}
+      {groupLetters.length > 1 && (() => {
+        const n = groupLetters.length;
+        const i = groupLetters.indexOf(activeGroup);
+        const tw = 133.333 / n;
+        const tl = i * tw;
+        return (
+          <div className="relative h-[3px] bg-surface-3 rounded-full mb-3 mt-1.5 overflow-hidden">
+            <div
+              className="absolute inset-y-0 rounded-full"
+              style={{
+                background: 'var(--secondary)',
+                width: `${tw}%`,
+                left: `${tl}%`,
+                transition: 'left 120ms ease',
+              }}
+            />
+          </div>
+        );
+      })()}
 
       <div className="flex flex-col gap-2.5">
         {activeFixtures.map(fixture => (
