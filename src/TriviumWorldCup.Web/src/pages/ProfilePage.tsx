@@ -35,6 +35,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const cleaned = base64String.replace(/[^A-Za-z0-9\-_]/g, '');
   const padding = '='.repeat((4 - (cleaned.length % 4)) % 4);
   const base64 = (cleaned + padding).replace(/-/g, '+').replace(/_/g, '/');
+  console.log(base64);
   const rawData = atob(base64);
   const output = new Uint8Array(rawData.length);
   for (let i = 0; i < rawData.length; ++i) output[i] = rawData.charCodeAt(i);
