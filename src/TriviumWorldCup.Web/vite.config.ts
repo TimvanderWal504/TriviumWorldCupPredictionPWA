@@ -21,8 +21,8 @@ export default defineConfig({
       manifest: {
         name: 'Trivium World Cup 2026',
         short_name: 'TWC 2026',
-        theme_color: '#1e293b',
-        background_color: '#0f172a',
+        theme_color: '#003e78',
+        background_color: '#003e78',
         display: 'standalone',
         start_url: '/',
         icons: [

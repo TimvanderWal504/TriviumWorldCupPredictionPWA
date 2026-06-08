@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Radio, ListChecks, Trophy, BarChart3, User, NotebookPen } from 'lucide-react';
+import triviumLogomark from './assets/_Trivium_Logos/trivium_logomark_transparent.svg';
 import { AuthProvider } from './auth/AuthContext.tsx';
 import { OfflineBanner } from './components/OfflineBanner.tsx';
 import { ProfileSetupModal } from './auth/ProfileSetupModal.tsx';
@@ -53,9 +54,10 @@ function AuthGateway() {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen py-20 px-4">
-      <p className="font-display font-black text-[13px] tracking-[0.25em] text-pitch-500 uppercase mb-3">TWC 2026</p>
-      <h1 className="font-display font-black text-4xl tracking-tight mb-8 text-center">
-        Trivium World Cup<br />2026
+      <img src={triviumLogomark} alt="Trivium" className="w-32 h-32" />
+      <p className="font-mono text-[32px] tracking-[0.15em] text-fg-muted uppercase mb-1">World Cup</p>
+      <h1 className="font-display font-black text-5xl tracking-tight mb-8 text-center text-fg">
+        2026
       </h1>
       {view === 'login'
         ? <LoginPage onLoggedIn={reload} onSwitchToSignUp={() => setView('signup')} />
@@ -134,11 +136,9 @@ function AppShell() {
       {user && hasProfile && (
         <header className="sticky top-0 z-30 bg-bg-elevated border-b border-border px-4 py-3 flex items-center justify-between gap-2">
           {/* Logo */}
-          <div className="flex items-center gap-1.5 shrink-0 cursor-pointer select-none" onClick={() => goTab('predict')}>
-            <span className="font-display font-black text-[20px] tracking-tight text-fg">
-              T<span className="text-pitch-500">W</span>C
-            </span>
-            <span className="font-mono text-[10px] text-fg-muted tracking-[0.2em] pt-0.5">2026</span>
+          <div className="flex items-center shrink-0 cursor-pointer select-none" onClick={() => goTab('predict')}>
+            <img src={triviumLogomark} alt="Trivium" className="h-12 w-12" />
+            <span className="font-mono text-[11px] leading-tight text-fg-muted tracking-[0.15em] uppercase">World Cup<br />2026</span>
           </div>
 
           {/* Page title (centered) */}
@@ -222,7 +222,7 @@ function AppShell() {
                 key={id}
                 onClick={() => goTab(id)}
                 className={`flex flex-col items-center gap-0.5 py-1.5 transition-colors ${
-                  active ? 'text-pitch-600 dark:text-pitch-400' : 'text-fg-muted'
+                  active ? 'text-primary' : 'text-fg-muted'
                 }`}
               >
                 <Icon size={22} />

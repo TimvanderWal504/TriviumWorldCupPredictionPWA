@@ -39,7 +39,7 @@ export function LoginPage({ onLoggedIn, onSwitchToSignUp }: LoginPageProps) {
     <div className="bg-surface rounded-sheet shadow-sheet w-full max-w-md p-8 border border-border">
       <h2 className="font-display font-bold text-2xl tracking-tight mb-1">Sign in</h2>
       <p className="text-fg-secondary mb-6 text-sm">
-        Enter your email address and personal token.
+        Enter your Trivium email address and personal token.
       </p>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
@@ -53,7 +53,7 @@ export function LoginPage({ onLoggedIn, onSwitchToSignUp }: LoginPageProps) {
             onChange={e => setEmail(e.target.value)}
             required
             autoFocus
-            placeholder="name@company.com"
+            placeholder="name@trivium-esolutions.com"
             className="w-full bg-surface-2 text-fg rounded-input px-4 py-2.5 border border-border placeholder:text-fg-muted"
           />
         </div>
