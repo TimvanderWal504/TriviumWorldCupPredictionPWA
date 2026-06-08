@@ -46,7 +46,7 @@ export function SignUpPage({ onSwitchToLogin }: SignUpPageProps) {
       <div className="bg-surface rounded-sheet shadow-sheet w-full max-w-md p-8 border border-border">
         <h2 className="font-display font-bold text-2xl tracking-tight mb-1">Account created</h2>
         <p className="text-fg-secondary mb-2 text-sm">
-          Save the token below — it is your password to sign in.
+          Save the token below. It is your password to sign in.
         </p>
         <p className="text-fg-muted text-xs mb-5">
           This token is shown only once. Store it in a password manager or write it down.
@@ -92,7 +92,7 @@ export function SignUpPage({ onSwitchToLogin }: SignUpPageProps) {
             onChange={e => setEmail(e.target.value)}
             required
             autoFocus
-            placeholder="name@company.com"
+            placeholder="name@trivium-esolutions.com"
             className="w-full bg-surface-2 text-fg rounded-input px-4 py-2.5 border border-border placeholder:text-fg-muted"
           />
         </div>

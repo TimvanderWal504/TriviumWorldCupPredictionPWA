@@ -157,6 +157,7 @@ export function ProfilePage() {
 
   return (
     <div className="max-w-lg mx-auto px-4 py-4">
+      <div className="rounded-card bg-surface border border-border p-5">
 
       <form onSubmit={handleSubmit} className="space-y-5">
         <div>
@@ -233,8 +234,8 @@ export function ProfilePage() {
                   {pushLoading
                     ? 'Updating…'
                     : pushSubscribed
-                      ? 'On — you will receive a reminder when you have unfilled predictions near a kickoff.'
-                      : 'Off — enable to get reminders before kickoff when you have unfilled predictions.'}
+                      ? 'On: you will receive a reminder when you have unfilled predictions near a kickoff.'
+                      : 'Off: enable to get reminders before kickoff when you have unfilled predictions.'}
                 </p>
               </div>
               <button type="button" onClick={handlePushToggle}
@@ -256,6 +257,7 @@ export function ProfilePage() {
           On iPhone and iPad, push notifications only work when the app is installed to your home
           screen (iOS 16.4+). Safari on iOS does not support push.
         </p>
+      </div>
       </div>
     </div>
   );

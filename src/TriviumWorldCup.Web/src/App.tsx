@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Radio, ListChecks, Trophy, BarChart3, User, NotebookPen } from 'lucide-react';
 import triviumLogomark from './assets/_Trivium_Logos/trivium_logomark_transparent.svg';
+import heroBg from './assets/hero-2000-DW7OUruS.svg';
 import { AuthProvider } from './auth/AuthContext.tsx';
 import { OfflineBanner } from './components/OfflineBanner.tsx';
 import { ProfileSetupModal } from './auth/ProfileSetupModal.tsx';
@@ -53,7 +54,9 @@ function AuthGateway() {
   const [view, setView] = useState<AuthView>('login');
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen py-20 px-4">
+    <div
+      className="flex flex-col items-center justify-center min-h-screen py-20 px-4"
+    >
       <img src={triviumLogomark} alt="Trivium" className="w-32 h-32" />
       <p className="font-mono text-[32px] tracking-[0.15em] text-fg-muted uppercase mb-1">World Cup</p>
       <h1 className="font-display font-black text-5xl tracking-tight mb-8 text-center text-fg">
@@ -128,7 +131,10 @@ function AppShell() {
     : TAB_TITLES[tab];
 
   return (
-    <div className="min-h-screen bg-bg text-fg font-sans flex flex-col">
+    <div
+      className="min-h-screen bg-bg text-fg font-sans flex flex-col"
+      style={{ backgroundImage: `url(${heroBg})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed' }}
+    >
 
       <OfflineBanner />
 
@@ -163,7 +169,7 @@ function AppShell() {
 
         ) : tab === 'predict' ? (
           <div>
-            <div className="px-4 pt-4 pb-2 flex gap-2">
+            <div className="max-w-3xl mx-auto px-4 pt-4 pb-2 flex flex-wrap gap-2">
               <SubPill active={predictView === 'group'} onClick={() => setPredictView('group')}>Group Stage</SubPill>
               <SubPill active={predictView === 'tournament'} onClick={() => setPredictView('tournament')}>Tournament</SubPill>
             </div>
@@ -183,7 +189,7 @@ function AppShell() {
 
         ) : tab === 'me' ? (
           <div>
-            <div className="px-4 pt-4 pb-2 flex flex-wrap gap-2">
+            <div className="max-w-2xl mx-auto px-4 pt-4 pb-2 flex flex-wrap gap-2">
               <SubPill active={subPage === null} onClick={() => setSubPage(null)}>Standings</SubPill>
               <SubPill active={subPage === 'profile'} onClick={() => setSubPage('profile')}>Profile</SubPill>
               {user.roles?.includes('admin') && (

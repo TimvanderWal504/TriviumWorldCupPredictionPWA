@@ -44,7 +44,7 @@ async function savePrediction(
   });
   if (res.ok) return { ok: true };
   const body = await res.json().catch(() => ({})) as { error?: string };
-  if (res.status === 403) return { ok: false, error: 'Predictions are locked — the tournament has started.' };
+  if (res.status === 403) return { ok: false, error: 'Predictions are locked. The tournament has started.' };
   return { ok: false, error: body.error ?? `Error ${res.status}` };
 }
 
@@ -272,22 +272,22 @@ export function TournamentPredictionPage() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-4 space-y-6">
-      <p className="text-[13px] text-fg-secondary leading-relaxed">
+      <div className="rounded-card bg-surface border border-border px-4 py-3 text-[13px] text-fg-secondary leading-relaxed">
         Select the team you predict will win the World Cup, and a Golden Six of top scorers.
         Predictions lock at first kickoff.
-      </p>
+      </div>
 
       {isLocked && (
         <div className="rounded-input px-4 py-3 text-sm font-medium border"
              style={{ background: 'var(--warning-soft)', borderColor: 'transparent', color: 'var(--warning)' }}>
-          Locked — predictions closed. The tournament has started.
+          Locked. Predictions closed. The tournament has started.
         </div>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
 
         {/* ── Champion ─────────────────────────────────────────────────────── */}
-        <section>
+        <section className="rounded-card bg-surface border border-border p-5 space-y-3">
           <SectionLabel>Champion</SectionLabel>
           <p className="text-fg-secondary text-[13px] mb-3">Select the team you predict will win the World Cup.</p>
 
@@ -332,7 +332,7 @@ export function TournamentPredictionPage() {
         </section>
 
         {/* ── Golden Six ───────────────────────────────────────────────────── */}
-        <section>
+        <section className="rounded-card bg-surface border border-border p-5 space-y-3">
           <div className="flex items-center justify-between mb-1">
             <SectionLabel>Golden Six</SectionLabel>
             <span className="font-display font-bold text-[13px] tnum"

@@ -183,9 +183,9 @@ export function LiveScoresPage() {
       )}
 
       {liveMatches.length === 0 && !liveActive && (
-        <p className="text-fg-muted text-center py-16 text-sm">
-          No matches currently live. Live scores will appear here when a match is in progress.
-        </p>
+        <div className="rounded-card bg-surface border border-border px-4 py-16 text-center">
+          <p className="text-fg-muted text-sm">No matches currently live. Live scores will appear here when a match is in progress.</p>
+        </div>
       )}
 
       {liveMatches.map(f => (

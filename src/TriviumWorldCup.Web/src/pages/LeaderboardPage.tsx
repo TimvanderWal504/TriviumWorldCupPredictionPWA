@@ -252,8 +252,10 @@ export function LeaderboardPage() {
 
   if (entries.length === 0) {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-20 text-center">
-        <p className="text-fg-muted text-sm">No scores yet — leaderboard will populate after the first results.</p>
+      <div className="max-w-2xl mx-auto px-4 py-6">
+        <div className="rounded-card bg-surface border border-border px-4 py-20 text-center">
+          <p className="text-fg-muted text-sm">No scores yet. The leaderboard will populate after the first results.</p>
+        </div>
       </div>
     );
   }

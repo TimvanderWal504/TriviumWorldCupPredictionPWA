@@ -122,7 +122,7 @@ function FixtureCard({ fixture, prediction, onSaved }: FixtureCardProps) {
 
   return (
     <div
-      className={`rounded-card bg-surface p-4 flex flex-col gap-2.5 border ${saved ? 'flash' : ''}`}
+      className="rounded-card bg-surface p-4 flex flex-col gap-2.5 border"
       style={{ borderColor: cardBorderColor, opacity: cardOpacity }}
     >
       {/* Header */}
@@ -311,9 +311,9 @@ export function GroupPredictionsPage({ onAllGroupsComplete }: GroupPredictionsPa
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-4">
-      <p className="text-[13px] text-fg-secondary mb-3 leading-relaxed">
-        Predict the score for each match. Predictions lock at kickoff — times in your local timezone.
-      </p>
+      <div className="rounded-card bg-surface border border-border px-4 py-3 mb-3 text-[13px] text-fg-secondary leading-relaxed">
+        Predict the score for each match. Predictions lock at kickoff. Times are in your local timezone.
+      </div>
 
       {/* Group tab bar */}
       <div

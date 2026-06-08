@@ -94,9 +94,11 @@ export function AdminPage() {
 
   if (!isAdmin) {
     return (
-      <div className="p-8 text-center">
-        <p className="font-semibold text-lg" style={{ color: 'var(--loss)' }}>Access denied.</p>
-        <p className="text-fg-muted text-sm mt-1">You must be an admin to view this page.</p>
+      <div className="max-w-lg mx-auto px-4 py-6">
+        <div className="rounded-card bg-surface border border-border p-8 text-center">
+          <p className="font-semibold text-lg" style={{ color: 'var(--loss)' }}>Access denied.</p>
+          <p className="text-fg-muted text-sm mt-1">You must be an admin to view this page.</p>
+        </div>
       </div>
     );
   }
@@ -233,7 +235,7 @@ export function AdminPage() {
           {createdLoginUrl && (
             <div className="rounded-input p-3 space-y-1" style={{ background: 'var(--win-soft)' }}>
               <p className="text-[11px] font-display font-bold uppercase tracking-wider" style={{ color: 'var(--win)' }}>
-                User created — share this login link:
+                User created. Share this login link:
               </p>
               <div className="flex gap-2 items-center">
                 <code className="text-xs break-all flex-1" style={{ color: 'var(--fg)' }}>{createdLoginUrl}</code>

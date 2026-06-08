@@ -122,7 +122,7 @@ function SlotCard({ slot, prediction, onSaved }: SlotCardProps) {
         <Clock size={12} />{formatKickoff(slot.kickoffUtc)}
       </div>
 
-      {!teamsKnown && <p className="text-fg-muted text-sm italic">TBD vs TBD — bracket not yet set</p>}
+      {!teamsKnown && <p className="text-fg-muted text-sm italic">TBD vs TBD (bracket not yet set)</p>}
 
       {teamsKnown && (
         <>
@@ -188,7 +188,7 @@ function SlotCard({ slot, prediction, onSaved }: SlotCardProps) {
                 ].map(({ v, set, label }, i) => (
                   <>
                     {i === 1 && <span className="text-fg-muted font-bold">–</span>}
-                    <input key={label} type="number" min={0} max={99} placeholder="—" value={v}
+                    <input key={label} type="number" min={0} max={99} placeholder="0" value={v}
                       onChange={e => set(e.target.value)} aria-label={label}
                       className="w-12 text-center font-display font-bold tnum bg-surface-2 rounded-input py-1 border border-border" />
                   </>
@@ -252,10 +252,10 @@ export function KnockoutBracketPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-4">
-      <p className="text-[13px] text-fg-secondary mb-3 leading-relaxed">
+      <div className="rounded-card bg-surface border border-border px-4 py-3 mb-3 text-[13px] text-fg-secondary leading-relaxed">
         Pick the advancing team for each match. Optional 90-min score earns a bonus.
         Predictions lock at kickoff. Slots open once both teams are determined.
-      </p>
+      </div>
 
       <div className="flex gap-1.5 overflow-x-auto appscroll pb-3" role="tablist">
         {presentRounds.map(round => (
