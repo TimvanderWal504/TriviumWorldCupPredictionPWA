@@ -31,11 +31,12 @@ async function fetchVapidPublicKey(): Promise<string | null> {
 }
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const trimmed = base64String.trim();
-  const padding = '='.repeat((4 - (trimmed.length % 4)) % 4);
-  const base64 = (trimmed + padding).replace(/-/g, '+').replace(/_/g, '/');
+  // Strip all whitespace — Azure / Windows env vars can embed \r or \n inside the value.
+  const cleaned = base64String.replace(/\s/g, '');
+  const padding = '='.repeat((4 - (cleaned.length % 4)) % 4);
+  const base64  = (cleaned + padding).replace(/-/g, '+').replace(/_/g, '/');
   const rawData = atob(base64);
-  const output = new Uint8Array(rawData.length);
+  const output  = new Uint8Array(rawData.length);
   for (let i = 0; i < rawData.length; ++i) output[i] = rawData.charCodeAt(i);
   return output;
 }
