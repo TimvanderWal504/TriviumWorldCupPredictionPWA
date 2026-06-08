@@ -308,7 +308,7 @@ export function GroupPredictionsPage({ onAllGroupsComplete }: GroupPredictionsPa
       {groupLetters.length > 1 && (() => {
         const n = groupLetters.length;
         const i = groupLetters.indexOf(activeGroup);
-        const tw = 133.333 / n;
+        const tw = 100 / n;
         const tl = i * tw;
         return (
           <div className="relative h-[3px] bg-surface-3 rounded-full mb-3 mt-1.5 overflow-hidden">
