@@ -71,6 +71,10 @@ param vapidSubject string = ''
 @secure()
 param adminUserId string = ''
 
+@description('ASP.NET Core environment name. Use "Staging" for staging, "Production" for production.')
+@allowed(['Development', 'Staging', 'Production'])
+param aspnetCoreEnvironment string = 'Production'
+
 // ── Variables ─────────────────────────────────────────────────────────────────
 
 var logAnalyticsName = '${acaEnvironmentName}-logs'
@@ -292,7 +296,7 @@ resource apiApp 'Microsoft.App/containerApps@2023-05-01' = {
           image: empty(apiImageTag) ? 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest' : '${acr.properties.loginServer}/twc-api:${apiImageTag}'
           resources: { cpu: json('0.5'), memory: '1.0Gi' } // 0.5Gi OOMKills on Marten startup schema warmup
           env: [
-            { name: 'ASPNETCORE_ENVIRONMENT', value: 'Production' }
+            { name: 'ASPNETCORE_ENVIRONMENT', value: aspnetCoreEnvironment }
             { name: 'Auth__Provider', value: 'link' }
             // Connection string key must match appsettings.json: ConnectionStrings.Postgres
             { name: 'ConnectionStrings__Postgres', secretRef: 'postgres-conn' }
