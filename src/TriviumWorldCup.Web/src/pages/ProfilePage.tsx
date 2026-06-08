@@ -89,6 +89,7 @@ export function ProfilePage() {
   const [pushLoading, setPushLoading] = useState(false);
   const [pushError, setPushError] = useState<string | null>(null);
   const [pushSuccess, setPushSuccess] = useState<string | null>(null);
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>('default');
 
   useEffect(() => {
     fetchProfile().then(p => {
@@ -99,6 +100,7 @@ export function ProfilePage() {
     }).finally(() => setLoading(false));
     fetchVapidPublicKey().then(setVapidPublicKey);
     getCurrentSubscription().then(sub => { setCurrentSub(sub); setPushSubscribed(sub !== null); });
+    if ('Notification' in window) setNotifPermission(Notification.permission);
   }, []);
 
   const filteredCountries = COUNTRIES.filter(c =>
@@ -130,7 +132,8 @@ export function ProfilePage() {
       else setPushError(result.error ?? 'Failed to unsubscribe.');
     } else {
       const permission = await Notification.requestPermission();
-      if (permission !== 'granted') { setPushError('Notification permission was denied. Please allow notifications in your browser settings.'); setPushLoading(false); return; }
+      setNotifPermission(permission);
+      if (permission !== 'granted') { setPushLoading(false); return; }
       const result = await subscribeUser(vapidPublicKey);
       if (result.ok) { const sub = await getCurrentSubscription(); setPushSubscribed(true); setCurrentSub(sub); setPushSuccess('Reminders on.'); setTimeout(() => setPushSuccess(null), 3000); }
       else setPushError(result.error ?? 'Failed to subscribe.');
@@ -185,6 +188,20 @@ export function ProfilePage() {
         <h2 className="font-display font-bold text-lg tracking-tight mb-3">Push notifications</h2>
         {pushSupported() ? (
           <div className="space-y-3">
+            {notifPermission === 'denied' && (
+              <div className="rounded-input p-4 space-y-2" style={{ background: 'var(--live-soft)', border: '1px solid var(--loss)' }}>
+                <p className="text-[13px] font-semibold" style={{ color: 'var(--loss)' }}>Notifications are blocked</p>
+                <p className="text-[12px] text-fg-muted leading-relaxed">
+                  Your browser has blocked notifications for this site. To re-enable them:
+                </p>
+                <ol className="text-[12px] text-fg-muted space-y-1 list-decimal list-inside leading-relaxed">
+                  <li>Click the <strong className="text-fg">lock icon</strong> in the address bar (next to the URL).</li>
+                  <li>Find <strong className="text-fg">Notifications</strong> and set it to <strong className="text-fg">Allow</strong>.</li>
+                  <li>Reload the page, then try the toggle again.</li>
+                </ol>
+              </div>
+            )}
+
             {pushError   && <p className="text-[13px] px-4 py-2 rounded-input" style={{ color: 'var(--loss)', background: 'var(--live-soft)' }}>{pushError}</p>}
             {pushSuccess && <p className="text-[13px] px-4 py-2 rounded-input" style={{ color: 'var(--win)',  background: 'var(--win-soft)'  }}>{pushSuccess}</p>}
 
@@ -200,7 +217,7 @@ export function ProfilePage() {
                 </p>
               </div>
               <button type="button" onClick={handlePushToggle}
-                disabled={pushLoading || !vapidPublicKey}
+                disabled={pushLoading || !vapidPublicKey || notifPermission === 'denied'}
                 aria-pressed={pushSubscribed}
                 className="relative w-12 h-7 rounded-chip transition-colors shrink-0 disabled:opacity-50"
                 style={{ background: pushSubscribed ? 'var(--primary-fill)' : 'var(--surface-3)' }}>
