@@ -80,16 +80,22 @@ export function ProfileSetupModal() {
               placeholder="Search country…"
               className="w-full bg-surface-2 text-fg rounded-input px-4 py-2.5 border border-border placeholder:text-fg-muted mb-1"
             />
-            <select
-              size={5}
-              value={countryCode}
-              onChange={e => setCountryCode(e.target.value)}
-              className="w-full bg-surface-2 text-fg rounded-input border border-border text-sm"
-            >
+            <div className="w-full bg-surface-2 rounded-input border border-border overflow-y-auto"
+                 style={{ maxHeight: '10rem' }} role="listbox" aria-label="Country list">
+              {filteredCountries.length === 0 && (
+                <p className="px-3 py-2 text-sm text-fg-muted">No results.</p>
+              )}
               {filteredCountries.map(c => (
-                <option key={c.code} value={c.code}>{c.name}</option>
+                <button key={c.code} type="button" role="option" aria-selected={countryCode === c.code}
+                  onClick={() => { setCountryCode(c.code); setCountrySearch(c.name); }}
+                  className="w-full text-left px-3 py-1.5 text-sm transition-colors"
+                  style={countryCode === c.code
+                    ? { background: 'var(--primary-fill)', color: 'var(--fg-onbrand)' }
+                    : undefined}>
+                  {c.name}
+                </button>
               ))}
-            </select>
+            </div>
             {countryCode && (
               <p className="text-xs text-fg-muted mt-1">
                 Selected: {COUNTRIES.find(c => c.code === countryCode)?.name} ({countryCode})

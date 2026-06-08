@@ -125,6 +125,7 @@ export function ProfilePage() {
   };
 
   const handlePushToggle = async () => {
+    console.log("set permissions")
     setPushError(null); setPushSuccess(null);
     if (!vapidPublicKey) { setPushError('Push notifications are not available (server not configured).'); return; }
     setPushLoading(true);
