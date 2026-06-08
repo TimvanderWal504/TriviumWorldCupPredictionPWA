@@ -185,17 +185,22 @@ export function ProfilePage() {
         <h2 className="font-display font-bold text-lg tracking-tight mb-3">Push notifications</h2>
         {pushSupported() ? (
           <div className="space-y-3">
+            {pushError   && <p className="text-[13px] px-4 py-2 rounded-input" style={{ color: 'var(--loss)', background: 'var(--live-soft)' }}>{pushError}</p>}
+            {pushSuccess && <p className="text-[13px] px-4 py-2 rounded-input" style={{ color: 'var(--win)',  background: 'var(--win-soft)'  }}>{pushSuccess}</p>}
+
             <div className="rounded-card bg-surface border border-border p-4 flex items-center justify-between">
               <div className="pr-4">
                 <p className="font-semibold text-[14px]">Lock reminders</p>
                 <p className="text-[12px] text-fg-muted mt-0.5">
-                  {pushSubscribed
-                    ? 'You will receive a reminder when you have unfilled predictions near a kickoff.'
-                    : 'Enable to get reminders before kickoff when you have unfilled predictions.'}
+                  {pushLoading
+                    ? 'Updating…'
+                    : pushSubscribed
+                      ? 'On — you will receive a reminder when you have unfilled predictions near a kickoff.'
+                      : 'Off — enable to get reminders before kickoff when you have unfilled predictions.'}
                 </p>
               </div>
               <button type="button" onClick={handlePushToggle}
-                disabled={pushLoading || vapidPublicKey === null}
+                disabled={pushLoading || !vapidPublicKey}
                 aria-pressed={pushSubscribed}
                 className="relative w-12 h-7 rounded-chip transition-colors shrink-0 disabled:opacity-50"
                 style={{ background: pushSubscribed ? 'var(--primary-fill)' : 'var(--surface-3)' }}>
@@ -203,9 +208,6 @@ export function ProfilePage() {
                       style={{ left: pushSubscribed ? '26px' : '4px' }} />
               </button>
             </div>
-
-            {pushError && <p className="text-[13px] px-4 py-2 rounded-input" style={{ color: 'var(--loss)', background: 'var(--live-soft)' }}>{pushError}</p>}
-            {pushSuccess && <p className="text-[13px] px-4 py-2 rounded-input" style={{ color: 'var(--win)', background: 'var(--win-soft)' }}>{pushSuccess}</p>}
           </div>
         ) : (
           <p className="text-sm text-fg-muted">Push notifications are not supported in this browser.</p>

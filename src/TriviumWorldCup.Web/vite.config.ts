@@ -36,6 +36,7 @@ export default defineConfig({
         ],
       },
       workbox: {
+        importScripts: ['/push-handler.js'],
         runtimeCaching: [
           {
             // Network-first for API routes
