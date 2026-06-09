@@ -88,12 +88,6 @@ jobs:
 
       - name: Deploy API to Container Apps
         run: |
-          # Upsert the VAPID private key as a Container Apps secret so it never appears in plain env vars.
-          az containerapp secret set \
-            --name "$API_APP" \
-            --resource-group "$RESOURCE_GROUP" \
-            --secrets "vapid-private-key=${{ secrets.VAPID_PRIVATE_KEY }}"
-
           az containerapp update \
             --name "$API_APP" \
             --resource-group "$RESOURCE_GROUP" \
