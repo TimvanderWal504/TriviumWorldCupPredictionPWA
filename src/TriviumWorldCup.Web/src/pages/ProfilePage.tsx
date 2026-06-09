@@ -31,12 +31,17 @@ async function fetchVapidPublicKey(): Promise<string | null> {
 }
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  // Retain only valid Base64URL characters, removing whitespace and hidden control characters
-  const cleaned = base64String.replace(/[^A-Za-z0-9\-_]/g, '');
-  const padding = '='.repeat((4 - (cleaned.length % 4)) % 4);
-  const base64 = (cleaned + padding).replace(/-/g, '+').replace(/_/g, '/');
-  console.log(base64);
-  const rawData = atob(base64);
+  // Normalize to URL-safe base64 first so both standard (+/) and URL-safe (-_) keys work.
+  // Stripping + and / directly (as the previous regex did) corrupts keys stored in standard
+  // base64 format, producing a wrong-length string that atob rejects.
+  const urlSafe = base64String
+    .replace(/\s/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
+  const padding = '='.repeat((4 - (urlSafe.length % 4)) % 4);
+  const standard = urlSafe.replace(/-/g, '+').replace(/_/g, '/') + padding;
+  const rawData = atob(standard);
   const output = new Uint8Array(rawData.length);
   for (let i = 0; i < rawData.length; ++i) output[i] = rawData.charCodeAt(i);
   return output;

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '../auth/useAuth.ts';
 
 interface IngestionStatus {
@@ -23,6 +24,7 @@ export function AdminPage() {
   const isAdmin = user?.roles?.includes('admin') ?? false;
 
   const [inviteUsers, setInviteUsers] = useState<InviteUserDto[]>([]);
+  const [userPage, setUserPage] = useState(0);
   const [newUserName, setNewUserName] = useState('');
   const [createdLoginUrl, setCreatedLoginUrl] = useState<string | null>(null);
   const [userError, setUserError] = useState<string | null>(null);
@@ -54,10 +56,10 @@ export function AdminPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, isLinkAuth]);
 
-  function fetchInviteUsers() {
+  function fetchInviteUsers(resetPage = false) {
     fetch('/admin/users', { credentials: 'include' })
       .then(r => r.json())
-      .then((data: InviteUserDto[]) => setInviteUsers(data))
+      .then((data: InviteUserDto[]) => { setInviteUsers(data); if (resetPage) setUserPage(0); })
       .catch(() => {});
   }
 
@@ -77,7 +79,7 @@ export function AdminPage() {
       const created = await res.json() as InviteUserDto;
       setCreatedLoginUrl(window.location.origin + created.loginPath);
       setNewUserName('');
-      fetchInviteUsers();
+      fetchInviteUsers(true);
     } catch (err) {
       setUserError(String(err));
     } finally {
@@ -88,7 +90,7 @@ export function AdminPage() {
   async function handleDeleteUser(id: string) {
     if (!confirm('Remove this user? Their predictions stay but they can no longer log in.')) return;
     await fetch(`/admin/users/${id}`, { method: 'DELETE', credentials: 'include' });
-    fetchInviteUsers();
+    fetchInviteUsers(true);
     setCreatedLoginUrl(null);
   }
 
@@ -249,37 +251,84 @@ export function AdminPage() {
             </div>
           )}
 
-          {/* User list */}
-          {inviteUsers.length > 0 && (
-            <div className="divide-y divide-border">
-              {inviteUsers.map(u => (
-                <div key={u.id} className="flex items-center justify-between py-2.5 gap-3">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-sm text-fg truncate">{u.displayName}</p>
-                    <p className="text-[11px] text-fg-muted font-mono truncate">{window.location.origin}/auth/link/login?id={u.id}</p>
-                  </div>
-                  <div className="flex gap-2 shrink-0">
-                    <button
-                      onClick={() => navigator.clipboard.writeText(`${window.location.origin}/auth/link/login?id=${u.id}`)}
-                      className="px-2.5 py-1 rounded-input text-[12px] font-semibold bg-surface-3 text-fg-secondary">
-                      Copy link
-                    </button>
-                    <button
-                      onClick={() => navigator.clipboard.writeText(u.id)}
-                      className="px-2.5 py-1 rounded-input text-[12px] font-semibold bg-surface-3 text-fg-secondary">
-                      Copy ID
-                    </button>
-                    <button
-                      onClick={() => handleDeleteUser(u.id)}
-                      className="px-2.5 py-1 rounded-input text-[12px] font-semibold"
-                      style={{ background: 'var(--live-soft)', color: 'var(--loss)' }}>
-                      Remove
-                    </button>
-                  </div>
+          {/* User list — paginated, 10 per page */}
+          {inviteUsers.length > 0 && (() => {
+            const PAGE_SIZE = 10;
+            const totalPages = Math.max(1, Math.ceil(inviteUsers.length / PAGE_SIZE));
+            const page = Math.min(userPage, totalPages - 1);
+            const pagedUsers = inviteUsers.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+            const btnBase = 'w-7 h-7 flex items-center justify-center rounded-input transition-opacity disabled:opacity-25';
+            return (
+              <>
+                <div className="divide-y divide-border">
+                  {pagedUsers.map(u => (
+                    <div key={u.id} className="flex items-center justify-between py-2.5 gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-sm text-fg truncate">{u.displayName}</p>
+                        <p className="text-[11px] text-fg-muted font-mono truncate">{window.location.origin}/auth/link/login?id={u.id}</p>
+                      </div>
+                      <div className="flex gap-2 shrink-0">
+                        <button
+                          onClick={() => navigator.clipboard.writeText(`${window.location.origin}/auth/link/login?id=${u.id}`)}
+                          className="px-2.5 py-1 rounded-input text-[12px] font-semibold bg-surface-3 text-fg-secondary">
+                          Copy link
+                        </button>
+                        <button
+                          onClick={() => navigator.clipboard.writeText(u.id)}
+                          className="px-2.5 py-1 rounded-input text-[12px] font-semibold bg-surface-3 text-fg-secondary">
+                          Copy ID
+                        </button>
+                        <button
+                          onClick={() => handleDeleteUser(u.id)}
+                          className="px-2.5 py-1 rounded-input text-[12px] font-semibold"
+                          style={{ background: 'var(--live-soft)', color: 'var(--loss)' }}>
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
+
+                {totalPages > 1 && (() => {
+                  const windowSize = Math.min(5, totalPages);
+                  const windowStart = Math.max(0, Math.min(totalPages - windowSize, page - Math.floor(windowSize / 2)));
+                  const visiblePages = Array.from({ length: windowSize }, (_, i) => windowStart + i);
+                  return (
+                    <div className="flex items-center justify-center gap-3 pt-2">
+                      <button onClick={() => setUserPage(p => p - 1)} disabled={page === 0}
+                        className={btnBase} style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }}
+                        aria-label="Previous page">
+                        <ChevronLeft size={16} />
+                      </button>
+                      <div className="flex items-center gap-2.5">
+                        {visiblePages.map(pg => {
+                          const active = page === pg;
+                          return (
+                            <button key={pg} onClick={() => setUserPage(pg)} aria-label={`Page ${pg + 1}`}
+                              className="flex flex-col items-center gap-0.5">
+                              <div className="rounded-full transition-all duration-150" style={{
+                                width: active ? 10 : 7, height: active ? 10 : 7,
+                                background: active ? 'var(--secondary)' : 'var(--surface-3)',
+                              }} />
+                              <span className="text-[9px] font-mono leading-none"
+                                style={{ color: active ? 'var(--secondary)' : 'var(--fg-muted)' }}>
+                                {pg + 1}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <button onClick={() => setUserPage(p => p + 1)} disabled={page === totalPages - 1}
+                        className={btnBase} style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }}
+                        aria-label="Next page">
+                        <ChevronRight size={16} />
+                      </button>
+                    </div>
+                  );
+                })()}
+              </>
+            );
+          })()}
           {inviteUsers.length === 0 && (
             <p className="text-sm text-fg-muted">No users yet. Create one above.</p>
           )}

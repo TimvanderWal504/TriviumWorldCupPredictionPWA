@@ -6,6 +6,7 @@ interface LeaderboardEntry {
   rank: number;
   userId: string;
   displayName: string;
+  countryCode?: string;
   totalPoints: number;
   groupMatchPoints: number;
   championPoints: number;
@@ -54,23 +55,31 @@ async function fetchDrillDown(userId: string): Promise<MemberDrillDown> {
   if (!res.ok) throw new Error(`Drill-down fetch failed: ${res.status}`);
   return res.json() as Promise<MemberDrillDown>;
 }
-
 function RankBadge({ rank }: { rank: number }) {
-  const podiumColors: Record<number, string> = {
-    1: 'var(--podium-gold)',
-    2: 'var(--podium-silver)',
-    3: 'var(--podium-bronze)',
+  const podiumStyles: Record<number, { color: string; size: string }> = {
+    1: { color: 'var(--color-podium-gold)', size: 'text-[20px]' },
+    2: { color: 'var(--color-podium-silver)', size: 'text-[18px]' },
+    3: { color: 'var(--color-podium-bronze)', size: 'text-[16px]' },
   };
-  const bg = podiumColors[rank];
-  if (bg) {
+
+  const style = podiumStyles[rank];
+
+  if (style) {
     return (
-      <span className="font-display font-black text-[13px] grid place-items-center w-7 h-7 rounded-chip tnum"
-            style={{ background: bg, color: '#1b1300' }}>
+      <span 
+        className={`font-display font-black grid place-items-center w-7 h-7 tnum ${style.size}`}
+        style={{ color: style.color }}
+      >
         {rank}
       </span>
     );
   }
-  return <span className="font-display font-bold text-fg-muted grid place-items-center w-7 h-7 tnum">{rank}</span>;
+
+  return (
+    <span className="font-display font-black text-fg-muted text-[14px] grid place-items-center w-7 h-7 tnum">
+      {rank}
+    </span>
+  );
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -289,6 +298,14 @@ export function LeaderboardPage() {
               >
                 <div className="flex justify-center"><RankBadge rank={entry.rank} /></div>
                 <div className="flex items-center gap-2 min-w-0">
+                  {entry.countryCode && (
+                    <img
+                      src={`https://flagcdn.com/w40/${entry.countryCode.toLowerCase()}.png`}
+                      alt={entry.countryCode}
+                      width={20} height={14}
+                      className="shrink-0 rounded-sm"
+                    />
+                  )}
                   <span className={`font-semibold truncate ${isCurrentUser ? 'text-secondary' : 'text-fg'}`}>
                     {entry.displayName}
                   </span>

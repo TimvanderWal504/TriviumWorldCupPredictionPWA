@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
-import { Clock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock } from 'lucide-react';
 import { flagUrl } from '../utils/flagUrl.ts';
 
 interface FixtureDto {
@@ -127,7 +127,7 @@ function FixtureCard({ fixture, prediction, onSaved }: FixtureCardProps) {
     >
       {/* Header */}
       <div className="flex items-center justify-between text-[11px] text-fg-muted">
-        <span className="font-mono">Match {fixture.matchNumber} · {fixture.venue}</span>
+        <span className="font-mono">Match {fixture.matchNumber} · {fixture.venue} · {fixture.city}</span>
         <span
           className={`text-[11px] font-semibold px-2 py-0.5 rounded-md ${
             !saving && !saved && (locked || !unpredicted) ? 'bg-surface-3 text-fg-muted' : ''
@@ -304,23 +304,64 @@ export function GroupPredictionsPage({ onAllGroupsComplete }: GroupPredictionsPa
         ))}
       </div>
 
-      {/* Active-group position indicator */}
+      {/* Group navigator: prev/next buttons + 5-dot window */}
       {groupLetters.length > 1 && (() => {
         const n = groupLetters.length;
-        const i = groupLetters.indexOf(activeGroup);
-        const tw = 100 / n;
-        const tl = i * tw;
+        const activeIdx = groupLetters.indexOf(activeGroup);
+        const windowSize = Math.min(5, n);
+        const windowStart = Math.max(0, Math.min(n - windowSize, activeIdx - Math.floor(windowSize / 2)));
+        const visibleLetters = groupLetters.slice(windowStart, windowStart + windowSize);
+        const btnBase = 'w-7 h-7 flex items-center justify-center rounded-input text-sm font-bold transition-opacity disabled:opacity-25';
         return (
-          <div className="relative h-[3px] bg-surface-3 rounded-full mb-3 mt-1.5 overflow-hidden">
-            <div
-              className="absolute inset-y-0 rounded-full"
-              style={{
-                background: 'var(--secondary)',
-                width: `${tw}%`,
-                left: `${tl}%`,
-                transition: 'left 120ms ease',
-              }}
-            />
+          <div className="flex items-center justify-center gap-3 mb-3 mt-1.5">
+            <button
+              onClick={() => setActiveGroup(groupLetters[activeIdx - 1])}
+              disabled={activeIdx === 0}
+              className={btnBase}
+              style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }}
+              aria-label="Previous group"
+            >
+              <ChevronLeft size={16} />
+            </button>
+
+            <div className="flex items-center gap-2.5">
+              {visibleLetters.map(letter => {
+                const active = activeGroup === letter;
+                return (
+                  <button
+                    key={letter}
+                    onClick={() => setActiveGroup(letter)}
+                    aria-label={`Group ${letter}`}
+                    className="flex flex-col items-center gap-0.5"
+                  >
+                    <div
+                      className="rounded-full transition-all duration-150"
+                      style={{
+                        width: active ? 10 : 7,
+                        height: active ? 10 : 7,
+                        background: active ? 'var(--secondary)' : 'var(--surface-3)',
+                      }}
+                    />
+                    <span
+                      className="text-[9px] font-mono leading-none"
+                      style={{ color: active ? 'var(--secondary)' : 'var(--fg-muted)' }}
+                    >
+                      {letter}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => setActiveGroup(groupLetters[activeIdx + 1])}
+              disabled={activeIdx === n - 1}
+              className={btnBase}
+              style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }}
+              aria-label="Next group"
+            >
+              <ChevronRight size={16} />
+            </button>
           </div>
         );
       })()}

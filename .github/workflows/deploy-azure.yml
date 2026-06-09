@@ -88,11 +88,21 @@ jobs:
 
       - name: Deploy API to Container Apps
         run: |
+          # Upsert the VAPID private key as a Container Apps secret so it never appears in plain env vars.
+          az containerapp secret set \
+            --name "$API_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --secrets "vapid-private-key=${{ secrets.VAPID_PRIVATE_KEY }}"
+
           az containerapp update \
             --name "$API_APP" \
             --resource-group "$RESOURCE_GROUP" \
             --image "$ACR_NAME.azurecr.io/twc-api:$IMAGE_TAG" \
-            --set-env-vars "ASPNETCORE_ENVIRONMENT=${{ github.ref_name == 'main' && 'Production' || 'Staging' }}"
+            --set-env-vars \
+              "ASPNETCORE_ENVIRONMENT=${{ github.ref_name == 'main' && 'Production' || 'Staging' }}" \
+              "Push__VapidPublicKey=${{ vars.VAPID_PUBLIC_KEY }}" \
+              "Push__VapidPrivateKey=secretref:vapid-private-key" \
+              "Push__VapidSubject=${{ vars.VAPID_SUBJECT }}"
 
       - name: Deploy Web to Container Apps
         run: |
