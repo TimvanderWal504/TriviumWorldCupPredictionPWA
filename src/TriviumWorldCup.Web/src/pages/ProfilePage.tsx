@@ -62,7 +62,7 @@ async function subscribeUser(vapidPublicKey: string): Promise<{ ok: boolean; err
       return { ok: false, error: 'No service worker registered — push notifications require a production build.' };
     }
     const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(vapidPublicKey).buffer as ArrayBuffer });
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(vapidPublicKey) as Uint8Array<ArrayBuffer> });
     const json = sub.toJSON();
     const keys = json.keys ?? {};
     const res = await fetch('/push/subscribe', {

@@ -19,6 +19,9 @@ public class GoalEvent
 
     /// <summary>Minute in which the goal was scored.</summary>
     public int Minute { get; set; }
+
+    /// <summary>Stoppage-time minutes added within the period (e.g. 2 for "45+2"). Null when not in stoppage time.</summary>
+    public int? ExtraMinute { get; set; }
 }
 
 public enum GoalType

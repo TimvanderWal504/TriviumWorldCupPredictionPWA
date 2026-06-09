@@ -136,11 +136,12 @@ public static class LeaderboardEndpoints
             var fixtureById = fixtures.ToDictionary(f => f.Id);
 
             // Apply privacy filter now that we have fixture kickoffs.
+            // A fixture is "revealed" once its kickoff time has passed OR it already has a result.
             if (!isSelf)
             {
                 visiblePredictions = allPredictions
                     .Where(p => fixtureById.TryGetValue(p.FixtureId, out var f)
-                                && f.KickoffUtc <= now);
+                                && (f.KickoffUtc <= now || f.Status == MatchStatus.Completed));
             }
 
             // Build group prediction DTOs.
@@ -157,7 +158,7 @@ public static class LeaderboardEndpoints
                     ActualHome:    fixture?.HomeScore,
                     ActualAway:    fixture?.AwayScore,
                     KickoffUtc:    fixture?.KickoffUtc ?? DateTimeOffset.MinValue,
-                    Locked:        fixture is not null && fixture.KickoffUtc <= now));
+                    Locked:        fixture is not null && (fixture.KickoffUtc <= now || fixture.Status == MatchStatus.Completed)));
             }
 
             // ── Golden Six detail ─────────────────────────────────────────────

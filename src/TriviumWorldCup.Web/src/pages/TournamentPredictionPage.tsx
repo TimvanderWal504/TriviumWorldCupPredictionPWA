@@ -6,8 +6,6 @@ interface Team { id: string; name: string; fifaCode: string; countryCode: string
 interface Player { id: string; name: string; teamId: string; teamName: string; position: string; shirtNumber: number | null; }
 interface TournamentPrediction { championTeamId: string | null; goldenSixPlayerIds: string[]; submittedAt: string; }
 
-const FIRST_KICKOFF = new Date('2026-06-11T19:00:00Z');
-
 // Position display order: FWD → MID → DEF → GK
 const POS_RANK: Record<string, number> = {
   FWD: 0, Forward: 0, Striker: 0,
@@ -32,6 +30,12 @@ async function fetchPrediction(): Promise<TournamentPrediction | null> {
   if (res.status === 404) return null;
   if (res.ok) return res.json() as Promise<TournamentPrediction>;
   return null;
+}
+async function fetchLocked(): Promise<boolean> {
+  const res = await fetch('/predictions/tournament/lock', { credentials: 'include' });
+  if (!res.ok) return false;
+  const data = await res.json() as { locked: boolean };
+  return data.locked;
 }
 async function savePrediction(
   method: 'POST' | 'PUT', championTeamId: string, goldenSixPlayerIds: string[],
@@ -229,12 +233,13 @@ export function TournamentPredictionPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const isLocked = new Date() >= FIRST_KICKOFF;
+  const [isLocked, setIsLocked] = useState(false);
 
   useEffect(() => {
-    Promise.all([fetchTeams(), fetchPlayers(), fetchPrediction()]).then(([t, p, pred]) => {
+    Promise.all([fetchTeams(), fetchPlayers(), fetchPrediction(), fetchLocked()]).then(([t, p, pred, locked]) => {
       setTeams(t);
       setPlayers(p);
+      setIsLocked(locked);
       if (pred) {
         setExistingPrediction(pred);
         setChampionTeamId(pred.championTeamId ?? '');

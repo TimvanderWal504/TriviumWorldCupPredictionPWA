@@ -72,9 +72,11 @@ public static class AdminEndpoints
             if (fixture is null)
                 return Results.NotFound(new { error = $"Fixture '{fixtureId}' not found." });
 
-            fixture.HomeScore = request.HomeScore;
-            fixture.AwayScore = request.AwayScore;
-            fixture.Status    = MatchStatus.Completed;
+            fixture.HomeScore     = request.HomeScore;
+            fixture.AwayScore     = request.AwayScore;
+            fixture.Status        = request.MarkAsLive ? MatchStatus.InProgress : MatchStatus.Completed;
+            fixture.ElapsedMinute = request.MarkAsLive ? request.ElapsedMinute : null;
+            fixture.ElapsedExtra  = request.MarkAsLive ? request.ElapsedExtra  : null;
             session.Store(fixture);
 
             var overrideRecord = new ResultOverride
@@ -85,15 +87,20 @@ public static class AdminEndpoints
                 OverriddenAt     = DateTimeOffset.UtcNow,
                 TargetType       = "fixture",
                 TargetId         = fixtureId,
-                Description      = $"Set result {request.HomeScore}-{request.AwayScore}",
+                Description      = request.MarkAsLive
+                    ? $"Set as InProgress with score {request.HomeScore}-{request.AwayScore}"
+                    : $"Set result {request.HomeScore}-{request.AwayScore}",
             };
             session.Store(overrideRecord);
 
             await session.SaveChangesAsync(ct);
 
-            // Attempt to resolve R32 bracket (exits early if group stage not yet complete).
-            await bracketResolver.ResolveGroupStageAsync(ct);
-            await scoringService.RecomputeAllAsync(ct);
+            if (!request.MarkAsLive)
+            {
+                // Attempt to resolve R32 bracket (exits early if group stage not yet complete).
+                await bracketResolver.ResolveGroupStageAsync(ct);
+                await scoringService.RecomputeAllAsync(ct);
+            }
 
             return Results.Ok(new
             {
@@ -210,6 +217,182 @@ public static class AdminEndpoints
         .WithName("DeleteGoalEvent")
         .WithSummary("Deletes a goal event from a fixture and triggers recompute.");
 
+        // ── POST /admin/fixtures/{fixtureId}/cards ────────────────────────────
+        group.MapPost("/fixtures/{fixtureId}/cards", async (
+            string fixtureId,
+            HttpContext context,
+            [FromBody] AddCardRequest request,
+            IDocumentSession session,
+            CancellationToken ct) =>
+        {
+            var user = context.GetAppUser();
+            if (!user.IsInRole("admin"))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            var fixture = await session.LoadAsync<Fixture>(fixtureId, ct);
+            if (fixture is null)
+                return Results.NotFound(new { error = $"Fixture '{fixtureId}' not found." });
+
+            if (!Enum.TryParse<CardType>(request.Type, ignoreCase: true, out var cardType))
+                return Results.BadRequest(new { error = $"Invalid card type '{request.Type}'. Valid values: Yellow, SecondYellow, Red." });
+
+            var deterministicKey = $"admin:card:{fixtureId}:{request.PlayerId}:{cardType}:{request.Minute}";
+            var cardId = DeterministicGuid(deterministicKey);
+
+            var cardEvent = new CardEvent
+            {
+                Id        = cardId,
+                FixtureId = fixtureId,
+                PlayerId  = request.PlayerId,
+                Type      = cardType,
+                Minute    = request.Minute,
+            };
+            session.Store(cardEvent);
+
+            session.Store(new ResultOverride
+            {
+                Id               = Guid.NewGuid(),
+                AdminUserId      = user.UserId,
+                AdminDisplayName = user.DisplayName,
+                OverriddenAt     = DateTimeOffset.UtcNow,
+                TargetType       = "cardevent",
+                TargetId         = cardId.ToString(),
+                Description      = $"Added/replaced {cardType} card for player {request.PlayerId} at minute {request.Minute} in fixture {fixtureId}",
+            });
+
+            await session.SaveChangesAsync(ct);
+
+            return Results.Created(
+                $"/admin/fixtures/{fixtureId}/cards",
+                new { cardEvent.Id, cardEvent.FixtureId, cardEvent.PlayerId, cardEvent.Type, cardEvent.Minute });
+        })
+        .WithName("AddCardEvent")
+        .WithSummary("Adds or replaces a card event for a fixture.");
+
+        // ── DELETE /admin/fixtures/{fixtureId}/cards/{cardEventId} ────────────
+        group.MapDelete("/fixtures/{fixtureId}/cards/{cardEventId}", async (
+            string fixtureId,
+            Guid cardEventId,
+            HttpContext context,
+            IDocumentSession session,
+            CancellationToken ct) =>
+        {
+            var user = context.GetAppUser();
+            if (!user.IsInRole("admin"))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            var cardEvent = await session.LoadAsync<CardEvent>(cardEventId, ct);
+            if (cardEvent is null)
+                return Results.NotFound(new { error = $"CardEvent '{cardEventId}' not found." });
+
+            session.Delete<CardEvent>(cardEventId);
+
+            session.Store(new ResultOverride
+            {
+                Id               = Guid.NewGuid(),
+                AdminUserId      = user.UserId,
+                AdminDisplayName = user.DisplayName,
+                OverriddenAt     = DateTimeOffset.UtcNow,
+                TargetType       = "cardevent",
+                TargetId         = cardEventId.ToString(),
+                Description      = $"Deleted card event {cardEventId} from fixture {fixtureId}",
+            });
+
+            await session.SaveChangesAsync(ct);
+
+            return Results.NoContent();
+        })
+        .WithName("DeleteCardEvent")
+        .WithSummary("Deletes a card event from a fixture.");
+
+        // ── POST /admin/fixtures/{fixtureId}/substitutions ───────────────────
+        group.MapPost("/fixtures/{fixtureId}/substitutions", async (
+            string fixtureId,
+            HttpContext context,
+            [FromBody] AddSubstitutionRequest request,
+            IDocumentSession session,
+            CancellationToken ct) =>
+        {
+            var user = context.GetAppUser();
+            if (!user.IsInRole("admin"))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            var fixture = await session.LoadAsync<Fixture>(fixtureId, ct);
+            if (fixture is null)
+                return Results.NotFound(new { error = $"Fixture '{fixtureId}' not found." });
+
+            if (request.Minute < 1 || request.Minute > 130)
+                return Results.BadRequest(new { error = "Minute must be between 1 and 130." });
+
+            if (string.IsNullOrWhiteSpace(request.PlayerInName) || string.IsNullOrWhiteSpace(request.PlayerOutName))
+                return Results.BadRequest(new { error = "PlayerInName and PlayerOutName are required." });
+
+            var sub = new SubstitutionEvent
+            {
+                Id            = Guid.NewGuid(),
+                FixtureId     = fixtureId,
+                PlayerInName  = request.PlayerInName.Trim(),
+                PlayerOutName = request.PlayerOutName.Trim(),
+                TeamId        = request.TeamId?.Trim() ?? string.Empty,
+                Minute        = request.Minute,
+            };
+
+            session.Store(sub);
+
+            session.Store(new ResultOverride
+            {
+                Id               = Guid.NewGuid(),
+                AdminUserId      = user.UserId,
+                AdminDisplayName = user.DisplayName,
+                OverriddenAt     = DateTimeOffset.UtcNow,
+                TargetType       = "substitutionevent",
+                TargetId         = sub.Id.ToString(),
+                Description      = $"Added substitution {request.PlayerInName} on / {request.PlayerOutName} off at {request.Minute}' in fixture {fixtureId}",
+            });
+
+            await session.SaveChangesAsync(ct);
+
+            return Results.Ok(new { id = sub.Id });
+        })
+        .WithName("AddSubstitutionEvent")
+        .WithSummary("Manually adds a substitution event to a fixture.");
+
+        // ── DELETE /admin/fixtures/{fixtureId}/substitutions/{subId} ─────────
+        group.MapDelete("/fixtures/{fixtureId}/substitutions/{subId:guid}", async (
+            string fixtureId,
+            Guid subId,
+            HttpContext context,
+            IDocumentSession session,
+            CancellationToken ct) =>
+        {
+            var user = context.GetAppUser();
+            if (!user.IsInRole("admin"))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            var existing = await session.LoadAsync<SubstitutionEvent>(subId, ct);
+            if (existing is null || existing.FixtureId != fixtureId)
+                return Results.NotFound(new { error = $"Substitution event '{subId}' not found in fixture '{fixtureId}'." });
+
+            session.Delete<SubstitutionEvent>(subId);
+
+            session.Store(new ResultOverride
+            {
+                Id               = Guid.NewGuid(),
+                AdminUserId      = user.UserId,
+                AdminDisplayName = user.DisplayName,
+                OverriddenAt     = DateTimeOffset.UtcNow,
+                TargetType       = "substitutionevent",
+                TargetId         = subId.ToString(),
+                Description      = $"Deleted substitution event {subId} from fixture {fixtureId}",
+            });
+
+            await session.SaveChangesAsync(ct);
+
+            return Results.NoContent();
+        })
+        .WithName("DeleteSubstitutionEvent")
+        .WithSummary("Deletes a substitution event from a fixture.");
+
         // ── GET /admin/overrides ──────────────────────────────────────────────
         group.MapGet("/overrides", async (
             HttpContext context,
@@ -275,6 +458,16 @@ public static class AdminEndpoints
                 case "goalevent":
                     if (Guid.TryParse(record.TargetId, out var goalId))
                         session.Delete<GoalEvent>(goalId);
+                    break;
+
+                case "cardevent":
+                    if (Guid.TryParse(record.TargetId, out var cardId))
+                        session.Delete<CardEvent>(cardId);
+                    break;
+
+                case "substitutionevent":
+                    if (Guid.TryParse(record.TargetId, out var subId))
+                        session.Delete<SubstitutionEvent>(subId);
                     break;
 
                 case "knockoutslot":
@@ -636,13 +829,19 @@ public static class AdminEndpoints
 public sealed record CreateUserRequest(string DisplayName);
 
 /// <summary>Request body for POST /admin/fixtures/{id}/result.</summary>
-public sealed record SetResultRequest(int HomeScore, int AwayScore);
+public sealed record SetResultRequest(int HomeScore, int AwayScore, bool MarkAsLive = false, int? ElapsedMinute = null, int? ElapsedExtra = null);
 
 /// <summary>One item in the POST /admin/users/{userId}/predictions/inject body.</summary>
 public sealed record InjectPredictionItem(string FixtureId, int Home, int Away);
 
 /// <summary>Request body for POST /admin/fixtures/{id}/goals.</summary>
 public sealed record AddGoalRequest(Guid PlayerId, string Type, int Minute);
+
+/// <summary>Request body for POST /admin/fixtures/{id}/cards.</summary>
+public sealed record AddCardRequest(Guid PlayerId, string Type, int Minute);
+
+/// <summary>Request body for POST /admin/fixtures/{id}/substitutions.</summary>
+public sealed record AddSubstitutionRequest(string PlayerInName, string PlayerOutName, string? TeamId, int Minute);
 
 /// <summary>Request body for POST /admin/knockout/{slotKey}/result.</summary>
 public sealed record SetKnockoutResultRequest(int HomeScore, int AwayScore, string WinnerTeamId);

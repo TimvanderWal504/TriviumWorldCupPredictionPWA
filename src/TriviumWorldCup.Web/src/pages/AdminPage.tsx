@@ -19,6 +19,15 @@ interface InviteUserDto {
   loginPath: string;
 }
 
+interface PlayerDto {
+  id: string;
+  name: string;
+  teamId: string;
+  teamName: string;
+  position: string;
+  shirtNumber: number | null;
+}
+
 export function AdminPage() {
   const { user, isLinkAuth } = useAuth();
   const isAdmin = user?.roles?.includes('admin') ?? false;
@@ -38,6 +47,9 @@ export function AdminPage() {
   const [fixtureId, setFixtureId] = useState('');
   const [homeScore, setHomeScore] = useState('');
   const [awayScore, setAwayScore] = useState('');
+  const [markAsLive, setMarkAsLive] = useState(false);
+  const [elapsedMinute, setElapsedMinute] = useState('');
+  const [elapsedExtra, setElapsedExtra] = useState('');
   const [resultMsg, setResultMsg] = useState<string | null>(null);
   const [resultError, setResultError] = useState<string | null>(null);
   const [recomputeMsg, setRecomputeMsg] = useState<string | null>(null);
@@ -49,10 +61,38 @@ export function AdminPage() {
   const [pushError, setPushError] = useState<string | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
 
+  const [players, setPlayers] = useState<PlayerDto[]>([]);
+  const [playerSearch, setPlayerSearch] = useState('');
+  const [goalFixtureId, setGoalFixtureId] = useState('');
+  const [goalPlayerId, setGoalPlayerId] = useState('');
+  const [goalType, setGoalType] = useState('OpenPlay');
+  const [goalMinute, setGoalMinute] = useState('');
+  const [goalMsg, setGoalMsg] = useState<string | null>(null);
+  const [goalError, setGoalError] = useState<string | null>(null);
+
+  const [cardFixtureId, setCardFixtureId] = useState('');
+  const [cardPlayerId, setCardPlayerId] = useState('');
+  const [cardPlayerSearch, setCardPlayerSearch] = useState('');
+  const [cardType, setCardType] = useState('Yellow');
+  const [cardMinute, setCardMinute] = useState('');
+  const [cardMsg, setCardMsg] = useState<string | null>(null);
+  const [cardError, setCardError] = useState<string | null>(null);
+
+  const [subFixtureId, setSubFixtureId] = useState('');
+  const [subPlayerInName, setSubPlayerInName] = useState('');
+  const [subPlayerInSearch, setSubPlayerInSearch] = useState('');
+  const [subPlayerOutName, setSubPlayerOutName] = useState('');
+  const [subPlayerOutSearch, setSubPlayerOutSearch] = useState('');
+  const [subTeamId, setSubTeamId] = useState('');
+  const [subMinute, setSubMinute] = useState('');
+  const [subMsg, setSubMsg] = useState<string | null>(null);
+  const [subError, setSubError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!isAdmin) return;
     fetchIngestion(); fetchOverrides();
     if (isLinkAuth) fetchInviteUsers();
+    fetch('/players').then(r => r.json()).then((data: PlayerDto[]) => setPlayers(data)).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, isLinkAuth]);
 
@@ -132,11 +172,17 @@ export function AdminPage() {
     try {
       const res = await fetch(`/admin/fixtures/${encodeURIComponent(fixtureId.trim())}/result`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ homeScore: home, awayScore: away }),
+        body: JSON.stringify({
+          homeScore: home, awayScore: away, markAsLive,
+          elapsedMinute: markAsLive && elapsedMinute !== '' ? parseInt(elapsedMinute, 10) : null,
+          elapsedExtra:  markAsLive && elapsedExtra  !== '' ? parseInt(elapsedExtra,  10) : null,
+        }),
       });
       if (!res.ok) { const body = await res.json().catch(() => ({})); setResultError((body as { error?: string })?.error ?? `HTTP ${res.status}`); return; }
-      setResultMsg(`Result set: ${home}-${away} for fixture ${fixtureId.trim()}`);
-      setFixtureId(''); setHomeScore(''); setAwayScore('');
+      setResultMsg(markAsLive
+        ? `Fixture ${fixtureId.trim()} set to InProgress: ${home}-${away}`
+        : `Result set: ${home}-${away} for fixture ${fixtureId.trim()}`);
+      setFixtureId(''); setHomeScore(''); setAwayScore(''); setMarkAsLive(false); setElapsedMinute(''); setElapsedExtra('');
       await fetchOverrides(); await fetchIngestion();
     } catch (err) { setResultError(String(err)); }
   }
@@ -156,6 +202,65 @@ export function AdminPage() {
     } finally {
       setDeletingOverride(null);
     }
+  }
+
+  async function handleAddGoal(e: React.FormEvent) {
+    e.preventDefault(); setGoalMsg(null); setGoalError(null);
+    if (!goalFixtureId.trim()) { setGoalError('Fixture ID is required.'); return; }
+    if (!goalPlayerId.trim()) { setGoalError('Player is required.'); return; }
+    const minute = parseInt(goalMinute, 10);
+    if (isNaN(minute) || minute < 1) { setGoalError('Minute must be a positive integer.'); return; }
+    try {
+      const res = await fetch(`/admin/fixtures/${encodeURIComponent(goalFixtureId.trim())}/goals`, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId: goalPlayerId.trim(), type: goalType, minute }),
+      });
+      if (!res.ok) { const b = await res.json().catch(() => ({})); setGoalError((b as { error?: string }).error ?? `HTTP ${res.status}`); return; }
+      const player = players.find(p => p.id === goalPlayerId.trim());
+      setGoalMsg(`Goal added: ${player?.name ?? goalPlayerId} (${goalType}, min ${minute}) in fixture ${goalFixtureId.trim()}`);
+      setGoalFixtureId(''); setGoalPlayerId(''); setPlayerSearch(''); setGoalMinute(''); setGoalType('OpenPlay');
+      await fetchOverrides(); await fetchIngestion();
+    } catch (err) { setGoalError(String(err)); }
+  }
+
+  async function handleAddCard(e: React.FormEvent) {
+    e.preventDefault(); setCardMsg(null); setCardError(null);
+    if (!cardFixtureId.trim()) { setCardError('Fixture ID is required.'); return; }
+    if (!cardPlayerId.trim()) { setCardError('Player is required.'); return; }
+    const minute = parseInt(cardMinute, 10);
+    if (isNaN(minute) || minute < 1) { setCardError('Minute must be a positive integer.'); return; }
+    try {
+      const res = await fetch(`/admin/fixtures/${encodeURIComponent(cardFixtureId.trim())}/cards`, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId: cardPlayerId.trim(), type: cardType, minute }),
+      });
+      if (!res.ok) { const b = await res.json().catch(() => ({})); setCardError((b as { error?: string }).error ?? `HTTP ${res.status}`); return; }
+      const player = players.find(p => p.id === cardPlayerId.trim());
+      setCardMsg(`Card added: ${player?.name ?? cardPlayerId} (${cardType}, min ${minute}) in fixture ${cardFixtureId.trim()}`);
+      setCardFixtureId(''); setCardPlayerId(''); setCardPlayerSearch(''); setCardMinute(''); setCardType('Yellow');
+      await fetchOverrides();
+    } catch (err) { setCardError(String(err)); }
+  }
+
+  async function handleAddSub(e: React.FormEvent) {
+    e.preventDefault(); setSubMsg(null); setSubError(null);
+    if (!subFixtureId.trim()) { setSubError('Fixture ID is required.'); return; }
+    const playerInName = subPlayerInName.trim() || subPlayerInSearch.trim();
+    const playerOutName = subPlayerOutName.trim() || subPlayerOutSearch.trim();
+    if (!playerInName) { setSubError('Player In name is required.'); return; }
+    if (!playerOutName) { setSubError('Player Out name is required.'); return; }
+    const minute = parseInt(subMinute, 10);
+    if (isNaN(minute) || minute < 1) { setSubError('Minute must be a positive integer.'); return; }
+    try {
+      const res = await fetch(`/admin/fixtures/${encodeURIComponent(subFixtureId.trim())}/substitutions`, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerInName, playerOutName, teamId: subTeamId.trim() || null, minute }),
+      });
+      if (!res.ok) { const b = await res.json().catch(() => ({})); setSubError((b as { error?: string }).error ?? `HTTP ${res.status}`); return; }
+      setSubMsg(`Substitution added: ${playerInName} on / ${playerOutName} off at min ${minute} in fixture ${subFixtureId.trim()}`);
+      setSubFixtureId(''); setSubPlayerInName(''); setSubPlayerInSearch(''); setSubPlayerOutName(''); setSubPlayerOutSearch(''); setSubTeamId(''); setSubMinute('');
+      await fetchOverrides();
+    } catch (err) { setSubError(String(err)); }
   }
 
   async function handleForceRecompute() {
@@ -454,8 +559,254 @@ export function AdminPage() {
               Set result
             </button>
           </div>
+          <div className="flex items-center gap-2">
+            <input id="markAsLive" type="checkbox" checked={markAsLive}
+              onChange={e => setMarkAsLive(e.target.checked)}
+              className="w-4 h-4 accent-[var(--live)]" />
+            <label htmlFor="markAsLive" className="text-sm text-fg cursor-pointer select-none">
+              Mark as currently live <span className="text-fg-muted">(InProgress — for testing live scores)</span>
+            </label>
+          </div>
+          {markAsLive && (
+            <div className="flex items-end gap-3 pl-6">
+              <div>
+                <label htmlFor="elapsedMinute" className={labelCls}>Elapsed minute</label>
+                <input id="elapsedMinute" type="number" min="1" max="120" value={elapsedMinute}
+                  onChange={e => setElapsedMinute(e.target.value)}
+                  placeholder="e.g. 37" className={`${inputCls} w-24`} />
+              </div>
+              <div>
+                <label htmlFor="elapsedExtra" className={labelCls}>Stoppage time</label>
+                <input id="elapsedExtra" type="number" min="1" max="20" value={elapsedExtra}
+                  onChange={e => setElapsedExtra(e.target.value)}
+                  placeholder="e.g. 3" className={`${inputCls} w-20`} />
+              </div>
+              <span className="text-xs text-fg-muted pb-2">shows as e.g. LIVE 45+3'</span>
+            </div>
+          )}
           {resultError && <p className="text-sm" style={{ color: 'var(--loss)' }}>{resultError}</p>}
           {resultMsg && <p className="text-sm" style={{ color: 'var(--win)' }}>{resultMsg}</p>}
+        </form>
+      </section>
+
+      {/* Goal event override */}
+      <section className="rounded-card bg-surface border border-border p-5 space-y-4">
+        <h2 className="font-display font-bold text-lg tracking-tight">Goal Event Override</h2>
+        <p className="text-sm text-fg-muted">Add a goal event to test Golden Six scoring. Triggers a full recompute.</p>
+        <form onSubmit={handleAddGoal} className="space-y-3">
+          <div className="flex gap-3 flex-wrap items-end">
+            <div>
+              <label htmlFor="goalFixtureId" className={labelCls}>Fixture ID</label>
+              <input id="goalFixtureId" type="text" value={goalFixtureId} onChange={e => setGoalFixtureId(e.target.value)}
+                placeholder="e.g. 1" className={`${inputCls} w-28`} />
+            </div>
+            <div>
+              <label htmlFor="goalMinute" className={labelCls}>Minute</label>
+              <input id="goalMinute" type="number" min="1" value={goalMinute} onChange={e => setGoalMinute(e.target.value)}
+                placeholder="e.g. 45" className={`${inputCls} w-24`} />
+            </div>
+            <div>
+              <label htmlFor="goalType" className={labelCls}>Type</label>
+              <select id="goalType" value={goalType} onChange={e => setGoalType(e.target.value)}
+                className={`${inputCls}`}>
+                <option value="OpenPlay">Open play</option>
+                <option value="PenaltyInMatch">Penalty (in-match)</option>
+                <option value="Shootout">Shootout</option>
+                <option value="OwnGoal">Own goal</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label htmlFor="playerSearch" className={labelCls}>Player <span className="normal-case font-normal">(search by name or team)</span></label>
+            <input id="playerSearch" type="text" value={playerSearch}
+              onChange={e => { setPlayerSearch(e.target.value); setGoalPlayerId(''); }}
+              placeholder="Type to search…" className={`${inputCls} w-full max-w-sm`} />
+            {playerSearch.trim().length >= 2 && (() => {
+              const q = playerSearch.toLowerCase();
+              const filtered = players.filter(p =>
+                p.name.toLowerCase().includes(q) ||
+                p.teamName.toLowerCase().includes(q)
+              ).slice(0, 10);
+              if (filtered.length === 0) return <p className="text-xs text-fg-muted mt-1">No players found.</p>;
+              return (
+                <div className="mt-1 border border-border rounded-input overflow-hidden max-w-sm">
+                  {filtered.map(p => (
+                    <button key={p.id} type="button"
+                      onClick={() => { setGoalPlayerId(p.id); setPlayerSearch(`${p.name} (${p.teamName}, ${p.position})`); }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-surface-2 transition-colors flex items-center justify-between gap-2"
+                      style={{ background: goalPlayerId === p.id ? 'var(--secondary-fill)' : undefined }}>
+                      <span className="font-medium">{p.name}</span>
+                      <span className="text-xs text-fg-muted shrink-0">{p.teamName} · {p.position}{p.shirtNumber != null ? ` #${p.shirtNumber}` : ''}</span>
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+            {goalPlayerId && <p className="text-xs mt-1" style={{ color: 'var(--win)' }}>Selected ID: {goalPlayerId}</p>}
+          </div>
+          <button type="submit"
+            className="px-4 py-2 rounded-input text-sm font-semibold transition-colors"
+            style={{ background: 'var(--warning)', color: '#fff' }}>
+            Add goal event
+          </button>
+          {goalError && <p className="text-sm" style={{ color: 'var(--loss)' }}>{goalError}</p>}
+          {goalMsg   && <p className="text-sm" style={{ color: 'var(--win)' }}>{goalMsg}</p>}
+        </form>
+      </section>
+
+      {/* Card event override */}
+      <section className="rounded-card bg-surface border border-border p-5 space-y-4">
+        <h2 className="font-display font-bold text-lg tracking-tight">Card Event Override</h2>
+        <p className="text-sm text-fg-muted">Add a disciplinary card event (display only — does not affect scoring).</p>
+        <form onSubmit={handleAddCard} className="space-y-3">
+          <div className="flex gap-3 flex-wrap items-end">
+            <div>
+              <label htmlFor="cardFixtureId" className={labelCls}>Fixture ID</label>
+              <input id="cardFixtureId" type="text" value={cardFixtureId} onChange={e => setCardFixtureId(e.target.value)}
+                placeholder="e.g. 1" className={`${inputCls} w-28`} />
+            </div>
+            <div>
+              <label htmlFor="cardMinute" className={labelCls}>Minute</label>
+              <input id="cardMinute" type="number" min="1" value={cardMinute} onChange={e => setCardMinute(e.target.value)}
+                placeholder="e.g. 55" className={`${inputCls} w-24`} />
+            </div>
+            <div>
+              <label htmlFor="cardType" className={labelCls}>Type</label>
+              <select id="cardType" value={cardType} onChange={e => setCardType(e.target.value)}
+                className={`${inputCls}`}>
+                <option value="Yellow">Yellow</option>
+                <option value="SecondYellow">Second yellow</option>
+                <option value="Red">Red</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label htmlFor="cardPlayerSearch" className={labelCls}>Player <span className="normal-case font-normal">(search by name or team)</span></label>
+            <input id="cardPlayerSearch" type="text" value={cardPlayerSearch}
+              onChange={e => { setCardPlayerSearch(e.target.value); setCardPlayerId(''); }}
+              placeholder="Type to search…" className={`${inputCls} w-full max-w-sm`} />
+            {cardPlayerSearch.trim().length >= 2 && (() => {
+              const q = cardPlayerSearch.toLowerCase();
+              const filtered = players.filter(p =>
+                p.name.toLowerCase().includes(q) ||
+                p.teamName.toLowerCase().includes(q)
+              ).slice(0, 10);
+              if (filtered.length === 0) return <p className="text-xs text-fg-muted mt-1">No players found.</p>;
+              return (
+                <div className="mt-1 border border-border rounded-input overflow-hidden max-w-sm">
+                  {filtered.map(p => (
+                    <button key={p.id} type="button"
+                      onClick={() => { setCardPlayerId(p.id); setCardPlayerSearch(`${p.name} (${p.teamName}, ${p.position})`); }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-surface-2 transition-colors flex items-center justify-between gap-2"
+                      style={{ background: cardPlayerId === p.id ? 'var(--secondary-fill)' : undefined }}>
+                      <span className="font-medium">{p.name}</span>
+                      <span className="text-xs text-fg-muted shrink-0">{p.teamName} · {p.position}{p.shirtNumber != null ? ` #${p.shirtNumber}` : ''}</span>
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+            {cardPlayerId && <p className="text-xs mt-1" style={{ color: 'var(--win)' }}>Selected ID: {cardPlayerId}</p>}
+          </div>
+          <button type="submit"
+            className="px-4 py-2 rounded-input text-sm font-semibold transition-colors"
+            style={{ background: 'var(--warning)', color: '#fff' }}>
+            Add card event
+          </button>
+          {cardError && <p className="text-sm" style={{ color: 'var(--loss)' }}>{cardError}</p>}
+          {cardMsg   && <p className="text-sm" style={{ color: 'var(--win)' }}>{cardMsg}</p>}
+        </form>
+      </section>
+
+      {/* Substitution event override */}
+      <section className="rounded-card bg-surface border border-border p-5 space-y-4">
+        <h2 className="font-display font-bold text-lg tracking-tight">Substitution Event Override</h2>
+        <p className="text-sm text-fg-muted">Add a substitution event (display only — does not affect scoring).</p>
+        <form onSubmit={handleAddSub} className="space-y-3">
+          <div className="flex gap-3 flex-wrap items-end">
+            <div>
+              <label htmlFor="subFixtureId" className={labelCls}>Fixture ID</label>
+              <input id="subFixtureId" type="text" value={subFixtureId} onChange={e => setSubFixtureId(e.target.value)}
+                placeholder="e.g. 1" className={`${inputCls} w-28`} />
+            </div>
+            <div>
+              <label htmlFor="subMinute" className={labelCls}>Minute</label>
+              <input id="subMinute" type="number" min="1" value={subMinute} onChange={e => setSubMinute(e.target.value)}
+                placeholder="e.g. 60" className={`${inputCls} w-24`} />
+            </div>
+            <div>
+              <label htmlFor="subTeamId" className={labelCls}>Team ID <span className="normal-case font-normal">(FIFA code)</span></label>
+              <input id="subTeamId" type="text" value={subTeamId} onChange={e => setSubTeamId(e.target.value)}
+                placeholder="e.g. NED" className={`${inputCls} w-24`} />
+            </div>
+          </div>
+
+          {/* Player In */}
+          <div>
+            <label htmlFor="subPlayerInSearch" className={labelCls}>Player In ▲ <span className="normal-case font-normal">(coming on)</span></label>
+            <input id="subPlayerInSearch" type="text" value={subPlayerInSearch}
+              onChange={e => { setSubPlayerInSearch(e.target.value); setSubPlayerInName(''); }}
+              placeholder="Type to search or enter name…" className={`${inputCls} w-full max-w-sm`} />
+            {subPlayerInSearch.trim().length >= 2 && !subPlayerInName && (() => {
+              const q = subPlayerInSearch.toLowerCase();
+              const filtered = players.filter(p =>
+                p.name.toLowerCase().includes(q) || p.teamName.toLowerCase().includes(q)
+              ).slice(0, 10);
+              if (filtered.length === 0) return <p className="text-xs text-fg-muted mt-1">No players found — name will be used as typed.</p>;
+              return (
+                <div className="mt-1 border border-border rounded-input overflow-hidden max-w-sm">
+                  {filtered.map(p => (
+                    <button key={p.id} type="button"
+                      onClick={() => { setSubPlayerInName(p.name); setSubPlayerInSearch(p.name); if (!subTeamId) setSubTeamId(p.teamId); }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-surface-2 transition-colors flex items-center justify-between gap-2">
+                      <span className="font-medium">{p.name}</span>
+                      <span className="text-xs text-fg-muted shrink-0">{p.teamName} · {p.position}{p.shirtNumber != null ? ` #${p.shirtNumber}` : ''}</span>
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+            {subPlayerInName && <p className="text-xs mt-1" style={{ color: 'var(--win)' }}>✓ {subPlayerInName}</p>}
+          </div>
+
+          {/* Player Out */}
+          <div>
+            <label htmlFor="subPlayerOutSearch" className={labelCls}>Player Out ▼ <span className="normal-case font-normal">(coming off)</span></label>
+            <input id="subPlayerOutSearch" type="text" value={subPlayerOutSearch}
+              onChange={e => { setSubPlayerOutSearch(e.target.value); setSubPlayerOutName(''); }}
+              placeholder="Type to search or enter name…" className={`${inputCls} w-full max-w-sm`} />
+            {subPlayerOutSearch.trim().length >= 2 && !subPlayerOutName && (() => {
+              const q = subPlayerOutSearch.toLowerCase();
+              const filtered = players.filter(p =>
+                p.name.toLowerCase().includes(q) || p.teamName.toLowerCase().includes(q)
+              ).slice(0, 10);
+              if (filtered.length === 0) return <p className="text-xs text-fg-muted mt-1">No players found — name will be used as typed.</p>;
+              return (
+                <div className="mt-1 border border-border rounded-input overflow-hidden max-w-sm">
+                  {filtered.map(p => (
+                    <button key={p.id} type="button"
+                      onClick={() => { setSubPlayerOutName(p.name); setSubPlayerOutSearch(p.name); if (!subTeamId) setSubTeamId(p.teamId); }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-surface-2 transition-colors flex items-center justify-between gap-2">
+                      <span className="font-medium">{p.name}</span>
+                      <span className="text-xs text-fg-muted shrink-0">{p.teamName} · {p.position}{p.shirtNumber != null ? ` #${p.shirtNumber}` : ''}</span>
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+            {subPlayerOutName && <p className="text-xs mt-1" style={{ color: 'var(--win)' }}>✓ {subPlayerOutName}</p>}
+          </div>
+
+          <div className="flex gap-3 items-center flex-wrap pt-1">
+            <button type="submit"
+              className="px-4 py-2 rounded-input text-sm font-semibold transition-colors"
+              style={{ background: 'var(--warning)', color: '#fff' }}>
+              Add substitution
+            </button>
+            <p className="text-xs text-fg-muted">If a player isn't found in the dropdown, type the name directly and press Add.</p>
+          </div>
+          {subError && <p className="text-sm" style={{ color: 'var(--loss)' }}>{subError}</p>}
+          {subMsg   && <p className="text-sm" style={{ color: 'var(--win)' }}>{subMsg}</p>}
         </form>
       </section>
 

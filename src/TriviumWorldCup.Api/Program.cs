@@ -51,6 +51,8 @@ builder.Services.AddMarten(opts =>
     opts.Schema.For<TournamentPrediction>().Identity(p => p.Id);
     // GoalEvent — Id is Guid (Marten picks this up by convention, but we register explicitly).
     opts.Schema.For<GoalEvent>().Identity(e => e.Id);
+    // CardEvent — disciplinary cards per fixture.
+    opts.Schema.For<CardEvent>().Identity(e => e.Id);
     // MemberScore — Id equals UserId (one document per member).
     opts.Schema.For<MemberScore>().Identity(s => s.Id);
     // ResultOverride — audit log for manual admin overrides (TWC-16).

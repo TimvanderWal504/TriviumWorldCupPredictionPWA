@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Radio, ListChecks, Trophy, BarChart3, User, NotebookPen } from 'lucide-react';
+import { Radio, ListChecks, Trophy, BarChart3, User, NotebookPen, ClipboardCheck } from 'lucide-react';
 import triviumLogomark from './assets/_Trivium_Logos/trivium_logomark_transparent.svg';
 import heroBg from './assets/hero-2000-DW7OUruS.svg';
 import { AuthProvider } from './auth/AuthContext.tsx';
@@ -12,6 +12,7 @@ import { GroupPredictionsPage } from './pages/GroupPredictionsPage.tsx';
 import { KnockoutBracketPage } from './pages/KnockoutBracketPage.tsx';
 import { LeaderboardPage } from './pages/LeaderboardPage.tsx';
 import { LiveScoresPage } from './pages/LiveScoresPage.tsx';
+import { ResultsPage } from './pages/ResultsPage.tsx';
 import { ProfilePage } from './pages/ProfilePage.tsx';
 import { RulesPage } from './pages/RulesPage.tsx';
 import { StandingsPage } from './pages/StandingsPage.tsx';
@@ -19,7 +20,7 @@ import { TournamentPredictionPage } from './pages/TournamentPredictionPage.tsx';
 import { useAuth } from './auth/useAuth.ts';
 
 
-type Tab = 'live' | 'predict' | 'bracket' | 'ranks' | 'rules' | 'me';
+type Tab = 'live' | 'predict' | 'results' | 'bracket' | 'ranks' | 'rules' | 'me';
 // 'tournament' is a sub-page within the 'predict' tab, not a top-level subPage
 type SubPage = 'profile' | 'admin' | null;
 type PredictView = 'group' | 'tournament';
@@ -27,6 +28,7 @@ type PredictView = 'group' | 'tournament';
 const ALL_TABS: { id: Tab; label: string; Icon: React.FC<{ size?: number }> }[] = [
   { id: 'live',    label: 'Live',    Icon: Radio },
   { id: 'predict', label: 'Predict', Icon: ListChecks },
+  { id: 'results', label: 'Results', Icon: ClipboardCheck },
   { id: 'bracket', label: 'Bracket', Icon: Trophy },
   { id: 'ranks',   label: 'Ranks',   Icon: BarChart3 },
   { id: 'rules',   label: 'Rules',   Icon: NotebookPen },
@@ -36,6 +38,7 @@ const ALL_TABS: { id: Tab; label: string; Icon: React.FC<{ size?: number }> }[] 
 const TAB_TITLES: Record<Tab, string> = {
   live:    'Live Scores',
   predict: 'Predictions',
+  results: 'Results',
   bracket: 'Knockout Bracket',
   ranks:   'Leaderboard',
   rules:   'Rules & Scoring',
@@ -76,8 +79,9 @@ function AppShell() {
   const [subPage, setSubPage] = useState<SubPage>(null);
   const [predictView, setPredictView] = useState<PredictView>('group');
 
-  // Visibility gates for Live and Bracket tabs
+  // Visibility gates for Live, Results, and Bracket tabs
   const [liveActive, setLiveActive] = useState(false);
+  const [hasResults, setHasResults] = useState(false);
   const [bracketOpen, setBracketOpen] = useState(false);
 
   useEffect(() => {
@@ -90,8 +94,17 @@ function AppShell() {
         const active = d.liveWindowActive === true ||
           (d.fixtures ?? []).some(f => f.status === 'InProgress');
         setLiveActive(active);
-        // If we were on the live tab but it's no longer active, fall back to predict
         if (!active) setTab(prev => prev === 'live' ? 'predict' : prev);
+      })
+      .catch(() => {});
+
+    // Check if any fixtures have been completed
+    fetch('/fixtures', { credentials: 'include' })
+      .then(r => r.json())
+      .then((fixtures: { status: string }[]) => {
+        const completed = fixtures.some(f => f.status === 'Completed');
+        setHasResults(completed);
+        if (!completed) setTab(prev => prev === 'results' ? 'predict' : prev);
       })
       .catch(() => {});
 
@@ -120,6 +133,7 @@ function AppShell() {
 
   const visibleTabs = ALL_TABS.filter(t => {
     if (t.id === 'live' && !liveActive) return false;
+    if (t.id === 'results' && !hasResults) return false;
     if (t.id === 'bracket' && !bracketOpen) return false;
     return true;
   });
@@ -166,6 +180,9 @@ function AppShell() {
 
         ) : tab === 'live' ? (
           <LiveScoresPage />
+
+        ) : tab === 'results' ? (
+          <ResultsPage />
 
         ) : tab === 'predict' ? (
           <div>

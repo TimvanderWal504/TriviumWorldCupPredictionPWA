@@ -34,4 +34,9 @@ public class Fixture
 
     public int? HomeScore { get; set; }
     public int? AwayScore { get; set; }
+
+    /// <summary>Clock minute from the API's status.elapsed (null when not live).</summary>
+    public int? ElapsedMinute { get; set; }
+    /// <summary>Stoppage-time extra minutes, e.g. 2 for "45+2'" (null when not in stoppage).</summary>
+    public int? ElapsedExtra { get; set; }
 }
