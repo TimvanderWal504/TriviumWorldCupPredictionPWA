@@ -94,16 +94,14 @@ builder.Services.AddAuthAbstraction(builder.Configuration, builder.Environment);
 
 // OpenAPI (Swagger) — development convenience only
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+    options.CustomSchemaIds(t => t.FullName?.Replace('+', '.')));
 
 // ── App ───────────────────────────────────────────────────────────────────────
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+app.UseSwagger();
+app.UseSwaggerUI();
 
 // Auth middleware — resolves current user for all downstream handlers
 app.UseCurrentUser();
