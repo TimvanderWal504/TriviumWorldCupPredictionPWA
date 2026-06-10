@@ -40,13 +40,13 @@ public static class IngestionServiceExtensions
 
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            // No key — skip Quartz entirely. The job would fail every 20 seconds otherwise.
+            // No key — skip Quartz entirely. The job would fail every 60 seconds otherwise.
             return services;
         }
 
-        // Quartz scheduler — single trigger, every 20 seconds
+        // Quartz scheduler — single trigger, every 30 seconds
         // Only fires API calls during live windows (DB check gates each execution).
-        // Pro plan: 7,500 req/day; worst case 6 matches × 630 polls = 3,780/day.
+        // Pro plan: 7,500 req/day; worst case 6 matches × 420 polls = 2,520/day.
         services.AddQuartz(q =>
         {
             var jobKey = new JobKey("ResultIngestionJob", "Ingestion");
@@ -59,7 +59,7 @@ public static class IngestionServiceExtensions
                 .ForJob(jobKey)
                 .WithIdentity("ResultIngestionTrigger", "Ingestion")
                 .WithSimpleSchedule(s => s
-                    .WithIntervalInSeconds(20)
+                    .WithIntervalInSeconds(30)
                     .RepeatForever())
                 // Start 10 seconds after app startup to allow the DB to initialise
                 .StartAt(DateBuilder.FutureDate(10, IntervalUnit.Second)));

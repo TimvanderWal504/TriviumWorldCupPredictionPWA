@@ -53,6 +53,8 @@ export function AdminPage() {
   const [resultMsg, setResultMsg] = useState<string | null>(null);
   const [resultError, setResultError] = useState<string | null>(null);
   const [recomputeMsg, setRecomputeMsg] = useState<string | null>(null);
+  const [syncApiIdsMsg, setSyncApiIdsMsg] = useState<string | null>(null);
+  const [syncApiIdsBusy, setSyncApiIdsBusy] = useState(false);
 
   const [pushTargetUserId, setPushTargetUserId] = useState('');
   const [pushTitle, setPushTitle] = useState('Test notification');
@@ -273,6 +275,22 @@ export function AdminPage() {
     } catch (err) { setRecomputeMsg(`Error: ${String(err)}`); }
   }
 
+  async function handleSyncApiIds() {
+    setSyncApiIdsMsg(null);
+    setSyncApiIdsBusy(true);
+    try {
+      const res = await fetch('/admin/fixtures/sync-api-ids', { method: 'POST', credentials: 'include' });
+      const body = await res.json() as { matched?: number; unresolved?: string[] };
+      if (!res.ok) { setSyncApiIdsMsg(`Error: HTTP ${res.status}`); return; }
+      const unresolvedNote = body.unresolved?.length ? ` (${body.unresolved.length} unresolved)` : '';
+      setSyncApiIdsMsg(`Synced ${body.matched ?? 0} fixture(s)${unresolvedNote}.`);
+    } catch (err) {
+      setSyncApiIdsMsg(`Error: ${String(err)}`);
+    } finally {
+      setSyncApiIdsBusy(false);
+    }
+  }
+
   async function handleSendTestPush(e: React.FormEvent) {
     e.preventDefault();
     setPushMsg(null);
@@ -484,13 +502,23 @@ export function AdminPage() {
           </dl>
         )}
 
-        <div className="pt-2">
-          <button onClick={handleForceRecompute}
-            className="px-4 py-2 rounded-input text-sm font-semibold transition-colors"
-            style={{ background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }}>
-            Force recompute scores
-          </button>
-          {recomputeMsg && <p className="mt-2 text-sm" style={{ color: 'var(--win)' }}>{recomputeMsg}</p>}
+        <div className="pt-2 flex flex-wrap gap-3">
+          <div className="flex flex-col gap-1">
+            <button onClick={handleForceRecompute}
+              className="px-4 py-2 rounded-input text-sm font-semibold transition-colors"
+              style={{ background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }}>
+              Force recompute scores
+            </button>
+            {recomputeMsg && <p className="text-sm" style={{ color: 'var(--win)' }}>{recomputeMsg}</p>}
+          </div>
+          <div className="flex flex-col gap-1">
+            <button onClick={handleSyncApiIds} disabled={syncApiIdsBusy}
+              className="px-4 py-2 rounded-input text-sm font-semibold transition-colors disabled:opacity-50"
+              style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }}>
+              {syncApiIdsBusy ? 'Syncing…' : 'Sync fixture API IDs'}
+            </button>
+            {syncApiIdsMsg && <p className="text-sm" style={{ color: 'var(--win)' }}>{syncApiIdsMsg}</p>}
+          </div>
         </div>
       </section>
 

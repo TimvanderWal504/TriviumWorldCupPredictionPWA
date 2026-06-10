@@ -8,8 +8,6 @@ namespace TriviumWorldCup.Api.Ingestion;
 public interface IFootballApiClient
 {
     Task<IReadOnlyList<ApiFixture>> GetFixturesByDateAsync(DateOnly date, CancellationToken ct = default);
-    Task<IReadOnlyList<ApiGoalEvent>> GetGoalEventsAsync(int fixtureId, CancellationToken ct = default);
-    Task<IReadOnlyList<ApiCardEvent>> GetCardEventsAsync(int fixtureId, CancellationToken ct = default);
-    Task<IReadOnlyList<ApiSubstitutionEvent>> GetSubstitutionEventsAsync(int fixtureId, CancellationToken ct = default);
-    Task<IReadOnlyList<ApiVarEvent>> GetVarEventsAsync(int fixtureId, CancellationToken ct = default);
+    Task<IReadOnlyList<ApiFixture>> GetAllFixturesForSeasonAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<ApiMatchEvent>> GetAllEventsAsync(int fixtureId, CancellationToken ct = default);
 }

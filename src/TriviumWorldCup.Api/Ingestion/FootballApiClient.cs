@@ -64,60 +64,29 @@ public class FootballApiClient : IFootballApiClient
     }
 
     /// <summary>
-    /// Returns all goal events for a given API fixture ID.
+    /// Returns all fixtures for the full 2026 season (league=1) in one call — 104 fixtures
+    /// covering group stage + all knockout rounds. Used for the one-time backfill of
+    /// FootballApiFixtureId values; not used in the regular polling cycle.
+    /// Costs 1 API request against the daily quota.
     /// </summary>
-    public async Task<IReadOnlyList<ApiGoalEvent>> GetGoalEventsAsync(int fixtureId, CancellationToken ct = default)
+    public async Task<IReadOnlyList<ApiFixture>> GetAllFixturesForSeasonAsync(CancellationToken ct = default)
     {
-        var response = await _http.GetAsync($"fixtures/events?fixture={fixtureId}&type=Goal", ct);
-        response.EnsureSuccessStatusCode();
-
-        var body = await response.Content.ReadAsStringAsync(ct);
-        var wrapper = JsonSerializer.Deserialize<ApiResponse<ApiGoalEvent>>(body, JsonOptions);
-
-        return wrapper?.Response ?? [];
+        return await FetchFixturesAsync($"fixtures?league={LeagueId}&season={Season}", ct);
     }
 
     /// <summary>
-    /// Returns all card events (yellow, second yellow, red) for a given API fixture ID.
+    /// Returns all match events (goals, cards, substitutions, VAR decisions) for a given fixture
+    /// in a single request. Each event carries a <see cref="ApiMatchEvent.Type"/> field
+    /// ("Goal", "Card", "subst", "Var") so callers can split by category locally.
+    /// Replaces the four typed calls — saves 3 API requests per completed fixture.
     /// </summary>
-    public async Task<IReadOnlyList<ApiCardEvent>> GetCardEventsAsync(int fixtureId, CancellationToken ct = default)
+    public async Task<IReadOnlyList<ApiMatchEvent>> GetAllEventsAsync(int fixtureId, CancellationToken ct = default)
     {
-        var response = await _http.GetAsync($"fixtures/events?fixture={fixtureId}&type=Card", ct);
+        var response = await _http.GetAsync($"fixtures/events?fixture={fixtureId}", ct);
         response.EnsureSuccessStatusCode();
 
         var body = await response.Content.ReadAsStringAsync(ct);
-        var wrapper = JsonSerializer.Deserialize<ApiResponse<ApiCardEvent>>(body, JsonOptions);
-
-        return wrapper?.Response ?? [];
-    }
-
-    /// <summary>
-    /// Returns all substitution events for a given API fixture ID.
-    /// API quirk: player = player going OFF, assist = player coming ON.
-    /// </summary>
-    public async Task<IReadOnlyList<ApiSubstitutionEvent>> GetSubstitutionEventsAsync(int fixtureId, CancellationToken ct = default)
-    {
-        var response = await _http.GetAsync($"fixtures/events?fixture={fixtureId}&type=subst", ct);
-        response.EnsureSuccessStatusCode();
-
-        var body = await response.Content.ReadAsStringAsync(ct);
-        var wrapper = JsonSerializer.Deserialize<ApiResponse<ApiSubstitutionEvent>>(body, JsonOptions);
-
-        return wrapper?.Response ?? [];
-    }
-
-    /// <summary>
-    /// Returns all VAR decisions for a given API fixture ID.
-    /// detail values: "Goal cancelled", "Card Upgrade - Red Card", "Card Upgrade - Second Yellow",
-    ///                "Penalty cancelled", "Penalty confirmed".
-    /// </summary>
-    public async Task<IReadOnlyList<ApiVarEvent>> GetVarEventsAsync(int fixtureId, CancellationToken ct = default)
-    {
-        var response = await _http.GetAsync($"fixtures/events?fixture={fixtureId}&type=Var", ct);
-        response.EnsureSuccessStatusCode();
-
-        var body = await response.Content.ReadAsStringAsync(ct);
-        var wrapper = JsonSerializer.Deserialize<ApiResponse<ApiVarEvent>>(body, JsonOptions);
+        var wrapper = JsonSerializer.Deserialize<ApiResponse<ApiMatchEvent>>(body, JsonOptions);
 
         return wrapper?.Response ?? [];
     }
@@ -199,26 +168,54 @@ public sealed class ApiFixture
     public bool IsLive => StatusShort is "1H" or "HT" or "2H" or "ET" or "BT" or "P";
 }
 
-/// <summary>Goal event returned from /fixtures/events.</summary>
-public sealed class ApiGoalEvent
+/// <summary>
+/// A single match event returned from /fixtures/events (no type filter applied).
+/// The <see cref="Type"/> field discriminates the four categories; use the IsGoal / IsCard /
+/// IsSub / IsVar helpers to split after a single fetch rather than making four typed calls.
+/// API quirk for substitutions: <see cref="Player"/> = player going OFF, <see cref="Assist"/> = player coming ON.
+/// </summary>
+public sealed class ApiMatchEvent
 {
+    /// <summary>Event category: "Goal", "Card", "subst", "Var".</summary>
+    [JsonPropertyName("type")]
+    public string? Type { get; set; }
+
     [JsonPropertyName("time")]
     public ApiTime? Time { get; set; }
 
+    [JsonPropertyName("team")]
+    public ApiTeam? Team { get; set; }
+
+    /// <summary>For goals/cards/VAR: the player involved. For subs: the player going OFF.</summary>
     [JsonPropertyName("player")]
     public ApiPlayer? Player { get; set; }
+
+    /// <summary>For subs: the player coming ON (API reuses the assist field).</summary>
+    [JsonPropertyName("assist")]
+    public ApiPlayer? Assist { get; set; }
 
     [JsonPropertyName("detail")]
     public string? Detail { get; set; }
 
-    /// <summary>
-    /// "Normal Goal" → OpenPlay
-    /// "Penalty"      → PenaltyInMatch
-    /// "Own Goal"     → OwnGoal
-    /// Anything else  → OpenPlay (safe fallback)
-    /// </summary>
+    // ── Type discriminators ──────────────────────────────────────────────────
+    public bool IsGoal => string.Equals(Type, "Goal",  StringComparison.OrdinalIgnoreCase);
+    public bool IsCard => string.Equals(Type, "Card",  StringComparison.OrdinalIgnoreCase);
+    public bool IsSub  => string.Equals(Type, "subst", StringComparison.OrdinalIgnoreCase);
+    public bool IsVar  => string.Equals(Type, "Var",   StringComparison.OrdinalIgnoreCase);
+
+    // ── Goal detail helpers ──────────────────────────────────────────────────
     public bool IsOwnGoal => string.Equals(Detail, "Own Goal", StringComparison.OrdinalIgnoreCase);
-    public bool IsPenalty => string.Equals(Detail, "Penalty", StringComparison.OrdinalIgnoreCase);
+    public bool IsPenalty => string.Equals(Detail, "Penalty",  StringComparison.OrdinalIgnoreCase);
+
+    // ── Card detail helpers ──────────────────────────────────────────────────
+    public bool IsYellow       => string.Equals(Detail, "Yellow Card",   StringComparison.OrdinalIgnoreCase);
+    public bool IsSecondYellow => string.Equals(Detail, "Second Yellow", StringComparison.OrdinalIgnoreCase);
+    public bool IsRed          => string.Equals(Detail, "Red Card",      StringComparison.OrdinalIgnoreCase);
+
+    // ── VAR detail helpers ───────────────────────────────────────────────────
+    public bool IsGoalCancelled     => string.Equals(Detail, "Goal cancelled",              StringComparison.OrdinalIgnoreCase);
+    public bool IsCardUpgradeRed    => string.Equals(Detail, "Card Upgrade - Red Card",      StringComparison.OrdinalIgnoreCase);
+    public bool IsCardUpgrade2ndYel => string.Equals(Detail, "Card Upgrade - Second Yellow", StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed class ApiTime
@@ -238,69 +235,6 @@ public sealed class ApiPlayer
 
     [JsonPropertyName("name")]
     public string? Name { get; set; }
-}
-
-/// <summary>
-/// Card event returned from /fixtures/events?type=Card.
-/// detail values: "Yellow Card", "Second Yellow", "Red Card"
-/// </summary>
-public sealed class ApiCardEvent
-{
-    [JsonPropertyName("time")]
-    public ApiTime? Time { get; set; }
-
-    [JsonPropertyName("player")]
-    public ApiPlayer? Player { get; set; }
-
-    [JsonPropertyName("detail")]
-    public string? Detail { get; set; }
-
-    public bool IsYellow      => string.Equals(Detail, "Yellow Card",   StringComparison.OrdinalIgnoreCase);
-    public bool IsSecondYellow => string.Equals(Detail, "Second Yellow", StringComparison.OrdinalIgnoreCase);
-    public bool IsRed         => string.Equals(Detail, "Red Card",      StringComparison.OrdinalIgnoreCase);
-}
-
-/// <summary>
-/// VAR decision event from /fixtures/events?type=Var.
-/// detail values: "Goal cancelled", "Card Upgrade - Red Card", "Card Upgrade - Second Yellow",
-///                "Penalty cancelled", "Penalty confirmed".
-/// </summary>
-public sealed class ApiVarEvent
-{
-    [JsonPropertyName("time")]
-    public ApiTime? Time { get; set; }
-
-    [JsonPropertyName("player")]
-    public ApiPlayer? Player { get; set; }
-
-    [JsonPropertyName("detail")]
-    public string? Detail { get; set; }
-
-    public bool IsGoalCancelled      => string.Equals(Detail, "Goal cancelled",                StringComparison.OrdinalIgnoreCase);
-    public bool IsCardUpgradeRed     => string.Equals(Detail, "Card Upgrade - Red Card",        StringComparison.OrdinalIgnoreCase);
-    public bool IsCardUpgrade2ndYel  => string.Equals(Detail, "Card Upgrade - Second Yellow",   StringComparison.OrdinalIgnoreCase);
-}
-
-/// <summary>
-/// Substitution event from /fixtures/events?type=subst.
-/// API quirk: player = player going OFF, assist = player coming ON.
-/// team = the team making the substitution.
-/// </summary>
-public sealed class ApiSubstitutionEvent
-{
-    [JsonPropertyName("time")]
-    public ApiTime? Time { get; set; }
-
-    [JsonPropertyName("team")]
-    public ApiTeam? Team { get; set; }
-
-    /// <summary>Player going OFF the field.</summary>
-    [JsonPropertyName("player")]
-    public ApiPlayer? Player { get; set; }
-
-    /// <summary>Player coming ON the field (API reuses the assist field for subs).</summary>
-    [JsonPropertyName("assist")]
-    public ApiPlayer? Assist { get; set; }
 }
 
 // ── Internal nested DTOs used only while deserialising fixtures ───────────────

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using TriviumWorldCup.Api.Auth;
 using TriviumWorldCup.Api.Auth.Link;
 using TriviumWorldCup.Api.Domain;
+using TriviumWorldCup.Api.Ingestion;
 using TriviumWorldCup.Api.Knockout;
 using TriviumWorldCup.Api.Scoring;
 using WebPush;
@@ -788,6 +789,73 @@ public static class AdminEndpoints
         })
         .WithName("SendTestPush")
         .WithSummary("Sends a test push notification to the caller or a target user. Admin only.");
+
+        // ── POST /admin/fixtures/sync-api-ids ────────────────────────────────
+        // Fetches all WC 2026 fixtures from the Football API in one call, matches each to a
+        // Marten Fixture by team pair, and writes the FootballApiFixtureId field.
+        // Also returns the equivalent SQL UPDATE statements so you can run them directly
+        // on the Azure PostgreSQL instance if preferred.
+        // Safe to call multiple times — already-populated rows are overwritten with the same value.
+        group.MapPost("/fixtures/sync-api-ids", async (
+            HttpContext context,
+            IFootballApiClient apiClient,
+            IDocumentStore store,
+            CancellationToken ct) =>
+        {
+            var user = context.GetAppUser();
+            if (!user.IsInRole("admin"))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            IReadOnlyList<ApiFixture> apiFixtures;
+            try
+            {
+                apiFixtures = await apiClient.GetAllFixturesForSeasonAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                return Results.Problem($"Football API call failed: {ex.Message}", statusCode: 502);
+            }
+
+            await using var session = store.LightweightSession();
+            var allFixtures = await session.Query<Fixture>().ToListAsync(ct);
+            var fixtureByTeamPair = allFixtures.ToDictionary(f => (f.HomeTeamId, f.AwayTeamId));
+
+            var matched = new List<object>();
+            var unresolved = new List<string>();
+
+            foreach (var api in apiFixtures)
+            {
+                var homeCode = FootballApiTeamMap.Resolve(api.HomeTeamId, api.HomeTeamName);
+                var awayCode = FootballApiTeamMap.Resolve(api.AwayTeamId, api.AwayTeamName);
+
+                if (homeCode == null || awayCode == null)
+                {
+                    unresolved.Add($"api_id={api.FixtureId} {api.HomeTeamName} vs {api.AwayTeamName} — FIFA code unresolved");
+                    continue;
+                }
+
+                if (!fixtureByTeamPair.TryGetValue((homeCode, awayCode), out var fixture))
+                    // Knockout fixtures (R32–Final) have no Fixture document — skip silently.
+                    continue;
+
+                fixture.FootballApiFixtureId = api.FixtureId;
+                session.Store(fixture);
+
+                matched.Add(new { fixture.Id, homeCode, awayCode, apiFixtureId = api.FixtureId });
+            }
+
+            if (matched.Count > 0)
+                await session.SaveChangesAsync(ct);
+
+            return Results.Ok(new
+            {
+                matched    = matched.Count,
+                fixtures   = matched,
+                unresolved,
+            });
+        })
+        .WithName("SyncApiFixtureIds")
+        .WithSummary("Backfills FootballApiFixtureId on all group-stage Fixture documents from the Football API. Returns equivalent SQL for direct Azure execution.");
 
         // ── POST /admin/recompute ─────────────────────────────────────────────
         group.MapPost("/recompute", async (

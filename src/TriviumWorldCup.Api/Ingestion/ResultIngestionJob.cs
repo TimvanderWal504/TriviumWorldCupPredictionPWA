@@ -12,7 +12,7 @@ namespace TriviumWorldCup.Api.Ingestion;
 /// and goal events in Marten, then triggers a scoring recompute.
 ///
 /// Scheduling strategy (single-trigger, adaptive):
-///   - Job runs every 20 seconds unconditionally.
+///   - Job runs every 30 seconds unconditionally.
 ///   - At the start of each execution, the job checks whether any fixture is in a
 ///     "live window" (KickoffUtc within the last 3 hours OR in the next 30 minutes).
 ///   - If no live window is detected, the job performs a lightweight check for any
@@ -209,42 +209,36 @@ public class ResultIngestionJob(
                 continue;
             }
 
-            // Update fixture scores and status
-            dbFixture.HomeScore     = apiFixture.HomeGoals;
-            dbFixture.AwayScore     = apiFixture.AwayGoals;
-            dbFixture.Status        = MatchStatus.Completed;
-            dbFixture.ElapsedMinute = null;
-            dbFixture.ElapsedExtra  = null;
+            // Update fixture scores, status, and API fixture ID
+            dbFixture.HomeScore            = apiFixture.HomeGoals;
+            dbFixture.AwayScore            = apiFixture.AwayGoals;
+            dbFixture.Status               = MatchStatus.Completed;
+            dbFixture.ElapsedMinute        = null;
+            dbFixture.ElapsedExtra         = null;
+            dbFixture.FootballApiFixtureId ??= apiFixture.FixtureId;
             session.Store(dbFixture);
 
-            // Fetch and persist goal events
-            IReadOnlyList<ApiGoalEvent> goalEvents;
+            // Fetch all events in one request (goals, cards, subs, VAR) then split locally.
+            // Saves 3 API requests per completed fixture vs. calling /fixtures/events four times
+            // with separate type= filters.
+            IReadOnlyList<ApiMatchEvent> allEvents;
             try
             {
-                goalEvents = await apiClient.GetGoalEventsAsync(apiFixture.FixtureId, ct);
+                allEvents = await apiClient.GetAllEventsAsync(apiFixture.FixtureId, ct);
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex,
-                    "ResultIngestionJob: failed to fetch goal events for fixture {FixtureId} — " +
-                    "score recorded but goals skipped",
+                    "ResultIngestionJob: failed to fetch events for fixture {FixtureId} — " +
+                    "score recorded but all events skipped",
                     apiFixture.FixtureId);
-                goalEvents = [];
+                allEvents = [];
             }
 
-            // Fetch VAR decisions — used to filter cancelled goals and upgrade cards.
-            IReadOnlyList<ApiVarEvent> varEvents;
-            try
-            {
-                varEvents = await apiClient.GetVarEventsAsync(apiFixture.FixtureId, ct);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex,
-                    "ResultIngestionJob: failed to fetch VAR events for fixture {FixtureId} — VAR filtering skipped",
-                    apiFixture.FixtureId);
-                varEvents = [];
-            }
+            var goalEvents = allEvents.Where(e => e.IsGoal).ToList();
+            var varEvents  = allEvents.Where(e => e.IsVar).ToList();
+            var cardEvents = allEvents.Where(e => e.IsCard).ToList();
+            var subEvents  = allEvents.Where(e => e.IsSub).ToList();
 
             // Build lookups: cancelled goals by (playerName, minute) and card-upgrade decisions.
             // Keying on minute prevents a valid earlier goal by the same player being discarded.
@@ -305,20 +299,6 @@ public class ResultIngestionJob(
                 session.Store(goalEvent);
             }
 
-            // Fetch and persist card events
-            IReadOnlyList<ApiCardEvent> cardEvents;
-            try
-            {
-                cardEvents = await apiClient.GetCardEventsAsync(apiFixture.FixtureId, ct);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex,
-                    "ResultIngestionJob: failed to fetch card events for fixture {FixtureId} — cards skipped",
-                    apiFixture.FixtureId);
-                cardEvents = [];
-            }
-
             foreach (var evt in cardEvents)
             {
                 if (evt.Player?.Name is not { Length: > 0 } playerName)
@@ -361,20 +341,6 @@ public class ResultIngestionJob(
                     Minute      = evt.Time?.Elapsed ?? 0,
                     ExtraMinute = evt.Time?.Extra,
                 });
-            }
-
-            // Fetch and persist substitution events
-            IReadOnlyList<ApiSubstitutionEvent> subEvents;
-            try
-            {
-                subEvents = await apiClient.GetSubstitutionEventsAsync(apiFixture.FixtureId, ct);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex,
-                    "ResultIngestionJob: failed to fetch substitution events for fixture {FixtureId} — subs skipped",
-                    apiFixture.FixtureId);
-                subEvents = [];
             }
 
             foreach (var evt in subEvents)
@@ -426,11 +392,12 @@ public class ResultIngestionJob(
             if (!fixtureByTeamPair.TryGetValue((liveHomeCode, liveAwayCode), out var liveDbFixture)) continue;
             if (completedSet.Contains(liveDbFixture.Id)) continue;
 
-            liveDbFixture.Status        = MatchStatus.InProgress;
-            liveDbFixture.HomeScore     = apiFixture.HomeGoals;
-            liveDbFixture.AwayScore     = apiFixture.AwayGoals;
-            liveDbFixture.ElapsedMinute = apiFixture.StatusElapsed;
-            liveDbFixture.ElapsedExtra  = apiFixture.StatusExtra;
+            liveDbFixture.Status               = MatchStatus.InProgress;
+            liveDbFixture.HomeScore            = apiFixture.HomeGoals;
+            liveDbFixture.AwayScore            = apiFixture.AwayGoals;
+            liveDbFixture.ElapsedMinute        = apiFixture.StatusElapsed;
+            liveDbFixture.ElapsedExtra         = apiFixture.StatusExtra;
+            liveDbFixture.FootballApiFixtureId ??= apiFixture.FixtureId;
             session.Store(liveDbFixture);
         }
 
@@ -583,7 +550,7 @@ public class ResultIngestionJob(
     /// Maps an API-Football goal event detail string to the app's <see cref="GoalType"/>.
     /// Pure function — testable without any infrastructure.
     /// </summary>
-    internal static GoalType MapGoalType(ApiGoalEvent evt)
+    internal static GoalType MapGoalType(ApiMatchEvent evt)
     {
         if (evt.IsOwnGoal) return GoalType.OwnGoal;
         if (evt.IsPenalty) return GoalType.PenaltyInMatch;
@@ -598,7 +565,7 @@ public class ResultIngestionJob(
         int apiFixtureId,
         string dbFixtureId,
         Guid playerId,
-        ApiGoalEvent evt)
+        ApiMatchEvent evt)
     {
         var playerName = evt.Player?.Name ?? string.Empty;
         var minute     = evt.Time?.Elapsed ?? 0;

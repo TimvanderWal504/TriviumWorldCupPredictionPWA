@@ -78,7 +78,7 @@ public class ResultIngestionJobTests
     {
         // Arrange: a goal event from an API response
         var player = new Player { Id = Guid.NewGuid(), Name = "Lionel Messi", TeamId = "ARG", Position = Position.FWD };
-        var apiEvt = new ApiGoalEvent
+        var apiEvt = new ApiMatchEvent
         {
             Time   = new ApiTime { Elapsed = 23 },
             Player = new ApiPlayer { Id = 10, Name = "Lionel Messi" },
@@ -102,13 +102,13 @@ public class ResultIngestionJobTests
     {
         var playerId = Guid.NewGuid();
 
-        var evt1 = new ApiGoalEvent
+        var evt1 = new ApiMatchEvent
         {
             Time   = new ApiTime { Elapsed = 23 },
             Player = new ApiPlayer { Name = "Lionel Messi" },
             Detail = "Normal Goal",
         };
-        var evt2 = new ApiGoalEvent
+        var evt2 = new ApiMatchEvent
         {
             Time   = new ApiTime { Elapsed = 67 },
             Player = new ApiPlayer { Name = "Lionel Messi" },
@@ -126,42 +126,42 @@ public class ResultIngestionJobTests
     [Fact]
     public void MapGoalType_NormalGoal_ReturnsOpenPlay()
     {
-        var evt = new ApiGoalEvent { Detail = "Normal Goal" };
+        var evt = new ApiMatchEvent { Detail = "Normal Goal" };
         Assert.Equal(GoalType.OpenPlay, ResultIngestionJob.MapGoalType(evt));
     }
 
     [Fact]
     public void MapGoalType_NullDetail_ReturnsOpenPlay()
     {
-        var evt = new ApiGoalEvent { Detail = null };
+        var evt = new ApiMatchEvent { Detail = null };
         Assert.Equal(GoalType.OpenPlay, ResultIngestionJob.MapGoalType(evt));
     }
 
     [Fact]
     public void MapGoalType_Penalty_ReturnsPenaltyInMatch()
     {
-        var evt = new ApiGoalEvent { Detail = "Penalty" };
+        var evt = new ApiMatchEvent { Detail = "Penalty" };
         Assert.Equal(GoalType.PenaltyInMatch, ResultIngestionJob.MapGoalType(evt));
     }
 
     [Fact]
     public void MapGoalType_OwnGoal_ReturnsOwnGoal()
     {
-        var evt = new ApiGoalEvent { Detail = "Own Goal" };
+        var evt = new ApiMatchEvent { Detail = "Own Goal" };
         Assert.Equal(GoalType.OwnGoal, ResultIngestionJob.MapGoalType(evt));
     }
 
     [Fact]
     public void MapGoalType_CaseInsensitiveOwnGoal_ReturnsOwnGoal()
     {
-        var evt = new ApiGoalEvent { Detail = "own goal" };
+        var evt = new ApiMatchEvent { Detail = "own goal" };
         Assert.Equal(GoalType.OwnGoal, ResultIngestionJob.MapGoalType(evt));
     }
 
     [Fact]
     public void MapGoalType_CaseInsensitivePenalty_ReturnsPenaltyInMatch()
     {
-        var evt = new ApiGoalEvent { Detail = "penalty" };
+        var evt = new ApiMatchEvent { Detail = "penalty" };
         Assert.Equal(GoalType.PenaltyInMatch, ResultIngestionJob.MapGoalType(evt));
     }
 
@@ -174,7 +174,7 @@ public class ResultIngestionJobTests
         // This test validates that the filtering logic is correct: an empty player name is
         // handled by the calling code, not by BuildGoalEvent itself.
         // If the player name is empty, Execute() skips the event.
-        var apiEvt = new ApiGoalEvent
+        var apiEvt = new ApiMatchEvent
         {
             Time   = new ApiTime { Elapsed = 10 },
             Player = new ApiPlayer { Name = "" },
@@ -290,7 +290,7 @@ public class ResultIngestionJobTests
         // The GoalEvent.FixtureId must reference the Marten Fixture.Id (string, e.g. "1")
         // not the API-Football integer fixture ID — this is required for ScoringRecomputeService.
         var playerId = Guid.NewGuid();
-        var apiEvt = new ApiGoalEvent
+        var apiEvt = new ApiMatchEvent
         {
             Time   = new ApiTime { Elapsed = 45 },
             Player = new ApiPlayer { Name = "Test Player" },
@@ -313,7 +313,7 @@ public class ResultIngestionJobTests
     {
         // GoalType.OwnGoal is explicitly excluded from Golden Six scoring
         // (ScoringRecomputeService filters: g.Type != GoalType.OwnGoal)
-        var evt = new ApiGoalEvent { Detail = "Own Goal" };
+        var evt = new ApiMatchEvent { Detail = "Own Goal" };
         var mapped = ResultIngestionJob.MapGoalType(evt);
 
         Assert.Equal(GoalType.OwnGoal, mapped);
