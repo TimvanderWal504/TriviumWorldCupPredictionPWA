@@ -93,10 +93,7 @@ jobs:
             --resource-group "$RESOURCE_GROUP" \
             --image "$ACR_NAME.azurecr.io/twc-api:$IMAGE_TAG" \
             --set-env-vars \
-              "ASPNETCORE_ENVIRONMENT=${{ github.ref_name == 'main' && 'Production' || 'Staging' }}" \
-              "Push__VapidPublicKey=${{ vars.VAPID_PUBLIC_KEY }}" \
-              "Push__VapidPrivateKey=secretref:vapid-private-key" \
-              "Push__VapidSubject=${{ vars.VAPID_SUBJECT }}"
+              "ASPNETCORE_ENVIRONMENT=${{ github.ref_name == 'main' && 'Production' || 'Staging' }}"
 
       - name: Deploy Web to Container Apps
         run: |
