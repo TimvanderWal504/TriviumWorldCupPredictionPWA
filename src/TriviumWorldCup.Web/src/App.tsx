@@ -18,6 +18,8 @@ import { RulesPage } from './pages/RulesPage.tsx';
 import { StandingsPage } from './pages/StandingsPage.tsx';
 import { TournamentPredictionPage } from './pages/TournamentPredictionPage.tsx';
 import { useAuth } from './auth/useAuth.ts';
+import { useAppUpdate } from './hooks/useAppUpdate.ts';
+import { UpdateModal } from './components/UpdateModal.tsx';
 
 
 type Tab = 'live' | 'predict' | 'results' | 'bracket' | 'ranks' | 'rules' | 'me';
@@ -75,9 +77,11 @@ function AuthGateway() {
 
 function AppShell() {
   const { user, isLoading, hasProfile, signOut } = useAuth();
+  const { update, dismiss, reload } = useAppUpdate();
   const [tab, setTab] = useState<Tab>('predict');
   const [subPage, setSubPage] = useState<SubPage>(null);
   const [predictView, setPredictView] = useState<PredictView>('group');
+  const [groupViewMode, setGroupViewMode] = useState<'group' | 'date'>('group');
 
   // Visibility gates for Live, Results, and Bracket tabs
   const [liveActive, setLiveActive] = useState(false);
@@ -186,13 +190,29 @@ function AppShell() {
 
         ) : tab === 'predict' ? (
           <div>
-            <div className="max-w-3xl mx-auto px-4 pt-4 pb-2 flex flex-wrap gap-2">
+            <div className="max-w-3xl mx-auto px-4 pt-4 pb-2 flex items-center gap-2">
               <SubPill active={predictView === 'group'} onClick={() => setPredictView('group')}>Group Stage</SubPill>
               <SubPill active={predictView === 'tournament'} onClick={() => setPredictView('tournament')}>Tournament</SubPill>
+              {predictView === 'group' && (
+                <div className="ml-auto flex gap-0.5 bg-surface-3 rounded-input p-0.5">
+                  {(['group', 'date'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      onClick={() => setGroupViewMode(mode)}
+                      className="px-4 py-2 rounded-input text-[12px] font-semibold transition-colors"
+                      style={groupViewMode === mode
+                        ? { background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }
+                        : { color: 'var(--fg-secondary)' }}
+                    >
+                      {mode === 'group' ? 'By Group' : 'By Date'}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             {predictView === 'tournament'
               ? <TournamentPredictionPage />
-              : <GroupPredictionsPage onAllGroupsComplete={() => setPredictView('tournament')} />}
+              : <GroupPredictionsPage viewMode={groupViewMode} onAllGroupsComplete={() => setPredictView('tournament')} />}
           </div>
 
         ) : tab === 'bracket' ? (
@@ -257,6 +277,15 @@ function AppShell() {
       )}
 
       {user && !hasProfile && <ProfileSetupModal />}
+
+      {update && (
+        <UpdateModal
+          changelog={update.changelog}
+          pendingReload={update.pendingReload}
+          onDismiss={dismiss}
+          onReload={reload}
+        />
+      )}
     </div>
   );
 }
