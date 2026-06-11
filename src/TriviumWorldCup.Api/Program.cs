@@ -152,6 +152,9 @@ app.MapLeaderboardEndpoints();
 // Admin endpoints -- GET/POST /admin/ingestion, /admin/fixtures/{id}/result, etc. (TWC-16)
 app.MapAdminEndpoints();
 
+// Admin stats endpoint -- GET /admin/stats
+app.MapStatsEndpoints();
+
 // Push subscription endpoints -- GET /push/vapid-public-key, POST/DELETE /push/subscribe (TWC-18)
 app.MapPushEndpoints();
 
