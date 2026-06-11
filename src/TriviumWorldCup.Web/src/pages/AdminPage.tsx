@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '../auth/useAuth.ts';
+import { StatsPage } from './StatsPage.tsx';
 
 interface IngestionStatus {
   lastSuccessfulPoll: string | null; lastAttemptedPoll: string | null;
@@ -31,6 +32,8 @@ interface PlayerDto {
 export function AdminPage() {
   const { user, isLinkAuth } = useAuth();
   const isAdmin = user?.roles?.includes('admin') ?? false;
+
+  const [adminTab, setAdminTab] = useState<'ops' | 'stats'>('ops');
 
   const [inviteUsers, setInviteUsers] = useState<InviteUserDto[]>([]);
   const [userPage, setUserPage] = useState(0);
@@ -330,9 +333,22 @@ export function AdminPage() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-4 space-y-6">
+      {/* Tab bar */}
+      <div className="flex gap-2 pb-3 border-b border-border">
+        {(['ops', 'stats'] as const).map(tab => (
+          <button key={tab} onClick={() => setAdminTab(tab)}
+            className="px-4 py-1.5 rounded-input text-sm font-semibold transition-colors"
+            style={adminTab === tab
+              ? { background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }
+              : { background: 'var(--surface-3)', color: 'var(--fg-secondary)' }}>
+            {tab === 'ops' ? 'Operations' : 'Statistics'}
+          </button>
+        ))}
+      </div>
 
+      {adminTab === 'stats' && <StatsPage />}
 
-
+      {adminTab === 'ops' && <>
       {/* Users — link auth provider only */}
       {isLinkAuth && (
         <section className="rounded-card bg-surface border border-border p-5 space-y-4">
@@ -887,6 +903,7 @@ export function AdminPage() {
           </div>
         )}
       </section>
+      </>}
     </div>
   );
 }
