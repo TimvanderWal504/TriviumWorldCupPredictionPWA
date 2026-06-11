@@ -190,25 +190,29 @@ function AppShell() {
 
         ) : tab === 'predict' ? (
           <div>
-            <div className="max-w-3xl mx-auto px-4 pt-4 pb-2 flex items-center gap-2">
-              <SubPill active={predictView === 'group'} onClick={() => setPredictView('group')}>Group Stage</SubPill>
-              <SubPill active={predictView === 'tournament'} onClick={() => setPredictView('tournament')}>Tournament</SubPill>
-              {predictView === 'group' && (
-                <div className="ml-auto flex gap-0.5 bg-surface-3 rounded-input p-0.5">
-                  {(['group', 'date'] as const).map(mode => (
-                    <button
-                      key={mode}
-                      onClick={() => setGroupViewMode(mode)}
-                      className="px-4 py-2 rounded-input text-[12px] font-semibold transition-colors"
-                      style={groupViewMode === mode
-                        ? { background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }
-                        : { color: 'var(--fg-secondary)' }}
-                    >
-                      {mode === 'group' ? 'By Group' : 'By Date'}
-                    </button>
-                  ))}
+            <div className="max-w-3xl mx-auto px-4 pt-4 pb-2 flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex gap-2">
+                  <SubPill active={predictView === 'group'} onClick={() => setPredictView('group')}>Group Stage</SubPill>
+                  <SubPill active={predictView === 'tournament'} onClick={() => setPredictView('tournament')}>Tournament</SubPill>
                 </div>
-              )}
+                {predictView === 'group' && (
+                  <div className="flex gap-0.5 bg-surface-3 rounded-input p-0.5">
+                    {(['group', 'date'] as const).map(mode => (
+                      <button
+                        key={mode}
+                        onClick={() => setGroupViewMode(mode)}
+                        className="px-3 py-1.5 rounded-input text-[12px] font-semibold whitespace-nowrap transition-colors"
+                        style={groupViewMode === mode
+                          ? { background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }
+                          : { color: 'var(--fg-secondary)' }}
+                      >
+                        {mode === 'group' ? 'By Group' : 'By Date'}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             {predictView === 'tournament'
               ? <TournamentPredictionPage />
@@ -299,7 +303,7 @@ function SubPill({
     return (
       <button
         onClick={onClick}
-        className="px-3.5 py-1.5 rounded-input text-[13px] font-semibold transition-colors"
+        className="px-3.5 py-1.5 rounded-input text-[13px] font-semibold whitespace-nowrap transition-colors"
         style={{
           background: accent ? 'var(--accent-fill)' : 'var(--secondary-fill)',
           color: accent ? 'var(--fg-ongold)' : 'var(--fg-onblue)',
@@ -312,7 +316,7 @@ function SubPill({
   return (
     <button
       onClick={onClick}
-      className={`px-3.5 py-1.5 rounded-input text-[13px] font-semibold transition-colors bg-surface-3 hover:text-fg ${
+      className={`px-3.5 py-1.5 rounded-input text-[13px] font-semibold whitespace-nowrap transition-colors bg-surface-3 hover:text-fg ${
         accent ? 'text-accent' : 'text-fg-secondary'
       }`}
     >
