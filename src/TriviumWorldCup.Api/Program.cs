@@ -51,6 +51,8 @@ builder.Services.AddMarten(opts =>
     opts.Schema.For<TournamentPrediction>().Identity(p => p.Id);
     // GoalEvent — Id is Guid (Marten picks this up by convention, but we register explicitly).
     opts.Schema.For<GoalEvent>().Identity(e => e.Id);
+    // CardEvent — disciplinary cards per fixture.
+    opts.Schema.For<CardEvent>().Identity(e => e.Id);
     // MemberScore — Id equals UserId (one document per member).
     opts.Schema.For<MemberScore>().Identity(s => s.Id);
     // ResultOverride — audit log for manual admin overrides (TWC-16).
@@ -58,8 +60,9 @@ builder.Services.AddMarten(opts =>
     // PushSubscription — Web Push device subscription (TWC-18).
     opts.Schema.For<PushSubscription>().Identity(p => p.Id);
     // InviteUser — admin-managed users for the link auth provider.
-    opts.Schema.For<InviteUser>().Identity(u => u.Id);
-}).UseLightweightSessions();
+    opts.Schema.For<InviteUser>().Identity(u => u.Id).Index(u => u.Email!);
+}).UseLightweightSessions()
+  .ApplyAllDatabaseChangesOnStartup(); // Warm up all collection schemas on startup instead of lazily per-request
 
 // Scoring recompute service — TWC-8
 builder.Services.AddScoped<ScoringRecomputeService>();
@@ -91,16 +94,14 @@ builder.Services.AddAuthAbstraction(builder.Configuration, builder.Environment);
 
 // OpenAPI (Swagger) — development convenience only
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+    options.CustomSchemaIds(t => t.FullName?.Replace('+', '.')));
 
 // ── App ───────────────────────────────────────────────────────────────────────
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+app.UseSwagger();
+app.UseSwaggerUI();
 
 // Auth middleware — resolves current user for all downstream handlers
 app.UseCurrentUser();

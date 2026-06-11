@@ -16,6 +16,8 @@ interface LiveFixtureDto {
   awayScore: number | null;
   venue: string;
   city: string;
+  elapsedMinute: number | null;
+  elapsedExtra: number | null;
 }
 
 interface GoalEventDto {
@@ -25,11 +27,33 @@ interface GoalEventDto {
   teamId: string;
   type: string;
   minute: number;
+  extraMinute: number | null;
+}
+
+interface CardEventDto {
+  fixtureId: string;
+  playerId: string;
+  playerName: string;
+  teamId: string;
+  type: string;
+  minute: number;
+  extraMinute: number | null;
+}
+
+interface SubstitutionEventDto {
+  fixtureId: string;
+  playerInName: string;
+  playerOutName: string;
+  teamId: string;
+  minute: number;
+  extraMinute: number | null;
 }
 
 interface LiveFixturesResponse {
   fixtures: LiveFixtureDto[];
   goals: GoalEventDto[];
+  cards: CardEventDto[];
+  substitutions: SubstitutionEventDto[];
   liveWindowActive: boolean;
 }
 
@@ -46,13 +70,14 @@ function formatKickoff(kickoffUtc: string): string {
   });
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, elapsedMinute, elapsedExtra }: { status: string; elapsedMinute: number | null; elapsedExtra: number | null }) {
   if (status === 'InProgress') {
+    const clock = elapsedMinute != null ? ` ${formatMinute(elapsedMinute, elapsedExtra)}` : '';
     return (
       <span className="inline-flex items-center gap-1.5 font-display font-bold text-[11px] px-2 py-0.5 rounded-md text-white"
             style={{ background: 'var(--live)' }}>
         <span className="live-dot w-1.5 h-1.5 rounded-full bg-white" />
-        LIVE
+        LIVE{clock}
       </span>
     );
   }
@@ -65,15 +90,84 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-interface FixtureCardProps { fixture: LiveFixtureDto; goals: GoalEventDto[]; }
+function formatMinute(minute: number, extra: number | null): string {
+  return extra ? `${minute}+${extra}'` : `${minute}'`;
+}
 
-function LiveFixtureCard({ fixture, goals }: FixtureCardProps) {
+function GoalIcon() {
+  return <span className="text-[11px] leading-none inline-flex w-2 justify-center shrink-0">⚽</span>;
+}
+
+function CardIcon({ type }: { type: string }) {
+  if (type === 'SecondYellow') {
+    return (
+      <span className="inline-flex items-center gap-0.5">
+        <span className="inline-block w-2 h-3 rounded-[2px]" style={{ background: '#f5c518' }} />
+        <span className="inline-block w-2 h-3 rounded-[2px]" style={{ background: '#ef4444' }} />
+      </span>
+    );
+  }
+  if (type === 'Red') {
+    return <span className="inline-block w-2 h-3 rounded-[2px]" style={{ background: '#ef4444' }} />;
+  }
+  return <span className="inline-block w-2 h-3 rounded-[2px]" style={{ background: '#f5c518' }} />;
+}
+
+type EventItem =
+  | { kind: 'goal'; minute: number; extraMinute: number | null; playerName: string; teamId: string; type: string }
+  | { kind: 'card'; minute: number; extraMinute: number | null; playerName: string; teamId: string; type: string }
+  | { kind: 'sub'; minute: number; extraMinute: number | null; playerInName: string; playerOutName: string; teamId: string };
+
+type RenderItem = EventItem | { kind: 'marker'; label: string };
+
+const PERIOD_THRESHOLDS: { minute: number; label: string }[] = [
+  { minute: 45, label: 'HT' },
+  { minute: 90, label: "90'" },
+  { minute: 105, label: 'ET HT' },
+];
+
+function buildRenderList(events: EventItem[], status: string): RenderItem[] {
+  const sorted = [...events].sort((a, b) =>
+    a.minute !== b.minute ? a.minute - b.minute : (a.extraMinute ?? 0) - (b.extraMinute ?? 0)
+  );
+  const result: RenderItem[] = [];
+  if (sorted.length > 0) result.push({ kind: 'marker', label: 'Kick-off' });
+  let tIdx = 0;
+  for (const evt of sorted) {
+    while (tIdx < PERIOD_THRESHOLDS.length && evt.minute > PERIOD_THRESHOLDS[tIdx].minute) {
+      result.push({ kind: 'marker', label: PERIOD_THRESHOLDS[tIdx].label });
+      tIdx++;
+    }
+    result.push(evt);
+  }
+  if (status === 'Completed' && sorted.length > 0) {
+    const maxMinute = Math.max(...sorted.map(e => e.minute));
+    result.push({ kind: 'marker', label: maxMinute > 90 ? 'AET' : 'FT' });
+  }
+  return result;
+}
+
+interface FixtureCardProps { fixture: LiveFixtureDto; goals: GoalEventDto[]; cards: CardEventDto[]; substitutions: SubstitutionEventDto[]; }
+
+function LiveFixtureCard({ fixture, goals, cards, substitutions }: FixtureCardProps) {
   const isLive = fixture.status === 'InProgress';
   const hasScore = (fixture.status === 'InProgress' || fixture.status === 'Completed')
     && fixture.homeScore !== null && fixture.awayScore !== null;
   const homeLead = hasScore && (fixture.homeScore ?? 0) > (fixture.awayScore ?? 0);
   const awayLead = hasScore && (fixture.awayScore ?? 0) > (fixture.homeScore ?? 0);
-  const fixtureGoals = goals.filter(g => g.fixtureId === fixture.id);
+
+  const events: EventItem[] = [
+    ...goals.filter(g => g.fixtureId === fixture.id).map(g => ({
+      kind: 'goal' as const, minute: g.minute, extraMinute: g.extraMinute, playerName: g.playerName, teamId: g.teamId, type: g.type,
+    })),
+    ...cards.filter(c => c.fixtureId === fixture.id).map(c => ({
+      kind: 'card' as const, minute: c.minute, extraMinute: c.extraMinute, playerName: c.playerName, teamId: c.teamId, type: c.type,
+    })),
+    ...substitutions.filter(s => s.fixtureId === fixture.id).map(s => ({
+      kind: 'sub' as const, minute: s.minute, extraMinute: s.extraMinute, playerInName: s.playerInName, playerOutName: s.playerOutName, teamId: s.teamId,
+    })),
+  ];
+  const renderItems = buildRenderList(events, fixture.status);
 
   const cardStyle = isLive
     ? { borderColor: 'transparent', boxShadow: 'var(--shadow-glow-live)' }
@@ -83,7 +177,7 @@ function LiveFixtureCard({ fixture, goals }: FixtureCardProps) {
     <div className="rounded-card bg-surface p-4 flex flex-col gap-2.5 border" style={cardStyle}>
       <div className="flex items-center justify-between text-[11px] text-fg-muted">
         <span className="font-mono">Group {fixture.groupLetter} · {fixture.venue}</span>
-        <StatusBadge status={fixture.status} />
+        <StatusBadge status={fixture.status} elapsedMinute={fixture.elapsedMinute} elapsedExtra={fixture.elapsedExtra} />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -111,23 +205,53 @@ function LiveFixtureCard({ fixture, goals }: FixtureCardProps) {
         </div>
       )}
 
-      {fixtureGoals.length > 0 && (
-        <ul className="flex flex-col gap-1.5 pt-2.5 border-t border-border text-[12px] text-fg-secondary">
-          {fixtureGoals.map((g, i) => (
-            <li key={i} className="flex items-center gap-2">
-              <span className="font-mono text-fg-muted w-6 text-right tnum">{g.minute}&apos;</span>
-              <span className="font-medium text-fg">{g.playerName}</span>
-              <span className="font-mono text-fg-muted text-[11px]">{g.teamId}</span>
-              {g.type === 'OwnGoal' && (
-                <span className="text-[9px] font-extrabold px-1.5 py-px rounded"
-                      style={{ background: 'rgba(255,107,107,.16)', color: 'var(--loss)' }}>OG</span>
-              )}
-              {g.type === 'PenaltyInMatch' && (
-                <span className="text-[9px] font-extrabold px-1.5 py-px rounded"
-                      style={{ background: 'rgba(242,193,78,.18)', color: 'var(--accent)' }}>PEN</span>
-              )}
-            </li>
-          ))}
+      {renderItems.length > 0 && (
+        <ul className="flex flex-col gap-1.5 text-[12px] text-fg-secondary">
+          {renderItems.map((item, i) => {
+            if (item.kind === 'marker') {
+              return (
+                <li key={`m-${i}`} className="flex items-center gap-2 text-[10px] font-bold text-fg-muted uppercase tracking-wider">
+                  <span className="w-4s" />
+                  <span className="flex-1 border-t border-border" />
+                  <span>{item.label}</span>
+                  <span className="flex-1 border-t border-border" />
+                  <span className="w-4s" />
+                </li>
+              );
+            }
+            if (item.kind === 'sub') {
+              return (
+                <li key={i} className="flex items-center gap-2">
+                  <span className="font-mono text-fg-muted w-10 text-right tnum">{formatMinute(item.minute, item.extraMinute)}</span>
+                  <span className="inline-flex flex-col items-center shrink-0 text-[10px] leading-none gap-px w-2">
+                    <span style={{ color: 'var(--win)' }}>▲</span>
+                    <span style={{ color: 'var(--loss)' }}>▼</span>
+                  </span>
+                  <span className="flex flex-col text-[11px] leading-snug">
+                    <span className="font-medium text-fg">{item.playerInName}</span>
+                    <span className="text-fg-muted line-through">{item.playerOutName}</span>
+                  </span>
+                  <span className="font-mono text-fg-muted text-[11px]">{item.teamId.toUpperCase()}</span>
+                </li>
+              );
+            }
+            return (
+              <li key={i} className="flex items-center gap-2">
+                <span className="font-mono text-fg-muted w-10 text-right tnum">{formatMinute(item.minute, item.extraMinute)}</span>
+                {item.kind === 'goal' ? <GoalIcon /> : <CardIcon type={item.type} />}
+                <span className="font-medium text-fg">{item.playerName}</span>
+                <span className="font-mono text-fg-muted text-[11px]">{item.teamId}</span>
+                {item.kind === 'goal' && item.type === 'OwnGoal' && (
+                  <span className="text-[9px] font-extrabold px-1.5 py-px rounded"
+                        style={{ background: 'rgba(255,107,107,.16)', color: 'var(--loss)' }}>OG</span>
+                )}
+                {item.kind === 'goal' && item.type === 'PenaltyInMatch' && (
+                  <span className="text-[9px] font-extrabold px-1.5 py-px rounded"
+                        style={{ background: 'rgba(242,193,78,.18)', color: 'var(--accent)' }}>PEN</span>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
@@ -183,13 +307,13 @@ export function LiveScoresPage() {
       )}
 
       {liveMatches.length === 0 && !liveActive && (
-        <p className="text-fg-muted text-center py-16 text-sm">
-          No matches currently live. Live scores will appear here when a match is in progress.
-        </p>
+        <div className="rounded-card bg-surface border border-border px-4 py-16 text-center">
+          <p className="text-fg-muted text-sm">No matches currently live. Live scores will appear here when a match is in progress.</p>
+        </div>
       )}
 
       {liveMatches.map(f => (
-        <LiveFixtureCard key={f.id} fixture={f} goals={data?.goals ?? []} />
+        <LiveFixtureCard key={f.id} fixture={f} goals={data?.goals ?? []} cards={data?.cards ?? []} substitutions={data?.substitutions ?? []} />
       ))}
 
       {otherMatches.length > 0 && (
@@ -199,7 +323,7 @@ export function LiveScoresPage() {
           </p>
           <div className="flex flex-col gap-2">
             {otherMatches.map(f => (
-              <LiveFixtureCard key={f.id} fixture={f} goals={data?.goals ?? []} />
+              <LiveFixtureCard key={f.id} fixture={f} goals={data?.goals ?? []} cards={data?.cards ?? []} substitutions={data?.substitutions ?? []} />
             ))}
           </div>
         </>

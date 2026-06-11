@@ -1,21 +1,28 @@
 import { useEffect, useState } from 'react';
-import { Radio, ListChecks, Trophy, BarChart3, User, NotebookPen } from 'lucide-react';
+import { Radio, ListChecks, Trophy, BarChart3, User, NotebookPen, ClipboardCheck } from 'lucide-react';
+import triviumLogomark from './assets/_Trivium_Logos/trivium_logomark_transparent.svg';
+import heroBg from './assets/hero-2000-DW7OUruS.svg';
 import { AuthProvider } from './auth/AuthContext.tsx';
 import { OfflineBanner } from './components/OfflineBanner.tsx';
 import { ProfileSetupModal } from './auth/ProfileSetupModal.tsx';
+import { LoginPage } from './auth/LoginPage.tsx';
+import { SignUpPage } from './auth/SignUpPage.tsx';
 import { AdminPage } from './pages/AdminPage.tsx';
 import { GroupPredictionsPage } from './pages/GroupPredictionsPage.tsx';
 import { KnockoutBracketPage } from './pages/KnockoutBracketPage.tsx';
 import { LeaderboardPage } from './pages/LeaderboardPage.tsx';
 import { LiveScoresPage } from './pages/LiveScoresPage.tsx';
+import { ResultsPage } from './pages/ResultsPage.tsx';
 import { ProfilePage } from './pages/ProfilePage.tsx';
 import { RulesPage } from './pages/RulesPage.tsx';
 import { StandingsPage } from './pages/StandingsPage.tsx';
 import { TournamentPredictionPage } from './pages/TournamentPredictionPage.tsx';
 import { useAuth } from './auth/useAuth.ts';
+import { useAppUpdate } from './hooks/useAppUpdate.ts';
+import { UpdateModal } from './components/UpdateModal.tsx';
 
 
-type Tab = 'live' | 'predict' | 'bracket' | 'ranks' | 'rules' | 'me';
+type Tab = 'live' | 'predict' | 'results' | 'bracket' | 'ranks' | 'rules' | 'me';
 // 'tournament' is a sub-page within the 'predict' tab, not a top-level subPage
 type SubPage = 'profile' | 'admin' | null;
 type PredictView = 'group' | 'tournament';
@@ -23,6 +30,7 @@ type PredictView = 'group' | 'tournament';
 const ALL_TABS: { id: Tab; label: string; Icon: React.FC<{ size?: number }> }[] = [
   { id: 'live',    label: 'Live',    Icon: Radio },
   { id: 'predict', label: 'Predict', Icon: ListChecks },
+  { id: 'results', label: 'Results', Icon: ClipboardCheck },
   { id: 'bracket', label: 'Bracket', Icon: Trophy },
   { id: 'ranks',   label: 'Ranks',   Icon: BarChart3 },
   { id: 'rules',   label: 'Rules',   Icon: NotebookPen },
@@ -32,6 +40,7 @@ const ALL_TABS: { id: Tab; label: string; Icon: React.FC<{ size?: number }> }[] 
 const TAB_TITLES: Record<Tab, string> = {
   live:    'Live Scores',
   predict: 'Predictions',
+  results: 'Results',
   bracket: 'Knockout Bracket',
   ranks:   'Leaderboard',
   rules:   'Rules & Scoring',
@@ -43,14 +52,40 @@ const SUB_TITLES: Record<NonNullable<SubPage>, string> = {
   admin:   'Admin',
 };
 
+type AuthView = 'login' | 'signup';
+
+function AuthGateway() {
+  const { reload } = useAuth();
+  const [view, setView] = useState<AuthView>('login');
+
+  return (
+    <div
+      className="flex flex-col items-center justify-center min-h-screen py-20 px-4"
+    >
+      <img src={triviumLogomark} alt="Trivium" className="w-32 h-32" />
+      <p className="font-mono text-[32px] tracking-[0.15em] text-fg-muted uppercase mb-1">World Cup</p>
+      <h1 className="font-display font-black text-5xl tracking-tight mb-8 text-center text-fg">
+        2026
+      </h1>
+      {view === 'login'
+        ? <LoginPage onLoggedIn={reload} onSwitchToSignUp={() => setView('signup')} />
+        : <SignUpPage onSwitchToLogin={() => setView('login')} />
+      }
+    </div>
+  );
+}
+
 function AppShell() {
   const { user, isLoading, hasProfile, signOut } = useAuth();
+  const { update, dismiss, reload } = useAppUpdate();
   const [tab, setTab] = useState<Tab>('predict');
   const [subPage, setSubPage] = useState<SubPage>(null);
   const [predictView, setPredictView] = useState<PredictView>('group');
+  const [groupViewMode, setGroupViewMode] = useState<'group' | 'date'>('group');
 
-  // Visibility gates for Live and Bracket tabs
+  // Visibility gates for Live, Results, and Bracket tabs
   const [liveActive, setLiveActive] = useState(false);
+  const [hasResults, setHasResults] = useState(false);
   const [bracketOpen, setBracketOpen] = useState(false);
 
   useEffect(() => {
@@ -63,8 +98,17 @@ function AppShell() {
         const active = d.liveWindowActive === true ||
           (d.fixtures ?? []).some(f => f.status === 'InProgress');
         setLiveActive(active);
-        // If we were on the live tab but it's no longer active, fall back to predict
         if (!active) setTab(prev => prev === 'live' ? 'predict' : prev);
+      })
+      .catch(() => {});
+
+    // Check if any fixtures have been completed
+    fetch('/fixtures', { credentials: 'include' })
+      .then(r => r.json())
+      .then((fixtures: { status: string }[]) => {
+        const completed = fixtures.some(f => f.status === 'Completed');
+        setHasResults(completed);
+        if (!completed) setTab(prev => prev === 'results' ? 'predict' : prev);
       })
       .catch(() => {});
 
@@ -93,6 +137,7 @@ function AppShell() {
 
   const visibleTabs = ALL_TABS.filter(t => {
     if (t.id === 'live' && !liveActive) return false;
+    if (t.id === 'results' && !hasResults) return false;
     if (t.id === 'bracket' && !bracketOpen) return false;
     return true;
   });
@@ -104,7 +149,10 @@ function AppShell() {
     : TAB_TITLES[tab];
 
   return (
-    <div className="min-h-screen bg-bg text-fg font-sans flex flex-col">
+    <div
+      className="min-h-screen bg-bg text-fg font-sans flex flex-col"
+      style={{ backgroundImage: `url(${heroBg})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed' }}
+    >
 
       <OfflineBanner />
 
@@ -112,11 +160,9 @@ function AppShell() {
       {user && hasProfile && (
         <header className="sticky top-0 z-30 bg-bg-elevated border-b border-border px-4 py-3 flex items-center justify-between gap-2">
           {/* Logo */}
-          <div className="flex items-center gap-1.5 shrink-0 cursor-pointer select-none" onClick={() => goTab('predict')}>
-            <span className="font-display font-black text-[20px] tracking-tight text-fg">
-              T<span className="text-pitch-500">W</span>C
-            </span>
-            <span className="font-mono text-[10px] text-fg-muted tracking-[0.2em] pt-0.5">2026</span>
+          <div className="flex items-center shrink-0 cursor-pointer select-none" onClick={() => goTab('predict')}>
+            <img src={triviumLogomark} alt="Trivium" className="h-12 w-12" />
+            <span className="font-mono text-[11px] leading-tight text-fg-muted tracking-[0.15em] uppercase">World Cup<br />2026</span>
           </div>
 
           {/* Page title (centered) */}
@@ -132,25 +178,45 @@ function AppShell() {
       {/* ── Main content ── */}
       <main className="flex-1 overflow-y-auto pb-[4.25rem]">
         {!user ? (
-          <div data-testid="signin-prompt" className="flex flex-col items-center justify-center min-h-screen py-20 text-center px-4">
-            <p className="font-display font-black text-[13px] tracking-[0.25em] text-pitch-500 uppercase mb-3">TWC 2026</p>
-            <h1 className="font-display font-black text-4xl tracking-tight mb-3">Trivium World Cup<br />2026</h1>
-            <p className="text-fg-secondary text-base mb-8 max-w-xs">Prediction pool — sign in to start predicting.</p>
-            <p className="text-fg-muted text-sm">Open your personal login link to sign in.</p>
+          <div data-testid="signin-prompt">
+            <AuthGateway />
           </div>
 
         ) : tab === 'live' ? (
           <LiveScoresPage />
 
+        ) : tab === 'results' ? (
+          <ResultsPage />
+
         ) : tab === 'predict' ? (
           <div>
-            <div className="px-4 pt-4 pb-2 flex gap-2">
-              <SubPill active={predictView === 'group'} onClick={() => setPredictView('group')}>Group Stage</SubPill>
-              <SubPill active={predictView === 'tournament'} onClick={() => setPredictView('tournament')}>Tournament</SubPill>
+            <div className="max-w-3xl mx-auto px-4 pt-4 pb-2 flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex gap-2">
+                  <SubPill active={predictView === 'group'} onClick={() => setPredictView('group')}>Group Stage</SubPill>
+                  <SubPill active={predictView === 'tournament'} onClick={() => setPredictView('tournament')}>Tournament</SubPill>
+                </div>
+                {predictView === 'group' && (
+                  <div className="flex gap-0.5 bg-surface-3 rounded-input p-0.5">
+                    {(['group', 'date'] as const).map(mode => (
+                      <button
+                        key={mode}
+                        onClick={() => setGroupViewMode(mode)}
+                        className="px-3 py-1.5 rounded-input text-[12px] font-semibold whitespace-nowrap transition-colors"
+                        style={groupViewMode === mode
+                          ? { background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }
+                          : { color: 'var(--fg-secondary)' }}
+                      >
+                        {mode === 'group' ? 'By Group' : 'By Date'}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             {predictView === 'tournament'
               ? <TournamentPredictionPage />
-              : <GroupPredictionsPage onAllGroupsComplete={() => setPredictView('tournament')} />}
+              : <GroupPredictionsPage viewMode={groupViewMode} onAllGroupsComplete={() => setPredictView('tournament')} />}
           </div>
 
         ) : tab === 'bracket' ? (
@@ -164,7 +230,7 @@ function AppShell() {
 
         ) : tab === 'me' ? (
           <div>
-            <div className="px-4 pt-4 pb-2 flex flex-wrap gap-2">
+            <div className="max-w-2xl mx-auto px-4 pt-4 pb-2 flex flex-wrap gap-2">
               <SubPill active={subPage === null} onClick={() => setSubPage(null)}>Standings</SubPill>
               <SubPill active={subPage === 'profile'} onClick={() => setSubPage('profile')}>Profile</SubPill>
               {user.roles?.includes('admin') && (
@@ -203,7 +269,7 @@ function AppShell() {
                 key={id}
                 onClick={() => goTab(id)}
                 className={`flex flex-col items-center gap-0.5 py-1.5 transition-colors ${
-                  active ? 'text-pitch-600 dark:text-pitch-400' : 'text-fg-muted'
+                  active ? 'text-primary' : 'text-fg-muted'
                 }`}
               >
                 <Icon size={22} />
@@ -215,6 +281,15 @@ function AppShell() {
       )}
 
       {user && !hasProfile && <ProfileSetupModal />}
+
+      {update && (
+        <UpdateModal
+          changelog={update.changelog}
+          pendingReload={update.pendingReload}
+          onDismiss={dismiss}
+          onReload={reload}
+        />
+      )}
     </div>
   );
 }
@@ -228,7 +303,7 @@ function SubPill({
     return (
       <button
         onClick={onClick}
-        className="px-3.5 py-1.5 rounded-input text-[13px] font-semibold transition-colors"
+        className="px-3.5 py-1.5 rounded-input text-[13px] font-semibold whitespace-nowrap transition-colors"
         style={{
           background: accent ? 'var(--accent-fill)' : 'var(--secondary-fill)',
           color: accent ? 'var(--fg-ongold)' : 'var(--fg-onblue)',
@@ -241,7 +316,7 @@ function SubPill({
   return (
     <button
       onClick={onClick}
-      className={`px-3.5 py-1.5 rounded-input text-[13px] font-semibold transition-colors bg-surface-3 hover:text-fg ${
+      className={`px-3.5 py-1.5 rounded-input text-[13px] font-semibold whitespace-nowrap transition-colors bg-surface-3 hover:text-fg ${
         accent ? 'text-accent' : 'text-fg-secondary'
       }`}
     >

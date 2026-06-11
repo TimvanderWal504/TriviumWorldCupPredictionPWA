@@ -6,7 +6,8 @@ import { VitePWA } from 'vite-plugin-pwa'
 // When run via Aspire, these are injected automatically.
 // Fallback values are used for standalone `npm run dev`.
 const apiTarget = process.env['services__api__http__0'] ?? 'http://localhost:5009';
-const devPort = parseInt(process.env['PORT'] ?? '5173');
+// Aspire injects PORT via .WithHttpEndpoint(env: "PORT"); fall back to 64505 for standalone use.
+const devPort = parseInt(process.env['PORT'] ?? '64505');
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -15,11 +16,13 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Register the SW in dev so push notifications can be tested locally.
+      devOptions: { enabled: true },
       manifest: {
         name: 'Trivium World Cup 2026',
         short_name: 'TWC 2026',
-        theme_color: '#1e293b',
-        background_color: '#0f172a',
+        theme_color: '#003e78',
+        background_color: '#003e78',
         display: 'standalone',
         start_url: '/',
         icons: [
@@ -33,9 +36,16 @@ export default defineConfig({
             sizes: '512x512',
             type: 'image/png',
           },
+          {
+            src: '/icons/icon-512-maskable.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
         ],
       },
       workbox: {
+        importScripts: ['/push-handler.js'],
         runtimeCaching: [
           {
             // Network-first for API routes
@@ -68,6 +78,9 @@ export default defineConfig({
   ],
   server: {
     port: devPort,
+    // '::'  binds to all IPv6 interfaces; on Windows this dual-stacks over IPv4 too.
+    // Required for Aspire's DCP proxy, which connects via [::1].
+    host: '::',
     proxy: {
       '/api':         { target: apiTarget, changeOrigin: true },
       '/auth':        { target: apiTarget, changeOrigin: true },

@@ -6,6 +6,7 @@ interface LeaderboardEntry {
   rank: number;
   userId: string;
   displayName: string;
+  countryCode?: string;
   totalPoints: number;
   groupMatchPoints: number;
   championPoints: number;
@@ -54,23 +55,31 @@ async function fetchDrillDown(userId: string): Promise<MemberDrillDown> {
   if (!res.ok) throw new Error(`Drill-down fetch failed: ${res.status}`);
   return res.json() as Promise<MemberDrillDown>;
 }
-
 function RankBadge({ rank }: { rank: number }) {
-  const podiumColors: Record<number, string> = {
-    1: 'var(--podium-gold)',
-    2: 'var(--podium-silver)',
-    3: 'var(--podium-bronze)',
+  const podiumStyles: Record<number, { color: string; size: string }> = {
+    1: { color: 'var(--color-podium-gold)', size: 'text-[20px]' },
+    2: { color: 'var(--color-podium-silver)', size: 'text-[18px]' },
+    3: { color: 'var(--color-podium-bronze)', size: 'text-[16px]' },
   };
-  const bg = podiumColors[rank];
-  if (bg) {
+
+  const style = podiumStyles[rank];
+
+  if (style) {
     return (
-      <span className="font-display font-black text-[13px] grid place-items-center w-7 h-7 rounded-chip tnum"
-            style={{ background: bg, color: '#1b1300' }}>
+      <span 
+        className={`font-display font-black grid place-items-center w-7 h-7 tnum ${style.size}`}
+        style={{ color: style.color }}
+      >
         {rank}
       </span>
     );
   }
-  return <span className="font-display font-bold text-fg-muted grid place-items-center w-7 h-7 tnum">{rank}</span>;
+
+  return (
+    <span className="font-display font-black text-fg-muted text-[14px] grid place-items-center w-7 h-7 tnum">
+      {rank}
+    </span>
+  );
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -97,7 +106,14 @@ function DrillDownPanel({ drillDown, isOwnProfile, onClose }: DrillDownPanelProp
 
       <div className="rounded-card bg-surface border border-border p-5 space-y-5">
         <div>
-          <h2 className="font-display font-bold text-xl tracking-tight">{drillDown.displayName}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className={`font-display font-bold text-xl tracking-tight ${isOwnProfile ? 'text-secondary' : ''}`}>
+              {drillDown.displayName}
+            </h2>
+            {isOwnProfile && (
+              <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-500/10 text-secondary">You</span>
+            )}
+          </div>
           <p className="text-[13px] text-fg-muted mt-0.5">{drillDown.totalPoints} pts</p>
         </div>
 
@@ -147,51 +163,52 @@ function DrillDownPanel({ drillDown, isOwnProfile, onClose }: DrillDownPanelProp
           </div>
         )}
 
-        {/* Group predictions */}
+        {/* Group predictions — locked matches only, most recent first */}
         <div>
-          <SectionLabel>
-            Match predictions{!isOwnProfile && <span className="text-fg-muted font-normal normal-case"> (locked only)</span>}
-          </SectionLabel>
-          {drillDown.groupPredictions.length === 0 ? (
-            <p className="text-fg-muted text-sm">
-              {isOwnProfile ? 'No match predictions submitted yet.' : 'No locked match predictions to show.'}
-            </p>
-          ) : (
-            <div className="space-y-1.5">
-              {drillDown.groupPredictions.map(pred => {
-                const hasResult = pred.actualHome !== null && pred.actualAway !== null;
-                return (
-                  <div key={pred.fixtureId} className="flex items-center justify-between rounded-input px-4 py-3 text-sm bg-surface-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="font-mono font-semibold text-fg text-xs">{pred.homeTeamId}</span>
-                      <span className="text-fg-muted text-xs">vs</span>
-                      <span className="font-mono font-semibold text-fg text-xs">{pred.awayTeamId}</span>
-                    </div>
-                    <div className="flex items-center gap-4 shrink-0 ml-4">
-                      <div className="text-center">
-                        <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Predicted</p>
-                        <p className="font-semibold text-fg tnum">{pred.predictedHome}–{pred.predictedAway}</p>
+          <SectionLabel>Match predictions <span className="text-fg-muted font-normal normal-case">(started &amp; finished)</span></SectionLabel>
+          {(() => {
+            const played = [...drillDown.groupPredictions]
+              .filter(p => p.locked)
+              .sort((a, b) => new Date(b.kickoffUtc).getTime() - new Date(a.kickoffUtc).getTime());
+            return played.length === 0 ? (
+              <p className="text-fg-muted text-sm">No started or finished matches yet.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {played.map(pred => {
+                  const hasResult = pred.actualHome !== null && pred.actualAway !== null;
+                  return (
+                    <div key={pred.fixtureId} className="flex items-center justify-between rounded-input px-4 py-3 text-sm bg-surface-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-mono font-semibold text-fg text-xs">{pred.homeTeamId}</span>
+                        <span className="text-fg-muted text-xs">vs</span>
+                        <span className="font-mono font-semibold text-fg text-xs">{pred.awayTeamId}</span>
                       </div>
-                      {hasResult ? (
+                      <div className="flex items-center gap-4 shrink-0 ml-4">
                         <div className="text-center">
-                          <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Result</p>
-                          <p className="font-semibold text-fg-secondary tnum">{pred.actualHome}–{pred.actualAway}</p>
+                          <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Predicted</p>
+                          <p className="font-semibold text-fg tnum">{pred.predictedHome}–{pred.predictedAway}</p>
                         </div>
-                      ) : pred.locked ? (
-                        <div className="text-center">
-                          <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Result</p>
-                          <p className="text-fg-muted text-xs">TBD</p>
-                        </div>
-                      ) : null}
+                        {hasResult ? (
+                          <div className="text-center">
+                            <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Result</p>
+                            <p className="font-semibold text-fg-secondary tnum">{pred.actualHome}–{pred.actualAway}</p>
+                          </div>
+                        ) : (
+                          <div className="text-center">
+                            <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Result</p>
+                            <p className="text-fg-muted text-xs">TBD</p>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
 
-        <p className="text-[12px] text-fg-muted">Match-by-match predictions become visible once each match has locked.</p>
+        <p className="text-[12px] text-fg-muted">Predictions are shown once a match has started, newest first.</p>
       </div>
     </div>
   );
@@ -244,8 +261,10 @@ export function LeaderboardPage() {
 
   if (entries.length === 0) {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-20 text-center">
-        <p className="text-fg-muted text-sm">No scores yet — leaderboard will populate after the first results.</p>
+      <div className="max-w-2xl mx-auto px-4 py-6">
+        <div className="rounded-card bg-surface border border-border px-4 py-20 text-center">
+          <p className="text-fg-muted text-sm">No scores yet. The leaderboard will populate after the first results.</p>
+        </div>
       </div>
     );
   }
@@ -279,6 +298,14 @@ export function LeaderboardPage() {
               >
                 <div className="flex justify-center"><RankBadge rank={entry.rank} /></div>
                 <div className="flex items-center gap-2 min-w-0">
+                  {entry.countryCode && (
+                    <img
+                      src={`https://flagcdn.com/w40/${entry.countryCode.toLowerCase()}.png`}
+                      alt={entry.countryCode}
+                      width={20} height={14}
+                      className="shrink-0 rounded-sm"
+                    />
+                  )}
                   <span className={`font-semibold truncate ${isCurrentUser ? 'text-secondary' : 'text-fg'}`}>
                     {entry.displayName}
                   </span>

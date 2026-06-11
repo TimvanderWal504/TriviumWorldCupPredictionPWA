@@ -1,0 +1,5 @@
+{
+  "version": "2026-06-10",
+  "reminder": "Don't forget to fill in your Tournament predictions in addition to your Group Stage predictions. Both count towards your score!",
+  "notes": "The app now shows a popup when a new version is available, so you'll always know when something changed.\n\nUpdates: \n\nLive Scores page added. Follow in-progress matches in real time, with scores, elapsed time, and goal events. Only visible when a match is in progress\n\nLock reminders added. Enable push notifications in your Profile to get a reminder before kickoff when you have unfilled predictions.\n\nThe Predictions page now has a By Group / By Date toggle. Switch views from the header bar next to the Tournament button.\n\nIn By Date view, each match card shows which group it belongs to.\n\nMatch numbers now follow the actual tournament schedule instead of being grouped by group letter."
+}

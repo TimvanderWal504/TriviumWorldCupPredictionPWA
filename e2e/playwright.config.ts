@@ -9,7 +9,7 @@ import { defineConfig, devices } from '@playwright/test';
  * Base URL: React dev server proxies /auth, /fixtures, etc. to the API.
  * When running against Docker Compose the web container listens on :80.
  *
- * Default base URL is http://localhost:5173 (Vite dev server).
+ * Default base URL is http://localhost:64505 (Vite dev server).
  * Override with BASE_URL env var: BASE_URL=http://localhost:80 npx playwright test
  */
 export default defineConfig({
@@ -26,7 +26,7 @@ export default defineConfig({
   ],
 
   use: {
-    baseURL: process.env['BASE_URL'] ?? 'http://localhost:5173',
+    baseURL: 'http://localhost:64505',
     // Credentials (cookies) must follow redirects
     extraHTTPHeaders: {
       Accept: 'application/json',

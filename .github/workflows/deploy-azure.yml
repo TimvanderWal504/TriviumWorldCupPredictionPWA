@@ -1,0 +1,103 @@
+
+# Build the web + api images on the GitHub runner, push them to Azure Container
+# Registry, then roll the Azure Container Apps to the new image.
+#
+# ── Branch → environment mapping ────────────────────────────────────────────
+#  staging  →  GitHub Environment "staging"  (Visual Studio Enterprise subscription)
+#  main     →  GitHub Environment "production" (production tenant)
+#
+# ── Per-environment secrets (set via GitHub → Settings → Environments) ───────
+#   AZURE_CLIENT_ID       App ID of the OIDC service principal for this env
+#   AZURE_TENANT_ID       Tenant that hosts the service principal
+#   AZURE_SUBSCRIPTION_ID Subscription that hosts the Azure resources
+#
+# ── Per-environment variables ────────────────────────────────────────────────
+#   ACR_NAME              Container Registry name (without .azurecr.io)
+#   AZURE_RG              Resource group name
+#   ACA_WEB_APP           Web Container App name
+#   ACA_API_APP           API Container App name
+#
+# ── One-time infrastructure setup (not automated here) ───────────────────────
+#   Run:  az deployment group create \
+#           --resource-group <rg> \
+#           --template-file .infra/main.bicep \
+#           --parameters @.infra/main.parameters.local.json
+#   See:  .docs/AZURE_MIGRATION.md
+
+name: Build and deploy to Azure
+
+on:
+  push:
+    branches: [staging, main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # required for Azure OIDC login
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    # Resolves environment-specific secrets and variables automatically.
+    # staging branch → "staging" environment; main branch → "production" environment.
+    environment: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+
+    env:
+      ACR_NAME:       ${{ vars.ACR_NAME }}
+      RESOURCE_GROUP: ${{ vars.AZURE_RG }}
+      WEB_APP:        ${{ vars.ACA_WEB_APP }}
+      API_APP:        ${{ vars.ACA_API_APP }}
+      IMAGE_TAG:      ${{ github.sha }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login (OIDC — no stored secret)
+        uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to ACR
+        run: az acr login --name "$ACR_NAME"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./src/TriviumWorldCup.Api
+          file:    ./src/TriviumWorldCup.Api/Dockerfile
+          push: true
+          tags: |
+            ${{ env.ACR_NAME }}.azurecr.io/twc-api:${{ env.IMAGE_TAG }}
+            ${{ env.ACR_NAME }}.azurecr.io/twc-api:latest
+
+      - name: Build & push Web image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./src/TriviumWorldCup.Web
+          file:    ./src/TriviumWorldCup.Web/Dockerfile
+          push: true
+          tags: |
+            ${{ env.ACR_NAME }}.azurecr.io/twc-web:${{ env.IMAGE_TAG }}
+            ${{ env.ACR_NAME }}.azurecr.io/twc-web:latest
+
+      - name: Deploy API to Container Apps
+        run: |
+          az containerapp update \
+            --name "$API_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$ACR_NAME.azurecr.io/twc-api:$IMAGE_TAG" \
+            --set-env-vars \
+              "ASPNETCORE_ENVIRONMENT=${{ github.ref_name == 'main' && 'Production' || 'Staging' }}"
+
+      - name: Deploy Web to Container Apps
+        run: |
+          az containerapp update \
+            --name "$WEB_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$ACR_NAME.azurecr.io/twc-web:$IMAGE_TAG"

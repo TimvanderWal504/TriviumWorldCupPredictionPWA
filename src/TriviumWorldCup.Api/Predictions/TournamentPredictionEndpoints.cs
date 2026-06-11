@@ -15,6 +15,18 @@ public static class TournamentPredictionEndpoints
     {
         var group = routes.MapGroup("/predictions/tournament").WithTags("predictions");
 
+        // GET /predictions/tournament/lock — returns whether predictions are locked.
+        // Public (no auth required) so the frontend can render the lock banner before a user submits.
+        group.MapGet("/lock", async (IDocumentSession session, CancellationToken ct) =>
+        {
+            var firstKickoff = await GetFirstKickoffAsync(session, ct);
+            var locked = TournamentPredictionValidator.IsLocked(firstKickoff, DateTimeOffset.UtcNow);
+            return Results.Ok(new { locked });
+        })
+        .WithName("GetTournamentPredictionLock")
+        .AllowAnonymous()
+        .WithSummary("Returns whether tournament predictions are currently locked.");
+
         // GET /predictions/tournament — returns the current user's prediction or 404.
         group.MapGet("/", async (HttpContext context, IDocumentSession session, CancellationToken ct) =>
         {
@@ -120,14 +132,19 @@ public static class TournamentPredictionEndpoints
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Queries Marten for the earliest fixture kickoff time.
-    /// Returns DateTimeOffset.MaxValue when no fixtures exist (effectively unlocked).
+    /// Queries Marten for the effective lock time.
+    /// Returns DateTimeOffset.MinValue (always locked) if any fixture is already completed —
+    /// this ensures admin-overridden results also lock predictions, not just scheduled kickoff time.
+    /// Returns DateTimeOffset.MaxValue (always unlocked) when no fixtures exist.
+    /// Otherwise returns the earliest scheduled kickoff.
     /// </summary>
     private static async Task<DateTimeOffset> GetFirstKickoffAsync(IDocumentSession session, CancellationToken ct)
     {
         var fixtures = await session.Query<Fixture>().ToListAsync(ct);
         if (fixtures.Count == 0)
             return DateTimeOffset.MaxValue;
+        if (fixtures.Any(f => f.Status == MatchStatus.Completed))
+            return DateTimeOffset.MinValue;
         return fixtures.Min(f => f.KickoffUtc);
     }
 

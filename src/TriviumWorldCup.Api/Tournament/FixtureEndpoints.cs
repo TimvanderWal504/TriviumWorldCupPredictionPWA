@@ -1,5 +1,8 @@
 using Marten;
+using TriviumWorldCup.Api.Auth;
 using TriviumWorldCup.Api.Domain;
+using TriviumWorldCup.Api.Predictions;
+using TriviumWorldCup.Api.Scoring;
 
 namespace TriviumWorldCup.Api.Tournament;
 
@@ -11,6 +14,125 @@ public static class FixtureEndpoints
 {
     public static IEndpointRouteBuilder MapFixtureEndpoints(this IEndpointRouteBuilder routes)
     {
+        // GET /fixtures/results — all Completed fixtures (newest first) with goal events and
+        // the current user's prediction + computed points per fixture.
+        // Must be registered before /fixtures to avoid route ambiguity.
+        routes.MapGet("/fixtures/results", async (HttpContext context, IDocumentSession session, CancellationToken ct) =>
+        {
+            var user = context.GetAppUser();
+            if (!user.IsAuthenticated)
+                return Results.Unauthorized();
+
+            var fixtures = await session.Query<Fixture>()
+                .Where(f => f.Status == MatchStatus.Completed)
+                .OrderByDescending(f => f.KickoffUtc)
+                .ThenByDescending(f => f.MatchNumber)
+                .ToListAsync(ct);
+
+            var teams = await session.Query<Team>().ToListAsync(ct);
+            var teamMap = teams.ToDictionary(t => t.Id);
+
+            var fixtureDtos = fixtures.Select(f => new FixtureDto(
+                Id:           f.Id,
+                MatchNumber:  f.MatchNumber,
+                GroupLetter:  f.GroupLetter,
+                HomeTeamId:   f.HomeTeamId,
+                HomeTeamName: teamMap.TryGetValue(f.HomeTeamId, out var ht) ? ht.Name : f.HomeTeamId,
+                AwayTeamId:   f.AwayTeamId,
+                AwayTeamName: teamMap.TryGetValue(f.AwayTeamId, out var at) ? at.Name : f.AwayTeamId,
+                KickoffUtc:    f.KickoffUtc,
+                Venue:         f.Venue,
+                City:          f.City,
+                Status:        f.Status.ToString(),
+                HomeScore:     f.HomeScore,
+                AwayScore:     f.AwayScore,
+                ElapsedMinute: f.ElapsedMinute,
+                ElapsedExtra:  f.ElapsedExtra
+            )).ToList();
+
+            var fixtureIds = fixtures.Select(f => f.Id).ToList();
+
+            List<GoalEventDto> goalDtos;
+            List<CardEventDto> cardDtos;
+            List<SubstitutionEventDto> subDtos;
+            if (fixtureIds.Count > 0)
+            {
+                var goals = await session.Query<GoalEvent>()
+                    .Where(g => g.FixtureId.IsOneOf(fixtureIds))
+                    .ToListAsync(ct);
+                var cards = await session.Query<CardEvent>()
+                    .Where(c => c.FixtureId.IsOneOf(fixtureIds))
+                    .ToListAsync(ct);
+                var subs = await session.Query<SubstitutionEvent>()
+                    .Where(s => s.FixtureId.IsOneOf(fixtureIds))
+                    .ToListAsync(ct);
+
+                // Resolve all player names in one query.
+                var allPlayerIds = goals.Select(g => g.PlayerId)
+                    .Concat(cards.Select(c => c.PlayerId))
+                    .Distinct().ToList();
+                var playerMap = allPlayerIds.Count > 0
+                    ? (await session.Query<Player>().Where(p => p.Id.IsOneOf(allPlayerIds)).ToListAsync(ct))
+                        .ToDictionary(p => p.Id)
+                    : new Dictionary<Guid, Player>();
+
+                goalDtos = goals.Select(g =>
+                {
+                    playerMap.TryGetValue(g.PlayerId, out var player);
+                    return new GoalEventDto(g.FixtureId, g.PlayerId,
+                        player?.Name ?? g.PlayerId.ToString(), player?.TeamId ?? string.Empty,
+                        g.Type.ToString(), g.Minute, g.ExtraMinute);
+                }).OrderBy(g => g.Minute).ToList();
+
+                cardDtos = cards.Select(c =>
+                {
+                    playerMap.TryGetValue(c.PlayerId, out var player);
+                    return new CardEventDto(c.FixtureId, c.PlayerId,
+                        player?.Name ?? c.PlayerId.ToString(), player?.TeamId ?? string.Empty,
+                        c.Type.ToString(), c.Minute, c.ExtraMinute);
+                }).OrderBy(c => c.Minute).ToList();
+
+                subDtos = subs.Select(s => new SubstitutionEventDto(
+                    s.FixtureId, s.PlayerInName, s.PlayerOutName, s.TeamId, s.Minute, s.ExtraMinute
+                )).OrderBy(s => s.Minute).ToList();
+            }
+            else
+            {
+                goalDtos = new List<GoalEventDto>();
+                cardDtos = new List<CardEventDto>();
+                subDtos = new List<SubstitutionEventDto>();
+            }
+
+            // Load the current user's predictions for completed fixtures and compute points.
+            List<MyFixturePredictionDto> myPredictions;
+            if (fixtureIds.Count > 0)
+            {
+                var predictions = await session.Query<GroupPrediction>()
+                    .Where(p => p.UserId == user.UserId && p.FixtureId.IsOneOf(fixtureIds))
+                    .ToListAsync(ct);
+
+                var fixtureById = fixtures.ToDictionary(f => f.Id);
+                myPredictions = predictions
+                    .Where(p => fixtureById.TryGetValue(p.FixtureId, out var f) && f.HomeScore.HasValue && f.AwayScore.HasValue)
+                    .Select(p =>
+                    {
+                        var f = fixtureById[p.FixtureId];
+                        var points = GroupMatchScorer.Compute(p.HomeScore, p.AwayScore, f.HomeScore!.Value, f.AwayScore!.Value);
+                        return new MyFixturePredictionDto(p.FixtureId, p.HomeScore, p.AwayScore, points);
+                    })
+                    .ToList();
+            }
+            else
+            {
+                myPredictions = new List<MyFixturePredictionDto>();
+            }
+
+            return Results.Ok(new FixtureResultsResponse(fixtureDtos, goalDtos, cardDtos, subDtos, myPredictions));
+        })
+        .WithName("GetFixtureResults")
+        .WithTags("fixtures")
+        .WithSummary("Returns all completed fixtures (newest first) with goal events and the current user's prediction and points.");
+
         // GET /fixtures/live — fixtures in the live window (InProgress, recent, or imminent).
         // Must be registered before /fixtures to avoid route ambiguity.
         routes.MapGet("/fixtures/live", async (IDocumentSession session, CancellationToken ct) =>
@@ -41,47 +163,66 @@ public static class FixtureEndpoints
                 HomeTeamName: teamMap.TryGetValue(f.HomeTeamId, out var ht) ? ht.Name : f.HomeTeamId,
                 AwayTeamId:   f.AwayTeamId,
                 AwayTeamName: teamMap.TryGetValue(f.AwayTeamId, out var at) ? at.Name : f.AwayTeamId,
-                KickoffUtc:   f.KickoffUtc,
-                Venue:        f.Venue,
-                City:         f.City,
-                Status:       f.Status.ToString(),
-                HomeScore:    f.HomeScore,
-                AwayScore:    f.AwayScore
+                KickoffUtc:    f.KickoffUtc,
+                Venue:         f.Venue,
+                City:          f.City,
+                Status:        f.Status.ToString(),
+                HomeScore:     f.HomeScore,
+                AwayScore:     f.AwayScore,
+                ElapsedMinute: f.ElapsedMinute,
+                ElapsedExtra:  f.ElapsedExtra
             )).ToList();
 
-            // Load goal events for all fixtures in the response.
+            // Load goal, card and substitution events for all fixtures in the response.
             var fixtureIds = fixtures.Select(f => f.Id).ToList();
             List<GoalEventDto> goalDtos;
+            List<CardEventDto> cardDtos;
+            List<SubstitutionEventDto> subDtos;
             if (fixtureIds.Count > 0)
             {
                 var goals = await session.Query<GoalEvent>()
                     .Where(g => g.FixtureId.IsOneOf(fixtureIds))
                     .ToListAsync(ct);
+                var cards = await session.Query<CardEvent>()
+                    .Where(c => c.FixtureId.IsOneOf(fixtureIds))
+                    .ToListAsync(ct);
+                var subs = await session.Query<SubstitutionEvent>()
+                    .Where(s => s.FixtureId.IsOneOf(fixtureIds))
+                    .ToListAsync(ct);
 
-                var playerIds = goals.Select(g => g.PlayerId).Distinct().ToList();
-                var players = playerIds.Count > 0
-                    ? await session.Query<Player>()
-                        .Where(p => p.Id.IsOneOf(playerIds))
-                        .ToListAsync(ct)
-                    : new System.Collections.Generic.List<Player>();
-                var playerMap = players.ToDictionary(p => p.Id);
+                var allPlayerIds = goals.Select(g => g.PlayerId)
+                    .Concat(cards.Select(c => c.PlayerId))
+                    .Distinct().ToList();
+                var playerMap = allPlayerIds.Count > 0
+                    ? (await session.Query<Player>().Where(p => p.Id.IsOneOf(allPlayerIds)).ToListAsync(ct))
+                        .ToDictionary(p => p.Id)
+                    : new Dictionary<Guid, Player>();
 
                 goalDtos = goals.Select(g =>
                 {
                     playerMap.TryGetValue(g.PlayerId, out var player);
-                    return new GoalEventDto(
-                        FixtureId:  g.FixtureId,
-                        PlayerId:   g.PlayerId,
-                        PlayerName: player?.Name ?? g.PlayerId.ToString(),
-                        TeamId:     player?.TeamId ?? string.Empty,
-                        Type:       g.Type.ToString(),
-                        Minute:     g.Minute
-                    );
+                    return new GoalEventDto(g.FixtureId, g.PlayerId,
+                        player?.Name ?? g.PlayerId.ToString(), player?.TeamId ?? string.Empty,
+                        g.Type.ToString(), g.Minute, g.ExtraMinute);
                 }).OrderBy(g => g.Minute).ToList();
+
+                cardDtos = cards.Select(c =>
+                {
+                    playerMap.TryGetValue(c.PlayerId, out var player);
+                    return new CardEventDto(c.FixtureId, c.PlayerId,
+                        player?.Name ?? c.PlayerId.ToString(), player?.TeamId ?? string.Empty,
+                        c.Type.ToString(), c.Minute, c.ExtraMinute);
+                }).OrderBy(c => c.Minute).ToList();
+
+                subDtos = subs.Select(s => new SubstitutionEventDto(
+                    s.FixtureId, s.PlayerInName, s.PlayerOutName, s.TeamId, s.Minute, s.ExtraMinute
+                )).OrderBy(s => s.Minute).ToList();
             }
             else
             {
-                goalDtos = new System.Collections.Generic.List<GoalEventDto>();
+                goalDtos = new List<GoalEventDto>();
+                cardDtos = new List<CardEventDto>();
+                subDtos = new List<SubstitutionEventDto>();
             }
 
             // liveWindowActive = true if any fixture is InProgress or kicks off within 30 min.
@@ -92,6 +233,8 @@ public static class FixtureEndpoints
             return Results.Ok(new LiveFixturesResponse(
                 Fixtures:         fixtureDtos,
                 Goals:            goalDtos,
+                Cards:            cardDtos,
+                Substitutions:    subDtos,
                 LiveWindowActive: liveWindowActive
             ));
         })
@@ -118,12 +261,14 @@ public static class FixtureEndpoints
                 HomeTeamName: teamMap.TryGetValue(f.HomeTeamId, out var ht) ? ht.Name : f.HomeTeamId,
                 AwayTeamId:   f.AwayTeamId,
                 AwayTeamName: teamMap.TryGetValue(f.AwayTeamId, out var at) ? at.Name : f.AwayTeamId,
-                KickoffUtc:   f.KickoffUtc,
-                Venue:        f.Venue,
-                City:         f.City,
-                Status:       f.Status.ToString(),
-                HomeScore:    f.HomeScore,
-                AwayScore:    f.AwayScore
+                KickoffUtc:    f.KickoffUtc,
+                Venue:         f.Venue,
+                City:          f.City,
+                Status:        f.Status.ToString(),
+                HomeScore:     f.HomeScore,
+                AwayScore:     f.AwayScore,
+                ElapsedMinute: f.ElapsedMinute,
+                ElapsedExtra:  f.ElapsedExtra
             ));
 
             return Results.Ok(dtos);
@@ -171,7 +316,9 @@ public sealed record FixtureDto(
     string City,
     string Status,
     int? HomeScore,
-    int? AwayScore);
+    int? AwayScore,
+    int? ElapsedMinute,
+    int? ElapsedExtra);
 
 /// <summary>Team response DTO.</summary>
 public sealed record TeamDto(
@@ -187,10 +334,47 @@ public sealed record GoalEventDto(
     string PlayerName,
     string TeamId,
     string Type,
-    int Minute);
+    int Minute,
+    int? ExtraMinute);
+
+/// <summary>Card event DTO (yellow / second yellow / red) embedded in fixture responses.</summary>
+public sealed record CardEventDto(
+    string FixtureId,
+    Guid PlayerId,
+    string PlayerName,
+    string TeamId,
+    string Type,
+    int Minute,
+    int? ExtraMinute);
+
+/// <summary>Substitution event DTO embedded in fixture responses.</summary>
+public sealed record SubstitutionEventDto(
+    string FixtureId,
+    string PlayerInName,
+    string PlayerOutName,
+    string TeamId,
+    int Minute,
+    int? ExtraMinute);
 
 /// <summary>Response for GET /fixtures/live.</summary>
 public sealed record LiveFixturesResponse(
     IReadOnlyList<FixtureDto> Fixtures,
     IReadOnlyList<GoalEventDto> Goals,
+    IReadOnlyList<CardEventDto> Cards,
+    IReadOnlyList<SubstitutionEventDto> Substitutions,
     bool LiveWindowActive);
+
+/// <summary>Per-fixture prediction result for the current user, returned by GET /fixtures/results.</summary>
+public sealed record MyFixturePredictionDto(
+    string FixtureId,
+    int PredictedHome,
+    int PredictedAway,
+    int Points);
+
+/// <summary>Response for GET /fixtures/results.</summary>
+public sealed record FixtureResultsResponse(
+    IReadOnlyList<FixtureDto> Fixtures,
+    IReadOnlyList<GoalEventDto> Goals,
+    IReadOnlyList<CardEventDto> Cards,
+    IReadOnlyList<SubstitutionEventDto> Substitutions,
+    IReadOnlyList<MyFixturePredictionDto> MyPredictions);

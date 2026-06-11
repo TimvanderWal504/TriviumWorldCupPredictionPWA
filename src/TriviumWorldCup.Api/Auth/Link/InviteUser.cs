@@ -12,6 +12,9 @@ public class InviteUser
 
     public string DisplayName { get; set; } = default!;
 
+    /// <summary>Email address — set for self-service signups, null for admin-created users.</summary>
+    public string? Email { get; set; }
+
     public string[] Roles { get; set; } = ["user"];
 
     public DateTimeOffset CreatedAt { get; set; }

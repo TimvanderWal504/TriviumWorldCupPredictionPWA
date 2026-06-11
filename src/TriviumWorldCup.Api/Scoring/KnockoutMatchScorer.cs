@@ -8,7 +8,7 @@ namespace TriviumWorldCup.Api.Scoring;
 ///
 /// Per-match scoring (before round multiplier):
 ///   Correct advancing team (incl. ET/penalties): 5 pts
-///   Exact 90-minute score bonus (only when winner is also correct): +3 pts
+///   Exact 90-minute score bonus (independent of whether winner is correct): +3 pts
 ///
 /// Round multipliers:
 ///   R32         × 1.0
@@ -55,9 +55,9 @@ public static class KnockoutMatchScorer
         if (predictedWinnerId == actualWinnerId)
             basePoints += 5;
 
-        // Score bonus only applies when the winner was also correct.
-        if (basePoints > 0
-            && predictedHomeScore.HasValue && predictedAwayScore.HasValue
+        // Score bonus is independent of the winner — awarded whenever the exact
+        // 90-minute score was predicted correctly, regardless of who advanced.
+        if (predictedHomeScore.HasValue && predictedAwayScore.HasValue
             && actualHomeScore.HasValue && actualAwayScore.HasValue
             && predictedHomeScore.Value == actualHomeScore.Value
             && predictedAwayScore.Value == actualAwayScore.Value)

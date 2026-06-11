@@ -23,47 +23,47 @@
 :root {
   color-scheme: light;
 
-  /* Surfaces — light */
-  --bg:           #eef1f6;   /* app canvas                       */
-  --bg-elevated:  #ffffff;   /* raised header / sticky bars      */
-  --surface:      #ffffff;   /* primary card                     */
-  --surface-2:    #f4f6fa;   /* nested / inset panel             */
-  --surface-3:    #e8edf4;   /* track, inputs, chips             */
-  --overlay:      rgba(10, 14, 23, 0.45); /* scrim under modals  */
+  /* Surfaces — blue brand theme */
+  --bg:           #003e78;   /* blue-700 — app canvas            */
+  --bg-elevated:  #004d93;   /* Blue 01  — header / sticky bars  */
+  --surface:      #0d5aa7;   /* cards                            */
+  --surface-2:    #1a67b5;   /* nested / inset panel             */
+  --surface-3:    #2878c4;   /* track, inputs, chips             */
+  --overlay:      rgba(0, 15, 40, 0.65);  /* scrim under modals  */
 
-  /* Hairlines / borders — light */
-  --border:        #e1e7f0;
-  --border-strong: #cdd6e3;
-  --ring:          #215990;  /* focus ring (broadcast blue)      */
+  /* Hairlines / borders */
+  --border:        rgba(255, 255, 255, 0.14);
+  --border-strong: rgba(255, 255, 255, 0.25);
+  --ring:          #83ad1d;  /* green focus ring on blue bg      */
 
-  /* Text — light */
-  --fg:           #111826;   /* primary copy / scores            */
-  --fg-secondary: #475064;   /* labels, secondary copy           */
-  --fg-muted:     #7a869c;   /* meta, timestamps, captions       */
+  /* Text */
+  --fg:           #ffffff;   /* primary copy / scores            */
+  --fg-secondary: #bad1e9;   /* blue-200 — labels, secondary     */
+  --fg-muted:     #8eb4d5;   /* Blue 02  — meta, timestamps      */
   --fg-onbrand:   #0c1208;   /* text on pitch-green fills        */
   --fg-onblue:    #ffffff;   /* text on blue fills               */
   --fg-ongold:    #2a1c00;   /* text on gold fills               */
 
-  /* Brand roles — light (text/link variants pick accessible steps) */
-  --primary:        #6b8f1f; /* pitch green, accessible on white */
-  --primary-fill:   #84ad28; /* CTA fill                         */
-  --primary-hover:  #6b8f1f;
-  --secondary:      #215990; /* broadcast blue                   */
-  --secondary-fill: #215990;
-  --link:           #1c4a78;
-  --accent:         #b5790a; /* trophy gold, accessible on white */
+  /* Brand roles */
+  --primary:        #9fc52b; /* Green 02 — readable on blue bg   */
+  --primary-fill:   #83ad1d; /* Green 01 — CTA fill              */
+  --primary-hover:  #9fc52b;
+  --secondary:      #8eb4d5; /* Blue 02 — secondary on blue bg   */
+  --secondary-fill: #004d93;
+  --link:           #d7ea87; /* Green 03 — light, readable links */
+  --accent:         #f2c14e; /* gold — readable on blue bg       */
   --accent-fill:    #f2a922;
 
-  /* Status — light */
-  --live:        #d8262b;    /* LIVE match pulse / red           */
-  --live-soft:   #fdeaea;
-  --win:         #2f8f3e;    /* correct / win / positive delta   */
-  --win-soft:    #e7f4e9;
-  --loss:        #c43c3c;    /* loss / negative delta            */
-  --draw:        #7a869c;    /* draw / neutral                   */
-  --warning:     #b5790a;    /* soon / closing / locked-warning  */
-  --warning-soft:#fbf0d8;
-  --locked:      #7a869c;    /* locked chip                      */
+  /* Status */
+  --live:        #ff4d52;    /* LIVE match pulse / red           */
+  --live-soft:   rgba(255, 77, 82, 0.20);
+  --win:         #56c96a;    /* correct / win / positive delta   */
+  --win-soft:    rgba(86, 201, 106, 0.20);
+  --loss:        #ff6b6b;    /* loss / negative delta            */
+  --draw:        #8eb4d5;    /* draw / neutral — Blue 02         */
+  --warning:     #f2c14e;    /* soon / closing / locked-warning  */
+  --warning-soft:rgba(242, 193, 78, 0.20);
+  --locked:      #8eb4d5;    /* locked chip                      */
   --offline:     #f2a922;    /* offline banner (gold, attention) */
 
   /* Champion / podium accents */
@@ -77,16 +77,16 @@
   :root:not(.light) {
     color-scheme: dark;
 
-    --bg:           #080c14;
-    --bg-elevated:  #111927;
-    --surface:      #141d2c;
-    --surface-2:    #1b2738;
-    --surface-3:    #243246;
-    --overlay:      rgba(3, 6, 12, 0.66);
+    --bg:           #000e1e;   /* deep navy canvas                 */
+    --bg-elevated:  #001428;   /* dark navy header / sticky bars   */
+    --surface:      #001e3a;   /* dark blue card                   */
+    --surface-2:    #00284e;   /* nested panel                     */
+    --surface-3:    #003262;   /* inputs, chips                    */
+    --overlay:      rgba(0, 8, 20, 0.72);
 
-    --border:        #243044;
-    --border-strong: #33425a;
-    --ring:          #4f8fd4;
+    --border:        rgba(255, 255, 255, 0.10);
+    --border-strong: rgba(255, 255, 255, 0.18);
+    --ring:          #8eb4d5;
 
     --fg:           #eef2f8;
     --fg-secondary: #a9b6cb;
@@ -95,12 +95,12 @@
     --fg-onblue:    #ffffff;
     --fg-ongold:    #2a1c00;
 
-    --primary:        #a1c23a; /* lifted for dark contrast       */
-    --primary-fill:   #84ad28;
-    --primary-hover:  #95b933;
-    --secondary:      #6ba2d8;
-    --secondary-fill: #2e6aa8;
-    --link:           #7fb1e3;
+    --primary:        #9fc52b; /* lifted for dark contrast       */
+    --primary-fill:   #83ad1d;
+    --primary-hover:  #9fc52b;
+    --secondary:      #8eb4d5;
+    --secondary-fill: #2e6aa3;
+    --link:           #bad1e9;
     --accent:         #f2c14e;
     --accent-fill:    #f2a922;
 
@@ -125,16 +125,16 @@
 .dark {
   color-scheme: dark;
 
-  --bg:           #080c14;
-  --bg-elevated:  #111927;
-  --surface:      #141d2c;
-  --surface-2:    #1b2738;
-  --surface-3:    #243246;
-  --overlay:      rgba(3, 6, 12, 0.66);
+  --bg:           #000e1e;   /* deep navy canvas                 */
+  --bg-elevated:  #001428;   /* dark navy header / sticky bars   */
+  --surface:      #001e3a;   /* dark blue card                   */
+  --surface-2:    #00284e;   /* nested panel                     */
+  --surface-3:    #003262;   /* inputs, chips                    */
+  --overlay:      rgba(0, 8, 20, 0.72);
 
-  --border:        #243044;
-  --border-strong: #33425a;
-  --ring:          #4f8fd4;
+  --border:        rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --ring:          #8eb4d5;
 
   --fg:           #eef2f8;
   --fg-secondary: #a9b6cb;
@@ -143,12 +143,12 @@
   --fg-onblue:    #ffffff;
   --fg-ongold:    #2a1c00;
 
-  --primary:        #a1c23a;
-  --primary-fill:   #84ad28;
-  --primary-hover:  #95b933;
-  --secondary:      #6ba2d8;
-  --secondary-fill: #2e6aa8;
-  --link:           #7fb1e3;
+  --primary:        #9fc52b;
+  --primary-fill:   #83ad1d;
+  --primary-hover:  #9fc52b;
+  --secondary:      #8eb4d5;
+  --secondary-fill: #2e6aa3;
+  --link:           #bad1e9;
   --accent:         #f2c14e;
   --accent-fill:    #f2a922;
 
@@ -178,30 +178,30 @@
   --font-mono:    "Geist Mono", ui-monospace, "SFMono-Regular", monospace;
 
   /* ---- Pitch Green (primary) ---- */
-  --color-pitch-50:  #f4f8e6;
-  --color-pitch-100: #e6f0c6;
-  --color-pitch-200: #d2e394;
-  --color-pitch-300: #bbd45f;
-  --color-pitch-400: #a1c23a;
-  --color-pitch-500: #84ad28;  /* brand */
-  --color-pitch-600: #6b8f1f;
-  --color-pitch-700: #536f1b;
-  --color-pitch-800: #41571a;
-  --color-pitch-900: #36481a;
-  --color-pitch-950: #1b2709;
+  --color-pitch-50:  #f6fbe8;
+  --color-pitch-100: #eaf4c4;
+  --color-pitch-200: #d7ea87;  /* Green 03 */
+  --color-pitch-300: #bcda52;
+  --color-pitch-400: #9fc52b;  /* Green 02 */
+  --color-pitch-500: #83ad1d;  /* Green 01 — brand */
+  --color-pitch-600: #6a8c17;
+  --color-pitch-700: #526c14;
+  --color-pitch-800: #405411;
+  --color-pitch-900: #34450f;
+  --color-pitch-950: #1a2407;
 
   /* ---- Broadcast Blue (secondary) ---- */
-  --color-blue-50:  #eaf2fa;
-  --color-blue-100: #cfe0f1;
-  --color-blue-200: #a1c2e3;
-  --color-blue-300: #6ba2d8;
-  --color-blue-400: #3d79b5;
-  --color-blue-500: #215990;  /* brand */
-  --color-blue-600: #1c4a78;
-  --color-blue-700: #193d62;
-  --color-blue-800: #173351;
-  --color-blue-900: #142b44;
-  --color-blue-950: #0b1a2b;
+  --color-blue-50:  #edf4fb;
+  --color-blue-100: #e3ecf4;  /* Blue 03 */
+  --color-blue-200: #bad1e9;
+  --color-blue-300: #8eb4d5;  /* Blue 02 */
+  --color-blue-400: #5d8fbe;
+  --color-blue-500: #2e6aa3;
+  --color-blue-600: #004d93;  /* Blue 01 — brand */
+  --color-blue-700: #003e78;
+  --color-blue-800: #003062;
+  --color-blue-900: #00244d;
+  --color-blue-950: #001228;
 
   /* ---- Trophy Gold (accent) ---- */
   --color-gold-50:  #fdf6e6;

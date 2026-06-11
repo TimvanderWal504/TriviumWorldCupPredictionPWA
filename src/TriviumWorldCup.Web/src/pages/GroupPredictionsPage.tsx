@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
-import { Clock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock } from 'lucide-react';
 import { flagUrl } from '../utils/flagUrl.ts';
 
 interface FixtureDto {
@@ -63,14 +63,28 @@ function formatKickoff(kickoffUtc: string): string {
   });
 }
 
+function getLocalDateKey(kickoffUtc: string): string {
+  const d = new Date(kickoffUtc);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function formatDateLabel(dateKey: string): string {
+  const [y, m, day] = dateKey.split('-').map(Number);
+  return new Date(y, m - 1, day).toLocaleDateString(undefined, {
+    weekday: 'short', month: 'short', day: 'numeric',
+  });
+}
+
 interface FixtureCardProps {
   fixture: FixtureDto;
   prediction: GroupPredictionDto | undefined;
   onSaved: (p: GroupPredictionDto) => void;
+  showGroup?: boolean;
 }
 
-function FixtureCard({ fixture, prediction, onSaved }: FixtureCardProps) {
-  const locked = isLocked(fixture.kickoffUtc);
+function FixtureCard({ fixture, prediction, onSaved, showGroup }: FixtureCardProps) {
+  const played = fixture.status === 'Completed';
+  const locked = isLocked(fixture.kickoffUtc) || played;
   const [homeInput, setHomeInput] = useState(prediction !== undefined ? String(prediction.homeScore) : '');
   const [awayInput, setAwayInput] = useState(prediction !== undefined ? String(prediction.awayScore) : '');
   const [saving, setSaving] = useState(false);
@@ -121,12 +135,12 @@ function FixtureCard({ fixture, prediction, onSaved }: FixtureCardProps) {
 
   return (
     <div
-      className={`rounded-card bg-surface p-4 flex flex-col gap-2.5 border ${saved ? 'flash' : ''}`}
+      className="rounded-card bg-surface p-4 flex flex-col gap-2.5 border"
       style={{ borderColor: cardBorderColor, opacity: cardOpacity }}
     >
       {/* Header */}
       <div className="flex items-center justify-between text-[11px] text-fg-muted">
-        <span className="font-mono">Match {fixture.matchNumber} · {fixture.venue}</span>
+        <span className="font-mono">Match {fixture.matchNumber}{showGroup ? ` · Group ${fixture.groupLetter}` : ''} · {fixture.venue} · {fixture.city}</span>
         <span
           className={`text-[11px] font-semibold px-2 py-0.5 rounded-md ${
             !saving && !saved && (locked || !unpredicted) ? 'bg-surface-3 text-fg-muted' : ''
@@ -138,7 +152,7 @@ function FixtureCard({ fixture, prediction, onSaved }: FixtureCardProps) {
             : undefined
           }
         >
-          {saving ? 'Saving…' : saved ? 'Saved' : locked ? 'Locked' : unpredicted ? 'Unpredicted' : 'Predicted'}
+          {saving ? 'Saving…' : saved ? 'Saved' : played ? 'Played' : locked ? 'Locked' : unpredicted ? 'Unpredicted' : 'Predicted'}
         </span>
       </div>
 
@@ -181,19 +195,19 @@ function FixtureCard({ fixture, prediction, onSaved }: FixtureCardProps) {
 
 interface GroupPredictionsPageProps {
   onAllGroupsComplete?: () => void;
+  viewMode: 'group' | 'date';
 }
 
-export function GroupPredictionsPage({ onAllGroupsComplete }: GroupPredictionsPageProps) {
+export function GroupPredictionsPage({ onAllGroupsComplete, viewMode }: GroupPredictionsPageProps) {
   const [fixtures, setFixtures] = useState<FixtureDto[]>([]);
   const [predictions, setPredictions] = useState<Map<string, GroupPredictionDto>>(new Map());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeGroup, setActiveGroup] = useState<string>('A');
+  const [activeDate, setActiveDate] = useState<string>('');
 
-  // Tab bar scroll indicator state
   const tabsRef = useRef<HTMLDivElement>(null);
-  const [thumbLeft, setThumbLeft] = useState(0);   // percentage 0–100
-  const [thumbWidth, setThumbWidth] = useState(100); // percentage 0–100
+  const dateTabsRef = useRef<HTMLDivElement>(null);
 
   // Refs to avoid stale-closure issues in effects
   const loadedRef = useRef(false);
@@ -226,6 +240,13 @@ export function GroupPredictionsPage({ onAllGroupsComplete }: GroupPredictionsPa
           const firstIncomplete =
             letters.find(l => !triggeredGroups.current.has(l)) ?? letters[letters.length - 1];
           setActiveGroup(firstIncomplete);
+
+          // Set initial active date to the first date with unpredicted unlocked fixtures
+          const dateKeys = [...new Set(fixtureList.map(f => getLocalDateKey(f.kickoffUtc)))].sort();
+          const firstDateIncomplete = dateKeys.find(dk =>
+            fixtureList.some(f => getLocalDateKey(f.kickoffUtc) === dk && !isLocked(f.kickoffUtc) && !map.has(f.id))
+          ) ?? dateKeys[0];
+          setActiveDate(firstDateIncomplete ?? '');
         }
 
         loadedRef.current = true;
@@ -241,36 +262,13 @@ export function GroupPredictionsPage({ onAllGroupsComplete }: GroupPredictionsPa
     btn?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
   }, [activeGroup]);
 
-  // Track tab bar scroll position for the thin indicator bar
+  // Scroll the active date tab into view whenever activeDate changes
   useEffect(() => {
-    const el = tabsRef.current;
-    if (!el) return;
+    if (!dateTabsRef.current) return;
+    const btn = dateTabsRef.current.querySelector('[aria-selected="true"]') as HTMLElement | null;
+    btn?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+  }, [activeDate]);
 
-    const update = () => {
-      const { scrollLeft, scrollWidth, clientWidth } = el;
-      const maxScroll = scrollWidth - clientWidth;
-      if (maxScroll <= 0) {
-        setThumbWidth(100);
-        setThumbLeft(0);
-      } else {
-        const tw = Math.round((clientWidth / scrollWidth) * 100);
-        setThumbWidth(tw);
-        setThumbLeft((scrollLeft / maxScroll) * (100 - tw));
-      }
-    };
-
-    update();
-    el.addEventListener('scroll', update, { passive: true });
-
-    // ResizeObserver picks up children being added (tabs render after fixtures load)
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-
-    return () => {
-      el.removeEventListener('scroll', update);
-      ro.disconnect();
-    };
-  }, []);
 
   // Auto-advance when every unlocked fixture in the active group has a prediction
   useEffect(() => {
@@ -305,60 +303,135 @@ export function GroupPredictionsPage({ onAllGroupsComplete }: GroupPredictionsPa
   const groupLetters = [...new Set(fixtures.map(f => f.groupLetter))].sort();
   const activeFixtures = fixtures.filter(f => f.groupLetter === activeGroup);
 
+  const dates = [...new Set(fixtures.map(f => getLocalDateKey(f.kickoffUtc)))].sort();
+  const activeDateFixtures = fixtures
+    .filter(f => getLocalDateKey(f.kickoffUtc) === activeDate)
+    .sort((a, b) => new Date(a.kickoffUtc).getTime() - new Date(b.kickoffUtc).getTime());
+
   if (loading) return <div className="flex items-center justify-center py-20 text-fg-muted">Loading fixtures…</div>;
   if (loadError) return <div className="flex items-center justify-center py-20 text-[13px]" style={{ color: 'var(--loss)' }}>{loadError}</div>;
 
+  const btnBase = 'w-7 h-7 flex items-center justify-center rounded-input text-sm font-bold transition-opacity disabled:opacity-25';
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-4">
-      <p className="text-[13px] text-fg-secondary mb-3 leading-relaxed">
-        Predict the score for each match. Predictions lock at kickoff — times in your local timezone.
-      </p>
-
-      {/* Group tab bar */}
-      <div
-        ref={tabsRef}
-        className="flex gap-1.5 overflow-x-auto appscroll pb-1.5"
-        role="tablist"
-      >
-        {groupLetters.map(letter => (
-          <button
-            key={letter} role="tab" aria-selected={activeGroup === letter}
-            onClick={() => setActiveGroup(letter)}
-            className={`px-3.5 py-1.5 rounded-input text-[13px] font-semibold whitespace-nowrap transition-colors ${
-              activeGroup !== letter ? 'bg-surface-3 text-fg-secondary' : ''
-            }`}
-            style={activeGroup === letter
-              ? { background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }
-              : undefined}
-          >
-            Group {letter}
-          </button>
-        ))}
+      <div className="rounded-card bg-surface border border-border px-4 py-3 mb-3 text-[13px] text-fg-secondary leading-relaxed">
+        Predict the score for each match. Predictions lock at kickoff. Times are in your local timezone.
       </div>
 
-      {/* Thin scroll-position indicator under the tabs */}
-      <div className="relative h-[3px] bg-surface-3 rounded-full mb-3 mt-1.5 overflow-hidden">
-        <div
-          className="absolute inset-y-0 rounded-full"
-          style={{
-            background: 'var(--secondary)',
-            width: `${thumbWidth}%`,
-            left: `${thumbLeft}%`,
-            transition: 'left 120ms ease, width 120ms ease',
-          }}
-        />
-      </div>
+      {viewMode === 'group' ? (
+        <>
+          {/* Group tab bar */}
+          <div ref={tabsRef} className="flex gap-1.5 overflow-x-auto appscroll pb-1.5" role="tablist">
+            {groupLetters.map(letter => (
+              <button
+                key={letter} role="tab" aria-selected={activeGroup === letter}
+                onClick={() => setActiveGroup(letter)}
+                className={`px-3.5 py-1.5 rounded-input text-[13px] font-semibold whitespace-nowrap transition-colors ${
+                  activeGroup !== letter ? 'bg-surface-3 text-fg-secondary' : ''
+                }`}
+                style={activeGroup === letter
+                  ? { background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }
+                  : undefined}
+              >
+                Group {letter}
+              </button>
+            ))}
+          </div>
 
-      <div className="flex flex-col gap-2.5">
-        {activeFixtures.map(fixture => (
-          <FixtureCard
-            key={fixture.id}
-            fixture={fixture}
-            prediction={predictions.get(fixture.id)}
-            onSaved={updated => setPredictions(prev => new Map(prev).set(updated.fixtureId, updated))}
-          />
-        ))}
-      </div>
+          {/* Group navigator: prev/next buttons + 5-dot window */}
+          {groupLetters.length > 1 && (() => {
+            const n = groupLetters.length;
+            const activeIdx = groupLetters.indexOf(activeGroup);
+            const windowSize = Math.min(5, n);
+            const windowStart = Math.max(0, Math.min(n - windowSize, activeIdx - Math.floor(windowSize / 2)));
+            const visibleLetters = groupLetters.slice(windowStart, windowStart + windowSize);
+            return (
+              <div className="flex items-center justify-center gap-3 mb-3 mt-1.5">
+                <button onClick={() => setActiveGroup(groupLetters[activeIdx - 1])} disabled={activeIdx === 0} className={btnBase} style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }} aria-label="Previous group">
+                  <ChevronLeft size={16} />
+                </button>
+                <div className="flex items-center gap-2.5">
+                  {visibleLetters.map(letter => {
+                    const active = activeGroup === letter;
+                    return (
+                      <button key={letter} onClick={() => setActiveGroup(letter)} aria-label={`Group ${letter}`} className="flex flex-col items-center gap-0.5">
+                        <div className="rounded-full transition-all duration-150" style={{ width: active ? 10 : 7, height: active ? 10 : 7, background: active ? 'var(--secondary)' : 'var(--surface-3)' }} />
+                        <span className="text-[9px] font-mono leading-none" style={{ color: active ? 'var(--secondary)' : 'var(--fg-muted)' }}>{letter}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <button onClick={() => setActiveGroup(groupLetters[activeIdx + 1])} disabled={activeIdx === n - 1} className={btnBase} style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }} aria-label="Next group">
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            );
+          })()}
+
+          <div className="flex flex-col gap-2.5">
+            {activeFixtures.map(fixture => (
+              <FixtureCard key={fixture.id} fixture={fixture} prediction={predictions.get(fixture.id)} onSaved={updated => setPredictions(prev => new Map(prev).set(updated.fixtureId, updated))} />
+            ))}
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Date tab bar */}
+          <div ref={dateTabsRef} className="flex gap-1.5 overflow-x-auto appscroll pb-1.5" role="tablist">
+            {dates.map(dk => (
+              <button
+                key={dk} role="tab" aria-selected={activeDate === dk}
+                onClick={() => setActiveDate(dk)}
+                className={`px-3.5 py-1.5 rounded-input text-[13px] font-semibold whitespace-nowrap transition-colors ${
+                  activeDate !== dk ? 'bg-surface-3 text-fg-secondary' : ''
+                }`}
+                style={activeDate === dk
+                  ? { background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }
+                  : undefined}
+              >
+                {formatDateLabel(dk)}
+              </button>
+            ))}
+          </div>
+
+          {/* Date navigator: prev/next + dot window */}
+          {dates.length > 1 && (() => {
+            const n = dates.length;
+            const activeIdx = dates.indexOf(activeDate);
+            const windowSize = Math.min(5, n);
+            const windowStart = Math.max(0, Math.min(n - windowSize, activeIdx - Math.floor(windowSize / 2)));
+            const visibleDates = dates.slice(windowStart, windowStart + windowSize);
+            return (
+              <div className="flex items-center justify-center gap-3 mb-3 mt-1.5">
+                <button onClick={() => setActiveDate(dates[activeIdx - 1])} disabled={activeIdx === 0} className={btnBase} style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }} aria-label="Previous date">
+                  <ChevronLeft size={16} />
+                </button>
+                <div className="flex items-center gap-2.5">
+                  {visibleDates.map(dk => {
+                    const active = activeDate === dk;
+                    return (
+                      <button key={dk} onClick={() => setActiveDate(dk)} aria-label={formatDateLabel(dk)} className="flex flex-col items-center gap-0.5">
+                        <div className="rounded-full transition-all duration-150" style={{ width: active ? 10 : 7, height: active ? 10 : 7, background: active ? 'var(--secondary)' : 'var(--surface-3)' }} />
+                        <span className="text-[9px] font-mono leading-none" style={{ color: active ? 'var(--secondary)' : 'var(--fg-muted)' }}>{dk.slice(8)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <button onClick={() => setActiveDate(dates[activeIdx + 1])} disabled={activeIdx === n - 1} className={btnBase} style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }} aria-label="Next date">
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            );
+          })()}
+
+          <div className="flex flex-col gap-2.5">
+            {activeDateFixtures.map(fixture => (
+              <FixtureCard key={fixture.id} fixture={fixture} prediction={predictions.get(fixture.id)} onSaved={updated => setPredictions(prev => new Map(prev).set(updated.fixtureId, updated))} showGroup />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

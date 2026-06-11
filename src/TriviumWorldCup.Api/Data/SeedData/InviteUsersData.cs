@@ -17,10 +17,11 @@ public static class InviteUsersData
             [
                 new()
                 {
-                    Id = adminUserId,
+                    Id          = adminUserId,
                     DisplayName = "Tim",
-                    CreatedAt = DateTimeOffset.UtcNow,
-                    Roles = ["user", "admin"]               
+                    Email       = "tim.vanderwal@trivium-esolutions.com",
+                    CreatedAt   = DateTimeOffset.UtcNow,
+                    Roles       = ["user", "admin"],
                 }
             ];
         }

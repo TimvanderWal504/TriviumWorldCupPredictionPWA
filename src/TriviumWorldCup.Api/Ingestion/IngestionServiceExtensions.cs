@@ -30,17 +30,23 @@ public static class IngestionServiceExtensions
             services.AddScoped<ScoringRecomputeService>();
         }
 
-        // Typed HTTP client for API-Football v3
-        services.AddHttpClient<FootballApiClient>(client =>
+        // Typed HTTP client for API-Football v3.
+        // Register against the interface so ResultIngestionJob can resolve IFootballApiClient.
+        services.AddHttpClient<IFootballApiClient, FootballApiClient>(client =>
         {
             client.BaseAddress = new Uri("https://v3.football.api-sports.io/");
-            if (!string.IsNullOrWhiteSpace(apiKey))
-            {
-                client.DefaultRequestHeaders.Add("x-apisports-key", apiKey);
-            }
+            client.DefaultRequestHeaders.Add("x-apisports-key", apiKey ?? "");
         });
 
-        // Quartz scheduler — single trigger, every 90 seconds
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            // No key — skip Quartz entirely. The job would fail every 60 seconds otherwise.
+            return services;
+        }
+
+        // Quartz scheduler — single trigger, every 30 seconds
+        // Only fires API calls during live windows (DB check gates each execution).
+        // Pro plan: 7,500 req/day; worst case 6 matches × 420 polls = 2,520/day.
         services.AddQuartz(q =>
         {
             var jobKey = new JobKey("ResultIngestionJob", "Ingestion");
@@ -53,7 +59,7 @@ public static class IngestionServiceExtensions
                 .ForJob(jobKey)
                 .WithIdentity("ResultIngestionTrigger", "Ingestion")
                 .WithSimpleSchedule(s => s
-                    .WithIntervalInSeconds(90)
+                    .WithIntervalInSeconds(30)
                     .RepeatForever())
                 // Start 10 seconds after app startup to allow the DB to initialise
                 .StartAt(DateBuilder.FutureDate(10, IntervalUnit.Second)));

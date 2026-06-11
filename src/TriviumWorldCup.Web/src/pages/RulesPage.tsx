@@ -7,10 +7,42 @@ export function RulesPage() {
   return (
     <div className="max-w-3xl mx-auto px-4 py-4 space-y-10">
 
-      <section className="space-y-3">
+      <section className="bg-surface rounded-card border border-border p-5 space-y-4">
+        <p className="text-fg-secondary text-sm leading-relaxed">Dear colleagues,</p>
+        <p className="text-fg-secondary text-sm leading-relaxed">
+          The Football World Cup is almost here, with the opening match kicking off on Thursday.
+          Around the world, football fans are already making predictions and sharing their views on
+          who will make it through the group stages and who will go all the way.
+        </p>
+        <p className="text-fg-secondary text-sm leading-relaxed">
+          To celebrate the occasion, we're launching the <span className="font-semibold text-fg">Trivium World Cup Pool</span>.
+        </p>
+        <p className="text-fg-secondary text-sm leading-relaxed">
+          And, as if eternal glory wasn't enough, there is also a prize for the winner! At the end
+          of the tournament, the winner of the pool will receive an{' '}
+          <span className="font-semibold text-fg">official jersey of the World Cup-winning nation</span>.
+        </p>
+        <div className="rounded-input bg-surface-2 border border-border px-4 py-3 text-sm text-fg-secondary">
+          <span className="font-semibold text-fg">Tip:</span> you can also install this as an app directly from your browser (look for the install icon in the address bar).
+        </div>
+        <p className="text-fg-secondary text-sm leading-relaxed">
+          If you run into any issues or have suggestions for improvements, feel free to contact{' '}
+          <a
+            href="https://teams.microsoft.com/l/chat/48:notes/conversations?context=%7B%22contextType%22%3A%22chat%22%7D"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-fg underline underline-offset-2 hover:opacity-80 transition-opacity"
+          >
+            Tim
+          </a>{' '}
+          directly via Teams.
+        </p>
+      </section>
+
+      <section className="bg-surface rounded-card border border-border p-5 space-y-3">
         <h2 className={sectionHead}>Tournament Format</h2>
         <p className="text-fg-secondary leading-relaxed text-sm">
-          FIFA World Cup 2026 — 48 teams, 12 groups (A–L) of four teams each, 104 total matches.
+          FIFA World Cup 2026: 48 teams, 12 groups (A–L) of four teams each, 104 total matches.
           The top two from each group plus the eight best third-placed teams advance to a{' '}
           <span className="font-medium text-fg">Round of 32</span>, then{' '}
           <span className="font-medium text-fg">Round of 16</span>, quarter-finals, semi-finals,
@@ -23,10 +55,10 @@ export function RulesPage() {
         </ul>
       </section>
 
-      <section className="space-y-4">
+      <section className="bg-surface rounded-card border border-border p-5 space-y-4">
         <h2 className={sectionHead}>Group Match Scoring</h2>
         <p className="text-fg-muted text-sm">
-          Award the single best tier — tiers are <strong className="text-fg-secondary">not</strong> cumulative.
+          Award the single best tier; tiers are <strong className="text-fg-secondary">not</strong> cumulative.
         </p>
 
         <table className="w-full text-sm border-collapse rounded-card overflow-hidden border border-border">
@@ -52,7 +84,7 @@ export function RulesPage() {
             the wrong tier (0 → 1).
           </p>
           <ul className="text-fg-secondary text-sm space-y-1 list-disc list-inside">
-            <li>Two correct tallies = exact score — already captured in the 10-point tier.</li>
+            <li>Two correct tallies = exact score, already captured in the 10-point tier.</li>
             <li>A correct goal difference that is not exact makes any individual tally mathematically impossible.</li>
           </ul>
         </div>
@@ -66,7 +98,7 @@ export function RulesPage() {
             <span className="font-semibold text-fg">2–2</span>.
           </p>
           <ul className="text-fg-secondary text-sm space-y-1 list-disc list-inside">
-            <li>Outcome: wrong — predicted a home win, actual was a draw.</li>
+            <li>Outcome: wrong (predicted a home win, actual was a draw).</li>
             <li>Goal difference: wrong (predicted +1, actual 0).</li>
             <li>Base tier: <span className="font-semibold text-fg">0 points</span>.</li>
             <li>Home team tally of 2 was correct → team-tally bonus applies.</li>
@@ -75,12 +107,12 @@ export function RulesPage() {
         </div>
       </section>
 
-      <section className="space-y-4">
+      <section className="bg-surface rounded-card border border-border p-5 space-y-4">
         <h2 className={sectionHead}>Knockout Match Scoring</h2>
         <p className="text-fg-muted text-sm">Per match, before the round multiplier:</p>
         <ul className="text-fg-secondary text-sm space-y-2 list-disc list-inside">
-          <li><span className="font-semibold text-fg">5 points</span> — correct advancing team (who actually progresses, including after extra time / penalties)</li>
-          <li><span className="font-semibold text-fg">+3 points</span> — exact 90-minute score bonus (normal time only)</li>
+          <li><span className="font-semibold text-fg">5 points</span>: correct advancing team (who actually progresses, including after extra time / penalties)</li>
+          <li><span className="font-semibold text-fg">+3 points</span>: exact 90-minute score bonus (normal time only)</li>
         </ul>
 
         <h3 className="text-sm font-semibold text-fg mt-2">Round multipliers</h3>
@@ -105,7 +137,7 @@ export function RulesPage() {
         </div>
       </section>
 
-      <section className="space-y-3">
+      <section className="bg-surface rounded-card border border-border p-5 space-y-3">
         <h2 className={sectionHead}>Champion</h2>
         <p className="text-fg-secondary text-sm leading-relaxed">
           <span className="font-semibold text-fg">100 points</span> if your predicted champion
@@ -116,10 +148,10 @@ export function RulesPage() {
         </p>
       </section>
 
-      <section className="space-y-4">
+      <section className="bg-surface rounded-card border border-border p-5 space-y-4">
         <h2 className={sectionHead}>Golden Six (top scorers)</h2>
         <p className="text-fg-secondary text-sm leading-relaxed">
-          Pick exactly 6 players as your top-scorer team. Picks are fully independent — any player,
+          Pick exactly 6 players as your top-scorer team. Picks are fully independent: any player,
           no per-team restriction, duplicates across members allowed. Locked at first kickoff.
         </p>
 
@@ -146,10 +178,10 @@ export function RulesPage() {
         </div>
       </section>
 
-      <section className="space-y-3">
+      <section className="bg-surface rounded-card border border-border p-5 space-y-3">
         <h2 className={sectionHead}>Locks &amp; Visibility</h2>
         <ul className="text-fg-secondary text-sm space-y-2 list-disc list-inside leading-relaxed">
-          <li>Each match locks at its own kickoff (server time) — predictions cannot be edited after that.</li>
+          <li>Each match locks at its own kickoff (server time); predictions cannot be edited after that.</li>
           <li>Champion and Golden Six lock at the first kickoff: <span className="font-medium text-fg">11 June 2026</span>.</li>
           <li>Another member's prediction for a match becomes visible only after that match has locked.</li>
         </ul>

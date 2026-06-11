@@ -54,33 +54,39 @@ public class FootballApiClient : IFootballApiClient
     }
 
     /// <summary>
-    /// Returns all group-stage fixtures (league=1, season=2026) regardless of status.
-    /// Used to detect live windows and check which fixtures need ingesting.
+    /// Returns all fixtures scheduled on the given UTC date (league=1, season=2026).
+    /// Replaces the full-season fetch — a single date returns at most 5–6 fixtures,
+    /// keeping each polling cycle cheap regardless of poll interval.
     /// </summary>
-    public async Task<IReadOnlyList<ApiFixture>> GetAllGroupFixturesAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<ApiFixture>> GetFixturesByDateAsync(DateOnly date, CancellationToken ct = default)
+    {
+        return await FetchFixturesAsync($"fixtures?league={LeagueId}&season={Season}&date={date:yyyy-MM-dd}", ct);
+    }
+
+    /// <summary>
+    /// Returns all fixtures for the full 2026 season (league=1) in one call — 104 fixtures
+    /// covering group stage + all knockout rounds. Used for the one-time backfill of
+    /// FootballApiFixtureId values; not used in the regular polling cycle.
+    /// Costs 1 API request against the daily quota.
+    /// </summary>
+    public async Task<IReadOnlyList<ApiFixture>> GetAllFixturesForSeasonAsync(CancellationToken ct = default)
     {
         return await FetchFixturesAsync($"fixtures?league={LeagueId}&season={Season}", ct);
     }
 
     /// <summary>
-    /// Returns only fixtures with status FT (full time) for the group stage.
-    /// Convenience wrapper for callers that only need completed matches.
+    /// Returns all match events (goals, cards, substitutions, VAR decisions) for a given fixture
+    /// in a single request. Each event carries a <see cref="ApiMatchEvent.Type"/> field
+    /// ("Goal", "Card", "subst", "Var") so callers can split by category locally.
+    /// Replaces the four typed calls — saves 3 API requests per completed fixture.
     /// </summary>
-    public async Task<IReadOnlyList<ApiFixture>> GetCompletedGroupFixturesAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<ApiMatchEvent>> GetAllEventsAsync(int fixtureId, CancellationToken ct = default)
     {
-        return await FetchFixturesAsync($"fixtures?league={LeagueId}&season={Season}&status=FT", ct);
-    }
-
-    /// <summary>
-    /// Returns all goal events for a given API fixture ID.
-    /// </summary>
-    public async Task<IReadOnlyList<ApiGoalEvent>> GetGoalEventsAsync(int fixtureId, CancellationToken ct = default)
-    {
-        var response = await _http.GetAsync($"fixtures/events?fixture={fixtureId}&type=Goal", ct);
+        var response = await _http.GetAsync($"fixtures/events?fixture={fixtureId}", ct);
         response.EnsureSuccessStatusCode();
 
         var body = await response.Content.ReadAsStringAsync(ct);
-        var wrapper = JsonSerializer.Deserialize<ApiResponse<ApiGoalEvent>>(body, JsonOptions);
+        var wrapper = JsonSerializer.Deserialize<ApiResponse<ApiMatchEvent>>(body, JsonOptions);
 
         return wrapper?.Response ?? [];
     }
@@ -100,15 +106,21 @@ public class FootballApiClient : IFootballApiClient
             .Where(w => w.Fixture != null)
             .Select(w => new ApiFixture
             {
-                FixtureId   = w.Fixture!.Id,
-                Date        = w.Fixture.Date,
-                StatusShort = w.Fixture.Status?.Short ?? "NS",
+                FixtureId      = w.Fixture!.Id,
+                Date           = w.Fixture.Date,
+                StatusShort    = w.Fixture.Status?.Short ?? "NS",
+                StatusElapsed  = w.Fixture.Status?.Elapsed,
+                StatusExtra    = w.Fixture.Status?.Extra,
                 HomeTeamId  = w.Teams?.Home?.Id ?? 0,
                 HomeTeamName = w.Teams?.Home?.Name ?? string.Empty,
                 AwayTeamId  = w.Teams?.Away?.Id ?? 0,
                 AwayTeamName = w.Teams?.Away?.Name ?? string.Empty,
-                HomeGoals   = w.Goals?.Home,
-                AwayGoals   = w.Goals?.Away,
+                HomeGoals         = w.Goals?.Home,
+                AwayGoals         = w.Goals?.Away,
+                ScoreFullTimeHome = w.Score?.Fulltime?.Home,
+                ScoreFullTimeAway = w.Score?.Fulltime?.Away,
+                ScorePenaltyHome  = w.Score?.Penalty?.Home,
+                ScorePenaltyAway  = w.Score?.Penalty?.Away,
             })
             .ToList();
     }
@@ -134,8 +146,20 @@ public sealed class ApiFixture
     public string   HomeTeamName { get; set; } = string.Empty;
     public int      AwayTeamId   { get; set; }
     public string   AwayTeamName { get; set; } = string.Empty;
-    public int?     HomeGoals    { get; set; }
-    public int?     AwayGoals    { get; set; }
+    /// <summary>Running total goals at the current moment (includes ET goals, excludes penalty shootout).</summary>
+    public int?     HomeGoals           { get; set; }
+    public int?     AwayGoals           { get; set; }
+    /// <summary>90-minute score from score.fulltime — null while the match is still in progress.</summary>
+    public int?     ScoreFullTimeHome   { get; set; }
+    public int?     ScoreFullTimeAway   { get; set; }
+    /// <summary>Penalty shootout score from score.penalty — non-null when StatusShort is "P" or "PEN".</summary>
+    public int?     ScorePenaltyHome    { get; set; }
+    public int?     ScorePenaltyAway    { get; set; }
+
+    /// <summary>Elapsed match minute from the API's status.elapsed (null when not live).</summary>
+    public int? StatusElapsed { get; set; }
+    /// <summary>Stoppage-time extra minutes from status.extra (e.g. 2 for "45+2'").</summary>
+    public int? StatusExtra { get; set; }
 
     /// <summary>Returns true if this fixture is finished (FT, PEN, or AET).</summary>
     public bool IsFullTime => StatusShort is "FT" or "PEN" or "AET";
@@ -144,32 +168,64 @@ public sealed class ApiFixture
     public bool IsLive => StatusShort is "1H" or "HT" or "2H" or "ET" or "BT" or "P";
 }
 
-/// <summary>Goal event returned from /fixtures/events.</summary>
-public sealed class ApiGoalEvent
+/// <summary>
+/// A single match event returned from /fixtures/events (no type filter applied).
+/// The <see cref="Type"/> field discriminates the four categories; use the IsGoal / IsCard /
+/// IsSub / IsVar helpers to split after a single fetch rather than making four typed calls.
+/// API quirk for substitutions: <see cref="Player"/> = player going OFF, <see cref="Assist"/> = player coming ON.
+/// </summary>
+public sealed class ApiMatchEvent
 {
+    /// <summary>Event category: "Goal", "Card", "subst", "Var".</summary>
+    [JsonPropertyName("type")]
+    public string? Type { get; set; }
+
     [JsonPropertyName("time")]
     public ApiTime? Time { get; set; }
 
+    [JsonPropertyName("team")]
+    public ApiTeam? Team { get; set; }
+
+    /// <summary>For goals/cards/VAR: the player involved. For subs: the player going OFF.</summary>
     [JsonPropertyName("player")]
     public ApiPlayer? Player { get; set; }
+
+    /// <summary>For subs: the player coming ON (API reuses the assist field).</summary>
+    [JsonPropertyName("assist")]
+    public ApiPlayer? Assist { get; set; }
 
     [JsonPropertyName("detail")]
     public string? Detail { get; set; }
 
-    /// <summary>
-    /// "Normal Goal" → OpenPlay
-    /// "Penalty"      → PenaltyInMatch
-    /// "Own Goal"     → OwnGoal
-    /// Anything else  → OpenPlay (safe fallback)
-    /// </summary>
+    // ── Type discriminators ──────────────────────────────────────────────────
+    public bool IsGoal => string.Equals(Type, "Goal",  StringComparison.OrdinalIgnoreCase);
+    public bool IsCard => string.Equals(Type, "Card",  StringComparison.OrdinalIgnoreCase);
+    public bool IsSub  => string.Equals(Type, "subst", StringComparison.OrdinalIgnoreCase);
+    public bool IsVar  => string.Equals(Type, "Var",   StringComparison.OrdinalIgnoreCase);
+
+    // ── Goal detail helpers ──────────────────────────────────────────────────
     public bool IsOwnGoal => string.Equals(Detail, "Own Goal", StringComparison.OrdinalIgnoreCase);
-    public bool IsPenalty => string.Equals(Detail, "Penalty", StringComparison.OrdinalIgnoreCase);
+    public bool IsPenalty => string.Equals(Detail, "Penalty",  StringComparison.OrdinalIgnoreCase);
+
+    // ── Card detail helpers ──────────────────────────────────────────────────
+    public bool IsYellow       => string.Equals(Detail, "Yellow Card",   StringComparison.OrdinalIgnoreCase);
+    public bool IsSecondYellow => string.Equals(Detail, "Second Yellow", StringComparison.OrdinalIgnoreCase);
+    public bool IsRed          => string.Equals(Detail, "Red Card",      StringComparison.OrdinalIgnoreCase);
+
+    // ── VAR detail helpers ───────────────────────────────────────────────────
+    public bool IsGoalCancelled     => string.Equals(Detail, "Goal cancelled",              StringComparison.OrdinalIgnoreCase);
+    public bool IsCardUpgradeRed    => string.Equals(Detail, "Card Upgrade - Red Card",      StringComparison.OrdinalIgnoreCase);
+    public bool IsCardUpgrade2ndYel => string.Equals(Detail, "Card Upgrade - Second Yellow", StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed class ApiTime
 {
     [JsonPropertyName("elapsed")]
     public int Elapsed { get; set; }
+
+    /// <summary>Stoppage-time minutes within the period (e.g. 2 for "45+2").</summary>
+    [JsonPropertyName("extra")]
+    public int? Extra { get; set; }
 }
 
 public sealed class ApiPlayer
@@ -193,6 +249,9 @@ internal sealed class ApiFixtureWrapper
 
     [JsonPropertyName("goals")]
     public ApiGoals? Goals { get; set; }
+
+    [JsonPropertyName("score")]
+    public ApiScore? Score { get; set; }
 }
 
 internal sealed class ApiFixtureDetail
@@ -211,6 +270,12 @@ internal sealed class ApiStatus
 {
     [JsonPropertyName("short")]
     public string? Short { get; set; }
+
+    [JsonPropertyName("elapsed")]
+    public int? Elapsed { get; set; }
+
+    [JsonPropertyName("extra")]
+    public int? Extra { get; set; }
 }
 
 internal sealed class ApiTeams
@@ -222,7 +287,7 @@ internal sealed class ApiTeams
     public ApiTeam? Away { get; set; }
 }
 
-internal sealed class ApiTeam
+public sealed class ApiTeam
 {
     [JsonPropertyName("id")]
     public int Id { get; set; }
@@ -232,6 +297,24 @@ internal sealed class ApiTeam
 }
 
 internal sealed class ApiGoals
+{
+    [JsonPropertyName("home")]
+    public int? Home { get; set; }
+
+    [JsonPropertyName("away")]
+    public int? Away { get; set; }
+}
+
+internal sealed class ApiScore
+{
+    [JsonPropertyName("fulltime")]
+    public ApiScoreEntry? Fulltime { get; set; }
+
+    [JsonPropertyName("penalty")]
+    public ApiScoreEntry? Penalty { get; set; }
+}
+
+internal sealed class ApiScoreEntry
 {
     [JsonPropertyName("home")]
     public int? Home { get; set; }

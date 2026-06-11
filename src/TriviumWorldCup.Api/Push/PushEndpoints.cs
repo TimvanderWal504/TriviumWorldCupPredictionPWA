@@ -20,7 +20,9 @@ public static class PushEndpoints
         // GET /push/vapid-public-key — unauthenticated; browser needs this to call PushManager.subscribe
         group.MapGet("/vapid-public-key", (IConfiguration config) =>
         {
-            var publicKey = config["Push:VapidPublicKey"] ?? string.Empty;
+            // Strip all whitespace — Azure / Windows env vars can embed \r or \n in the value.
+            var publicKey = System.Text.RegularExpressions.Regex.Replace(
+                config["Push:VapidPublicKey"] ?? string.Empty, @"\s", "");
             return Results.Ok(new { publicKey });
         })
         .WithName("GetVapidPublicKey")

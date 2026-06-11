@@ -20,18 +20,20 @@ public static class KnockoutSlotEndpoints
                 .ToListAsync(ct);
 
             var dtos = slots.Select(s => new KnockoutSlotDto(
-                SlotKey:      s.SlotKey,
-                Round:        s.Round.ToString(),
-                SlotNumber:   s.SlotNumber,
-                HomeTeamId:   s.HomeTeamId,
-                AwayTeamId:   s.AwayTeamId,
-                KickoffUtc:   s.KickoffUtc,
-                Venue:        s.Venue,
-                City:         s.City,
-                Status:       s.Status.ToString(),
-                HomeScore:    s.HomeScore,
-                AwayScore:    s.AwayScore,
-                WinnerTeamId: s.WinnerTeamId
+                SlotKey:           s.SlotKey,
+                Round:             s.Round.ToString(),
+                SlotNumber:        s.SlotNumber,
+                HomeTeamId:        s.HomeTeamId,
+                AwayTeamId:        s.AwayTeamId,
+                KickoffUtc:        s.KickoffUtc,
+                Venue:             s.Venue,
+                City:              s.City,
+                Status:            s.Status.ToString(),
+                HomeScore:         s.HomeScore,
+                AwayScore:         s.AwayScore,
+                PenaltyHomeScore:  s.PenaltyHomeScore,
+                PenaltyAwayScore:  s.PenaltyAwayScore,
+                WinnerTeamId:      s.WinnerTeamId
             ));
 
             return Results.Ok(dtos);
@@ -57,4 +59,6 @@ public sealed record KnockoutSlotDto(
     string Status,
     int? HomeScore,
     int? AwayScore,
+    int? PenaltyHomeScore,
+    int? PenaltyAwayScore,
     string? WinnerTeamId);

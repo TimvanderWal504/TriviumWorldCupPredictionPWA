@@ -6,7 +6,10 @@ interface KnockoutSlotDto {
   slotKey: string; round: string; slotNumber: number;
   homeTeamId: string | null; awayTeamId: string | null;
   kickoffUtc: string | null; venue: string | null; city: string | null;
-  status: string; homeScore: number | null; awayScore: number | null; winnerTeamId: string | null;
+  status: string;
+  homeScore: number | null; awayScore: number | null;
+  penaltyHomeScore: number | null; penaltyAwayScore: number | null;
+  winnerTeamId: string | null;
 }
 interface KnockoutPredictionDto {
   slotKey: string; predictedWinnerTeamId: string;
@@ -91,15 +94,26 @@ function SlotCard({ slot, prediction, onSaved }: SlotCardProps) {
     } else { setError(result.error ?? 'Save failed.'); }
   };
 
-  const cardBorderColor = unpredicted ? 'var(--secondary)' : 'var(--border)';
-  const cardOpacity = locked && !teamsKnown ? 0.6 : locked ? 0.8 : 1;
+  const isLiveET  = slot.status === 'ExtraTime';
+  const isLivePen = slot.status === 'PenaltyShootout';
+  const isLive    = slot.status === 'InProgress' || isLiveET || isLivePen;
+  const wonOnPens = slot.penaltyHomeScore !== null && slot.penaltyAwayScore !== null;
+  // Match went to AET when: 90-min draw, winner decided, no penalty scores stored
+  const wentToAet = hasResult && slot.homeScore === slot.awayScore
+                 && slot.winnerTeamId !== null && !wonOnPens;
+
+  const cardBorderColor = unpredicted ? 'var(--secondary)' : isLive ? 'var(--live)' : 'var(--border)';
+  const cardOpacity = locked && !teamsKnown ? 0.6 : locked && !isLive ? 0.8 : 1;
 
   return (
     <div className="rounded-card bg-surface p-4 flex flex-col gap-2.5 border" style={{ borderColor: cardBorderColor, opacity: cardOpacity }}>
       <div className="flex items-center justify-between text-[11px] text-fg-muted">
         <span className="font-mono">{slot.slotKey}{slot.venue ? ` · ${slot.venue}` : ''}</span>
         <div className="flex items-center gap-1.5">
-          {locked && teamsKnown && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-surface-3 text-fg-muted">Locked</span>}
+          {isLivePen && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md" style={{ background: 'var(--live-soft)', color: 'var(--live)' }}>PEN</span>}
+          {isLiveET  && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md" style={{ background: 'var(--live-soft)', color: 'var(--live)' }}>ET</span>}
+          {isLive && !isLiveET && !isLivePen && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md" style={{ background: 'var(--live-soft)', color: 'var(--live)' }}>LIVE</span>}
+          {locked && !isLive && teamsKnown && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-surface-3 text-fg-muted">Locked</span>}
           {unpredicted && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md" style={{ background: 'var(--win-soft)', color: 'var(--win)' }}>Unpredicted</span>}
         </div>
       </div>
@@ -108,22 +122,33 @@ function SlotCard({ slot, prediction, onSaved }: SlotCardProps) {
         <Clock size={12} />{formatKickoff(slot.kickoffUtc)}
       </div>
 
-      {!teamsKnown && <p className="text-fg-muted text-sm italic">TBD vs TBD — bracket not yet set</p>}
+      {!teamsKnown && <p className="text-fg-muted text-sm italic">TBD vs TBD (bracket not yet set)</p>}
 
       {teamsKnown && (
         <>
-          {hasResult && locked && (
+          {hasResult && (locked || isLive) && (
             <div className="flex flex-col gap-2 py-1">
               {[
-                { id: slot.homeTeamId!, score: slot.homeScore, win: slot.winnerTeamId === slot.homeTeamId },
-                { id: slot.awayTeamId!, score: slot.awayScore, win: slot.winnerTeamId === slot.awayTeamId },
-              ].map(({ id, score, win }) => (
+                { id: slot.homeTeamId!, score: slot.homeScore, penScore: slot.penaltyHomeScore, win: slot.winnerTeamId === slot.homeTeamId },
+                { id: slot.awayTeamId!, score: slot.awayScore, penScore: slot.penaltyAwayScore, win: slot.winnerTeamId === slot.awayTeamId },
+              ].map(({ id, score, penScore, win }) => (
                 <div key={id} className={`flex items-center gap-2.5 ${win ? '' : 'opacity-55'}`}>
                   {flagUrl(id) && <img src={flagUrl(id)} alt="" width={22} height={15} className="flag shrink-0" />}
                   <span className={`flex-1 font-mono font-semibold text-sm ${win ? '' : 'text-fg-muted'}`} style={win ? { color: 'var(--win)' } : {}}>{id}</span>
-                  <span className={`font-display font-bold tnum ${win ? 'text-fg' : 'text-fg-muted'}`}>{score}</span>
+                  <span className={`font-display font-bold tnum ${win ? 'text-fg' : 'text-fg-muted'}`}>
+                    {score}
+                    {wonOnPens && penScore !== null && (
+                      <span className="text-[11px] font-normal text-fg-muted ml-1">({penScore})</span>
+                    )}
+                  </span>
                 </div>
               ))}
+              {wentToAet && (
+                <p className="text-[11px] text-fg-muted">After extra time</p>
+              )}
+              {wonOnPens && (
+                <p className="text-[11px] text-fg-muted">Won on penalties</p>
+              )}
             </div>
           )}
 
@@ -163,7 +188,7 @@ function SlotCard({ slot, prediction, onSaved }: SlotCardProps) {
                 ].map(({ v, set, label }, i) => (
                   <>
                     {i === 1 && <span className="text-fg-muted font-bold">–</span>}
-                    <input key={label} type="number" min={0} max={99} placeholder="—" value={v}
+                    <input key={label} type="number" min={0} max={99} placeholder="0" value={v}
                       onChange={e => set(e.target.value)} aria-label={label}
                       className="w-12 text-center font-display font-bold tnum bg-surface-2 rounded-input py-1 border border-border" />
                   </>
@@ -227,10 +252,10 @@ export function KnockoutBracketPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-4">
-      <p className="text-[13px] text-fg-secondary mb-3 leading-relaxed">
+      <div className="rounded-card bg-surface border border-border px-4 py-3 mb-3 text-[13px] text-fg-secondary leading-relaxed">
         Pick the advancing team for each match. Optional 90-min score earns a bonus.
         Predictions lock at kickoff. Slots open once both teams are determined.
-      </p>
+      </div>
 
       <div className="flex gap-1.5 overflow-x-auto appscroll pb-3" role="tablist">
         {presentRounds.map(round => (

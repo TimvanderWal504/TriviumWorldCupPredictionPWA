@@ -1,18 +1,20 @@
 import { type APIRequestContext } from '@playwright/test';
 import { type UserKey, USERS, apiLogin } from './auth.js';
 
+export { apiLogin };
+
 /**
  * API_BASE: the base URL for direct API calls from the seed helpers.
  *
  * In Docker Compose mode the web container (nginx) proxies /e2e/* to the API.
  * BASE_URL should be http://localhost:80 (or http://localhost for nginx).
  * In Vite dev mode Vite proxies /e2e/* to localhost:8080.
- * BASE_URL defaults to http://localhost:5173 for the browser, but API_BASE
+ * BASE_URL defaults to http://localhost:64505 for the browser, but API_BASE
  * follows the same root so the proxy routes work.
  *
  * Override with API_BASE env var if the API is exposed directly on a different port.
  */
-const API_BASE = process.env['API_BASE'] ?? process.env['BASE_URL'] ?? 'http://localhost:5173';
+const API_BASE = 'http://localhost:64505';
 
 /**
  * Resets all user-authored data: predictions, profiles, scores, goal events.
@@ -119,14 +121,103 @@ export async function injectResult(
 }
 
 /**
- * Convenience: reset DB, seed profiles for all five seeded users.
+ * Seeds an InviteUser document so the link auth provider can authenticate them.
+ * Idempotent — safe to call on every test run; upserts if the user already exists.
+ * Must be called before any loginAs() for that user.
+ *
+ * @param request     - Playwright APIRequestContext
+ * @param user        - key from USERS (e.g. 'alice')
+ */
+export async function seedInviteUser(
+  request: APIRequestContext,
+  user: UserKey,
+): Promise<void> {
+  const u = USERS[user];
+  const resp = await request.post(`${API_BASE}/e2e/seed/invite-user`, {
+    data: {
+      userId:      u.id,
+      displayName: u.name,
+      roles:       [...u.roles],
+    },
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!resp.ok()) {
+    throw new Error(`seedInviteUser("${user}") failed: HTTP ${resp.status()}`);
+  }
+}
+
+/**
+ * Sets a fixture to InProgress with optional live scores.
+ * Does NOT trigger scoring recompute — use injectResult() to complete the match.
+ */
+export async function setFixtureInProgress(
+  request: APIRequestContext,
+  fixtureId: string,
+  homeScore: number | null = null,
+  awayScore: number | null = null,
+): Promise<void> {
+  const resp = await request.post(`${API_BASE}/e2e/fixtures/${fixtureId}/inprogress`, {
+    data: { homeScore, awayScore },
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!resp.ok()) {
+    throw new Error(
+      `setFixtureInProgress("${fixtureId}", ${homeScore}-${awayScore}) failed: HTTP ${resp.status()}`,
+    );
+  }
+}
+
+/**
+ * Injects a GoalEvent for a fixture without triggering scoring recompute.
+ * Intended for InProgress fixture tests — populates the goal list on the live page.
+ *
+ * @param playerId - UUID string matching an existing Player document
+ * @param minute   - goal minute (1–120)
+ * @param type     - "OpenPlay" | "PenaltyInMatch" | "OwnGoal" | "Shootout" (defaults to "OpenPlay")
+ */
+export async function injectGoal(
+  request: APIRequestContext,
+  fixtureId: string,
+  playerId: string,
+  minute: number,
+  type?: string,
+): Promise<void> {
+  const resp = await request.post(`${API_BASE}/e2e/fixtures/${fixtureId}/goal`, {
+    data: { playerId, minute, type: type ?? 'OpenPlay' },
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!resp.ok()) {
+    throw new Error(
+      `injectGoal("${fixtureId}", minute=${minute}) failed: HTTP ${resp.status()}`,
+    );
+  }
+}
+
+/**
+ * Returns the UUID of the first player from GET /players (no auth required).
+ * Useful for injecting goal events without hardcoding a player ID.
+ */
+export async function getAnyPlayerId(request: APIRequestContext): Promise<string> {
+  const resp = await request.get(`${API_BASE}/players`);
+  if (!resp.ok()) {
+    throw new Error(`getAnyPlayerId() failed: HTTP ${resp.status()}`);
+  }
+  const players = (await resp.json()) as Array<{ id: string }>;
+  if (players.length === 0) throw new Error('No players found in the database');
+  return players[0].id;
+}
+
+/**
+ * Convenience: reset DB, seed InviteUsers and profiles for all five test users.
  * Suitable as a beforeAll for most suites.
+ *
+ * InviteUsers survive resetDb (they are the identity layer, not user-generated data),
+ * but we re-seed them here anyway to ensure idempotency across full DB wipes.
  */
 export async function resetAndSeedAllProfiles(request: APIRequestContext): Promise<void> {
   await resetDb(request);
   for (const key of ['alice', 'bob', 'charlie', 'diana', 'evan'] as UserKey[]) {
+    await seedInviteUser(request, key);
     await seedProfile(request, key);
   }
 }
-
-export { apiLogin };

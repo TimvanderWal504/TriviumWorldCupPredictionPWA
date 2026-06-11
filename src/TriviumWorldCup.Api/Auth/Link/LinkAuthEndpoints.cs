@@ -3,6 +3,9 @@ using TriviumWorldCup.Api.Domain;
 
 namespace TriviumWorldCup.Api.Auth.Link;
 
+file record SignupRequest(string? Email);
+file record LoginRequest(string? Email, string? Token);
+
 /// <summary>
 /// Auth endpoints for the link-based identity provider.
 /// GET /auth/link/login?id=  — validates the login key, issues a session cookie, redirects to /.
@@ -13,6 +16,92 @@ public static class LinkAuthEndpoints
 {
     public static IEndpointRouteBuilder MapLinkAuthEndpoints(this IEndpointRouteBuilder routes)
     {
+        // POST /auth/link/signup
+        // Body: { email }
+        // Creates an InviteUser for allowed email domains; returns { token } once.
+        routes.MapPost("/auth/link/signup", async (
+            SignupRequest request,
+            IConfiguration config,
+            IDocumentStore store,
+            CancellationToken ct) =>
+        {
+            var email = request.Email?.Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
+                return Results.BadRequest(new { error = "A valid email address is required." });
+
+            var domain = email.Split('@')[1];
+            var allowedDomains = config.GetSection("Auth:Link:AllowedDomains").Get<string[]>() ?? [];
+            if (allowedDomains.Length == 0 || !allowedDomains.Contains(domain, StringComparer.OrdinalIgnoreCase))
+                return Results.UnprocessableEntity(new { error = "This email domain is not authorised for sign-up." });
+
+            await using var session = store.LightweightSession();
+            var existing = await session.Query<InviteUser>()
+                .Where(u => u.Email == email)
+                .FirstOrDefaultAsync(ct);
+
+            if (existing is not null)
+                return Results.Conflict(new { error = "An account for this email address already exists." });
+
+            var localPart = email.Split('@')[0];
+            var displayName = char.ToUpperInvariant(localPart[0]) + localPart[1..];
+            var newUser = new InviteUser
+            {
+                Id          = Guid.NewGuid().ToString(),
+                Email       = email,
+                DisplayName = displayName,
+                CreatedAt   = DateTimeOffset.UtcNow,
+            };
+            session.Store(newUser);
+            await session.SaveChangesAsync(ct);
+
+            return Results.Ok(new { token = newUser.Id });
+        })
+        .WithName("LinkSignup")
+        .WithTags("auth-link")
+        .WithSummary("Self-service signup — creates an InviteUser for an allowed email domain and returns the token once.")
+        .AllowAnonymous();
+
+        // POST /auth/link/login
+        // Body: { email, token }
+        // Looks up the user by email, verifies the token (= GUID Id), issues session cookie.
+        routes.MapPost("/auth/link/login", async (
+            LoginRequest request,
+            HttpContext context,
+            IDocumentStore store,
+            CancellationToken ct) =>
+        {
+            var email = request.Email?.Trim().ToLowerInvariant();
+            var token = request.Token?.Trim();
+
+            if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(token))
+                return Results.BadRequest(new { error = "Email address and token are required." });
+
+            await using var session = store.LightweightSession();
+            var user = await session.Query<InviteUser>()
+                .Where(u => u.Email == email)
+                .FirstOrDefaultAsync(ct);
+
+            if (user is null || user.Id != token)
+                return Results.Unauthorized();
+
+            context.Response.Cookies.Append(
+                LinkIdentityProvider.CookieName,
+                user.Id,
+                new CookieOptions
+                {
+                    HttpOnly = true,
+                    SameSite = SameSiteMode.Lax,
+                    Secure   = context.Request.IsHttps,
+                    MaxAge   = TimeSpan.FromDays(30),
+                });
+
+            return Results.Ok(new { authenticated = true });
+        })
+        .WithName("LinkFormLogin")
+        .WithTags("auth-link")
+        .WithSummary("Form login — validates email + token and issues a 30-day session cookie.")
+        .AllowAnonymous();
+
         // GET /auth/link/login?id=<userId>
         // On success: sets HttpOnly session cookie, redirects to /.
         // On failure: redirects to / without cookie — React app shows the login screen.

@@ -9,31 +9,48 @@ import { type Page, type Locator } from '@playwright/test';
 export class LiveScoresPage {
   readonly page: Page;
 
-  /** Page heading. */
+  /** Page heading rendered in the app shell. */
   readonly heading: Locator;
 
-  /** Empty-state message shown when no live fixtures. */
+  /** Empty-state message shown when no live fixtures and liveWindowActive=false. */
   readonly emptyState: Locator;
 
+  /** "Live updates every 20s" indicator — visible only when liveWindowActive=true. */
+  readonly liveIndicator: Locator;
+
   constructor(page: Page) {
-    this.page       = page;
-    this.heading    = page.getByRole('heading', { name: 'Live Scores' });
-    this.emptyState = page.locator('text=No matches currently live');
+    this.page          = page;
+    this.heading       = page.getByRole('heading', { name: 'Live Scores' });
+    this.emptyState    = page.locator('text=No matches currently live');
+    this.liveIndicator = page.locator('text=Live updates every 20s');
   }
 
-  /** Wait until the live scores page is loaded. */
+  /** Wait until the initial fetch completes (loading spinner is gone). */
   async waitForLoad(): Promise<void> {
     await this.page.waitForFunction(
-      () =>
-        !document.body.innerText.includes('Loading…') &&
-        (document.body.innerText.includes('Live Scores') ||
-          document.body.innerText.includes('No live matches')),
+      () => !document.body.innerText.includes('Loading live scores'),
       { timeout: 15_000 },
     );
   }
 
-  /** Returns the live fixture cards. */
+  /**
+   * The LIVE status badge element — present when at least one fixture is InProgress.
+   * Uses .first() because each live card renders its own badge.
+   */
+  liveBadge(): Locator {
+    return this.page.getByText('LIVE').first();
+  }
+
+  /**
+   * The fixture card that contains the LIVE badge.
+   * Suitable for scoped assertions (score, goal entries) within a single live match.
+   */
+  liveFixtureCard(): Locator {
+    return this.page.locator('.rounded-card').filter({ hasText: 'LIVE' }).first();
+  }
+
+  /** All visible fixture cards (InProgress, Completed, or Scheduled within the live window). */
   fixtureCards(): Locator {
-    return this.page.locator('.rounded-xl').filter({ hasText: /InProgress|Completed/ });
+    return this.page.locator('.rounded-card');
   }
 }

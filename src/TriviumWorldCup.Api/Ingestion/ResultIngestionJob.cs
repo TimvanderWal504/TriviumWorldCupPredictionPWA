@@ -12,7 +12,7 @@ namespace TriviumWorldCup.Api.Ingestion;
 /// and goal events in Marten, then triggers a scoring recompute.
 ///
 /// Scheduling strategy (single-trigger, adaptive):
-///   - Job runs every 90 seconds unconditionally.
+///   - Job runs every 30 seconds unconditionally.
 ///   - At the start of each execution, the job checks whether any fixture is in a
 ///     "live window" (KickoffUtc within the last 3 hours OR in the next 30 minutes).
 ///   - If no live window is detected, the job performs a lightweight check for any
@@ -57,11 +57,57 @@ public class ResultIngestionJob(
         statusStore.LastAttemptedPoll = DateTimeOffset.UtcNow;
         statusStore.TotalPollCount++;
 
-        // ── 1. Fetch current status of all group-stage fixtures from API ──────
+        // ── 1. Check local DB for live window — no API call unless a match is on ─
+        // The fixture seed data has all kickoff times, so we can determine the live
+        // window entirely from our own DB without spending a Football API request.
+        var now = DateTimeOffset.UtcNow;
+        var liveWindowStart = now.AddHours(-3);
+        var liveWindowEnd   = now.AddMinutes(30);
+
+        await using var checkSession = store.LightweightSession();
+        var anyLiveInDb = await checkSession
+            .Query<Fixture>()
+            .Where(f => f.Status != MatchStatus.Completed
+                     && f.Status != MatchStatus.Cancelled
+                     && f.KickoffUtc >= liveWindowStart
+                     && f.KickoffUtc <= liveWindowEnd)
+            .AnyAsync(ct);
+
+        // Also check knockout slots — during the knockout phase all group Fixtures are
+        // Completed so the query above returns false even when a knockout match is live.
+        if (!anyLiveInDb)
+        {
+            anyLiveInDb = await checkSession
+                .Query<KnockoutSlot>()
+                .Where(s => s.Status != MatchStatus.Completed
+                         && s.Status != MatchStatus.Cancelled
+                         && s.KickoffUtc != null
+                         && s.KickoffUtc >= liveWindowStart
+                         && s.KickoffUtc <= liveWindowEnd)
+                .AnyAsync(ct);
+        }
+
+        if (!anyLiveInDb)
+        {
+            logger.LogDebug("ResultIngestionJob: no fixtures in live window — skipping API call");
+            return;
+        }
+
+        // ── 2. Fetch fixtures for the relevant UTC date(s) from API ──────────
+        // Fetch by date instead of the full season to keep each call cheap (max 5–6
+        // fixtures returned). The live window can span two UTC dates when a match
+        // kicks off close to midnight UTC, so we fetch both dates in that case.
         IReadOnlyList<ApiFixture> allApiFixtures;
         try
         {
-            allApiFixtures = await apiClient.GetAllGroupFixturesAsync(ct);
+            var today          = DateOnly.FromDateTime(now.UtcDateTime);
+            var windowStartDay = DateOnly.FromDateTime(liveWindowStart.UtcDateTime);
+            allApiFixtures = await apiClient.GetFixturesByDateAsync(today, ct);
+            if (windowStartDay != today)
+            {
+                var prev = await apiClient.GetFixturesByDateAsync(windowStartDay, ct);
+                allApiFixtures = [..allApiFixtures, ..prev];
+            }
         }
         catch (Exception ex)
         {
@@ -77,17 +123,7 @@ public class ResultIngestionJob(
             return;
         }
 
-        // ── 2. Check for live window ──────────────────────────────────────────
-        var now = DateTimeOffset.UtcNow;
-        var liveWindowStart = now.AddHours(-3);
-        var liveWindowEnd   = now.AddMinutes(30);
-
-        var anyLive = allApiFixtures.Any(f =>
-        {
-            if (f.IsLive) return true;
-            if (!DateTimeOffset.TryParse(f.Date, out var kickoff)) return false;
-            return kickoff >= liveWindowStart && kickoff <= liveWindowEnd;
-        });
+        var anyLive = allApiFixtures.Any(f => f.IsLive);
 
         // ── 3. Load already-completed fixtures from Marten ───────────────────
         await using var session = store.LightweightSession();
@@ -173,31 +209,65 @@ public class ResultIngestionJob(
                 continue;
             }
 
-            // Update fixture scores and status
-            dbFixture.HomeScore = apiFixture.HomeGoals;
-            dbFixture.AwayScore = apiFixture.AwayGoals;
-            dbFixture.Status    = MatchStatus.Completed;
+            // Update fixture scores, status, and API fixture ID
+            dbFixture.HomeScore            = apiFixture.HomeGoals;
+            dbFixture.AwayScore            = apiFixture.AwayGoals;
+            dbFixture.Status               = MatchStatus.Completed;
+            dbFixture.ElapsedMinute        = null;
+            dbFixture.ElapsedExtra         = null;
+            dbFixture.FootballApiFixtureId ??= apiFixture.FixtureId;
             session.Store(dbFixture);
 
-            // Fetch and persist goal events
-            IReadOnlyList<ApiGoalEvent> goalEvents;
+            // Fetch all events in one request (goals, cards, subs, VAR) then split locally.
+            // Saves 3 API requests per completed fixture vs. calling /fixtures/events four times
+            // with separate type= filters.
+            IReadOnlyList<ApiMatchEvent> allEvents;
             try
             {
-                goalEvents = await apiClient.GetGoalEventsAsync(apiFixture.FixtureId, ct);
+                allEvents = await apiClient.GetAllEventsAsync(apiFixture.FixtureId, ct);
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex,
-                    "ResultIngestionJob: failed to fetch goal events for fixture {FixtureId} — " +
-                    "score recorded but goals skipped",
+                    "ResultIngestionJob: failed to fetch events for fixture {FixtureId} — " +
+                    "score recorded but all events skipped",
                     apiFixture.FixtureId);
-                goalEvents = [];
+                allEvents = [];
             }
+
+            var goalEvents = allEvents.Where(e => e.IsGoal).ToList();
+            var varEvents  = allEvents.Where(e => e.IsVar).ToList();
+            var cardEvents = allEvents.Where(e => e.IsCard).ToList();
+            var subEvents  = allEvents.Where(e => e.IsSub).ToList();
+
+            // Build lookups: cancelled goals by (playerName, minute) and card-upgrade decisions.
+            // Keying on minute prevents a valid earlier goal by the same player being discarded.
+            var cancelledGoals = varEvents
+                .Where(v => v.IsGoalCancelled && v.Player?.Name is { Length: > 0 })
+                .Select(v => (Name: v.Player!.Name!.Trim().ToUpperInvariant(), Minute: v.Time?.Elapsed ?? 0))
+                .ToHashSet();
+
+            var cardUpgrades = varEvents
+                .Where(v => (v.IsCardUpgradeRed || v.IsCardUpgrade2ndYel) && v.Player?.Name is { Length: > 0 })
+                .ToDictionary(
+                    v => v.Player!.Name!,
+                    v => v.IsCardUpgradeRed ? CardType.Red : CardType.SecondYellow,
+                    StringComparer.OrdinalIgnoreCase);
 
             foreach (var evt in goalEvents)
             {
                 if (evt.Player?.Name is not { Length: > 0 } playerName)
                     continue;
+
+                // Skip goals cancelled by VAR — match on both player name and minute so a valid
+                // earlier goal by the same player is not discarded.
+                if (cancelledGoals.Contains((playerName.Trim().ToUpperInvariant(), evt.Time?.Elapsed ?? 0)))
+                {
+                    logger.LogDebug(
+                        "ResultIngestionJob: goal by '{Player}' at {Minute}' cancelled by VAR — skipping",
+                        playerName, evt.Time?.Elapsed ?? 0);
+                    continue;
+                }
 
                 // Resolve player by name
                 if (!playerByName.TryGetValue(playerName, out var player))
@@ -218,38 +288,213 @@ public class ResultIngestionJob(
 
                 var goalEvent = new GoalEvent
                 {
-                    Id        = goalId,
-                    FixtureId = dbFixture.Id,
-                    PlayerId  = player.Id,
-                    Type      = goalType,
-                    Minute    = evt.Time?.Elapsed ?? 0,
+                    Id          = goalId,
+                    FixtureId   = dbFixture.Id,
+                    PlayerId    = player.Id,
+                    Type        = goalType,
+                    Minute      = evt.Time?.Elapsed ?? 0,
+                    ExtraMinute = evt.Time?.Extra,
                 };
 
                 session.Store(goalEvent);
             }
 
+            foreach (var evt in cardEvents)
+            {
+                if (evt.Player?.Name is not { Length: > 0 } playerName)
+                    continue;
+
+                // Skip unknown card types
+                if (!evt.IsYellow && !evt.IsSecondYellow && !evt.IsRed)
+                    continue;
+
+                if (!playerByName.TryGetValue(playerName, out var player))
+                {
+                    logger.LogDebug(
+                        "ResultIngestionJob: player '{Name}' not found in roster — card event skipped",
+                        playerName);
+                    continue;
+                }
+
+                var cardType = evt.IsSecondYellow ? CardType.SecondYellow :
+                               evt.IsRed          ? CardType.Red :
+                                                    CardType.Yellow;
+
+                // Apply VAR card upgrade if one exists for this player
+                if (cardUpgrades.TryGetValue(playerName, out var upgradedType))
+                {
+                    logger.LogDebug(
+                        "ResultIngestionJob: card for '{Player}' upgraded by VAR from {Original} to {Upgraded}",
+                        playerName, cardType, upgradedType);
+                    cardType = upgradedType;
+                }
+
+                var cardId = CreateDeterministicGuid(GoalEventNamespace,
+                    $"card:{apiFixture.FixtureId}:{playerName}:{cardType}:{evt.Time?.Elapsed ?? 0}");
+
+                session.Store(new CardEvent
+                {
+                    Id          = cardId,
+                    FixtureId   = dbFixture.Id,
+                    PlayerId    = player.Id,
+                    Type        = cardType,
+                    Minute      = evt.Time?.Elapsed ?? 0,
+                    ExtraMinute = evt.Time?.Extra,
+                });
+            }
+
+            foreach (var evt in subEvents)
+            {
+                var playerOutName = evt.Player?.Name ?? string.Empty;
+                var playerInName  = evt.Assist?.Name ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(playerOutName) && string.IsNullOrWhiteSpace(playerInName))
+                    continue;
+
+                playerByName.TryGetValue(playerOutName, out var playerOut);
+                playerByName.TryGetValue(playerInName,  out var playerIn);
+
+                // Resolve team FIFA code from API team id
+                var teamFifaCode = evt.Team?.Name is { } teamName
+                    ? FootballApiTeamMap.Resolve(evt.Team.Id, teamName) ?? string.Empty
+                    : string.Empty;
+
+                var subKey = $"sub:{apiFixture.FixtureId}:{playerOutName}:{playerInName}:{evt.Time?.Elapsed ?? 0}";
+                var subId  = CreateDeterministicGuid(GoalEventNamespace, subKey);
+
+                session.Store(new SubstitutionEvent
+                {
+                    Id            = subId,
+                    FixtureId     = dbFixture.Id,
+                    PlayerOutId   = playerOut?.Id,
+                    PlayerInId    = playerIn?.Id,
+                    PlayerOutName = playerOutName,
+                    PlayerInName  = playerInName,
+                    TeamId        = teamFifaCode,
+                    Minute        = evt.Time?.Elapsed ?? 0,
+                    ExtraMinute   = evt.Time?.Extra,
+                });
+            }
+
             ingestedCount++;
             logger.LogInformation(
-                "ResultIngestionJob: ingested fixture {Id} ({Home} {HomeScore}-{AwayScore} {Away}), {Goals} goal event(s)",
+                "ResultIngestionJob: ingested fixture {Id} ({Home} {HomeScore}-{AwayScore} {Away}), {Goals} goal(s), {Subs} sub(s)",
                 dbFixture.Id, homeCode, apiFixture.HomeGoals, apiFixture.AwayGoals, awayCode,
-                goalEvents.Count(e => e.Player?.Name != null));
+                goalEvents.Count(e => e.Player?.Name != null), subEvents.Count);
         }
 
-        if (ingestedCount > 0 || anyLive)
+        // ── 8a. Update in-progress group-stage fixture clocks ───────────────────
+        // Keeps Status=InProgress and ElapsedMinute current while a match is live.
+        foreach (var apiFixture in allApiFixtures.Where(f => f.IsLive))
+        {
+            var liveHomeCode = FootballApiTeamMap.Resolve(apiFixture.HomeTeamId, apiFixture.HomeTeamName);
+            var liveAwayCode = FootballApiTeamMap.Resolve(apiFixture.AwayTeamId, apiFixture.AwayTeamName);
+            if (liveHomeCode == null || liveAwayCode == null) continue;
+            if (!fixtureByTeamPair.TryGetValue((liveHomeCode, liveAwayCode), out var liveDbFixture)) continue;
+            if (completedSet.Contains(liveDbFixture.Id)) continue;
+
+            liveDbFixture.Status               = MatchStatus.InProgress;
+            liveDbFixture.HomeScore            = apiFixture.HomeGoals;
+            liveDbFixture.AwayScore            = apiFixture.AwayGoals;
+            liveDbFixture.ElapsedMinute        = apiFixture.StatusElapsed;
+            liveDbFixture.ElapsedExtra         = apiFixture.StatusExtra;
+            liveDbFixture.FootballApiFixtureId ??= apiFixture.FixtureId;
+            session.Store(liveDbFixture);
+        }
+
+        // ── 8. Process live and completed knockout fixtures ───────────────────────
+        // The API call above returns all fixtures for the tournament, so knockout
+        // fixtures are already in allApiFixtures. We match them to KnockoutSlot
+        // documents by team pair and update scores / status in real-time.
+        var knockoutSlots = await session
+            .Query<KnockoutSlot>()
+            .Where(s => s.HomeTeamId != null
+                     && s.AwayTeamId != null
+                     && s.Status != MatchStatus.Completed
+                     && s.Status != MatchStatus.Cancelled)
+            .ToListAsync(ct);
+
+        var knockoutUpdated = 0;
+        if (knockoutSlots.Count > 0)
+        {
+            var knockoutByTeamPair = knockoutSlots
+                .ToDictionary(s => (s.HomeTeamId!, s.AwayTeamId!));
+
+            foreach (var apiFixture in allApiFixtures.Where(f => f.IsLive || f.IsFullTime))
+            {
+                var homeCode = FootballApiTeamMap.Resolve(apiFixture.HomeTeamId, apiFixture.HomeTeamName);
+                var awayCode = FootballApiTeamMap.Resolve(apiFixture.AwayTeamId, apiFixture.AwayTeamName);
+                if (homeCode == null || awayCode == null) continue;
+                if (!knockoutByTeamPair.TryGetValue((homeCode, awayCode), out var slot)) continue;
+
+                if (apiFixture.IsLive)
+                {
+                    slot.Status = apiFixture.StatusShort is "ET" or "BT"
+                                ? MatchStatus.ExtraTime
+                                : apiFixture.StatusShort is "P"
+                                ? MatchStatus.PenaltyShootout
+                                : MatchStatus.InProgress;
+                    slot.HomeScore = apiFixture.HomeGoals;
+                    slot.AwayScore = apiFixture.AwayGoals;
+                    if (slot.Status == MatchStatus.PenaltyShootout)
+                    {
+                        slot.PenaltyHomeScore = apiFixture.ScorePenaltyHome;
+                        slot.PenaltyAwayScore = apiFixture.ScorePenaltyAway;
+                    }
+                }
+                else // IsFullTime
+                {
+                    // Store the 90-minute score (score.fulltime) — this is what the prediction
+                    // scoring system compares against. Falls back to goals total if not available.
+                    slot.HomeScore = apiFixture.ScoreFullTimeHome ?? apiFixture.HomeGoals;
+                    slot.AwayScore = apiFixture.ScoreFullTimeAway ?? apiFixture.AwayGoals;
+                    slot.Status    = MatchStatus.Completed;
+
+                    // Determine winner
+                    if (slot.HomeScore > slot.AwayScore)
+                        slot.WinnerTeamId = slot.HomeTeamId;
+                    else if (slot.AwayScore > slot.HomeScore)
+                        slot.WinnerTeamId = slot.AwayTeamId;
+                    else if (apiFixture.StatusShort is "AET")
+                    {
+                        // ET tipped the balance — HomeGoals/AwayGoals hold the AET total
+                        if (apiFixture.HomeGoals > apiFixture.AwayGoals)
+                            slot.WinnerTeamId = slot.HomeTeamId;
+                        else if (apiFixture.AwayGoals > apiFixture.HomeGoals)
+                            slot.WinnerTeamId = slot.AwayTeamId;
+                    }
+                    else if (apiFixture.StatusShort is "PEN")
+                    {
+                        slot.PenaltyHomeScore = apiFixture.ScorePenaltyHome;
+                        slot.PenaltyAwayScore = apiFixture.ScorePenaltyAway;
+                        if (slot.PenaltyHomeScore > slot.PenaltyAwayScore)
+                            slot.WinnerTeamId = slot.HomeTeamId;
+                        else if (slot.PenaltyAwayScore > slot.PenaltyHomeScore)
+                            slot.WinnerTeamId = slot.AwayTeamId;
+                    }
+
+                    logger.LogInformation(
+                        "ResultIngestionJob: knockout slot {SlotKey} completed — {Home} {HomeScore}-{AwayScore} {Away}, winner={Winner}",
+                        slot.SlotKey, homeCode, slot.HomeScore, slot.AwayScore, awayCode,
+                        slot.WinnerTeamId ?? "TBD");
+                }
+
+                session.Store(slot);
+                knockoutUpdated++;
+            }
+        }
+
+        if (ingestedCount > 0 || anyLive || knockoutUpdated > 0)
         {
             await session.SaveChangesAsync(ct);
         }
 
-        if (ingestedCount > 0)
+        if (ingestedCount > 0 || knockoutUpdated > 0)
         {
-            // Trigger knockout bracket resolver after each batch.
-            // ResolveGroupStageAsync exits early if the group stage is not yet complete.
             logger.LogInformation(
-                "ResultIngestionJob: {Count} fixture(s) ingested — triggering bracket resolution and score recompute",
-                ingestedCount);
+                "ResultIngestionJob: {GroupCount} group fixture(s), {KnockoutCount} knockout slot(s) updated — triggering bracket resolution and score recompute",
+                ingestedCount, knockoutUpdated);
             await bracketResolver.ResolveGroupStageAsync(ct);
-
-            // Trigger scoring recompute after each batch
+            await bracketResolver.PropagateAllKnockoutResultsAsync(ct);
             await scoringService.RecomputeAllAsync(ct);
         }
 
@@ -305,7 +550,7 @@ public class ResultIngestionJob(
     /// Maps an API-Football goal event detail string to the app's <see cref="GoalType"/>.
     /// Pure function — testable without any infrastructure.
     /// </summary>
-    internal static GoalType MapGoalType(ApiGoalEvent evt)
+    internal static GoalType MapGoalType(ApiMatchEvent evt)
     {
         if (evt.IsOwnGoal) return GoalType.OwnGoal;
         if (evt.IsPenalty) return GoalType.PenaltyInMatch;
@@ -320,19 +565,20 @@ public class ResultIngestionJob(
         int apiFixtureId,
         string dbFixtureId,
         Guid playerId,
-        ApiGoalEvent evt)
+        ApiMatchEvent evt)
     {
         var playerName = evt.Player?.Name ?? string.Empty;
         var minute     = evt.Time?.Elapsed ?? 0;
 
         return new GoalEvent
         {
-            Id        = CreateDeterministicGuid(GoalEventNamespace,
-                            $"{apiFixtureId}:{playerName}:{minute}"),
-            FixtureId = dbFixtureId,
-            PlayerId  = playerId,
-            Type      = MapGoalType(evt),
-            Minute    = minute,
+            Id          = CreateDeterministicGuid(GoalEventNamespace,
+                              $"{apiFixtureId}:{playerName}:{minute}"),
+            FixtureId   = dbFixtureId,
+            PlayerId    = playerId,
+            Type        = MapGoalType(evt),
+            Minute      = minute,
+            ExtraMinute = evt.Time?.Extra,
         };
     }
 }

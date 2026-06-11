@@ -1,6 +1,7 @@
 using Marten;
 using Microsoft.AspNetCore.Mvc;
 using TriviumWorldCup.Api.Auth;
+using TriviumWorldCup.Api.Auth.Link;
 using TriviumWorldCup.Api.Domain;
 using TriviumWorldCup.Api.Scoring;
 
@@ -90,6 +91,34 @@ public static class TestControlEndpoints
         })
         .WithName("E2eResetFixturesKickoff")
         .WithSummary("Restores all fixture kickoff times to canonical seeded values.");
+
+        // ── POST /e2e/seed/invite-user ────────────────────────────────────────
+        // Creates or replaces an InviteUser so the link auth provider can authenticate them.
+        // Idempotent: calling twice with the same userId upserts cleanly.
+        group.MapPost("/seed/invite-user", async (
+            [FromBody] SeedInviteUserRequest request,
+            IDocumentSession session,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.UserId))
+                return Results.BadRequest(new { error = "UserId is required." });
+            if (string.IsNullOrWhiteSpace(request.DisplayName))
+                return Results.BadRequest(new { error = "DisplayName is required." });
+
+            var user = new InviteUser
+            {
+                Id          = request.UserId,
+                DisplayName = request.DisplayName,
+                Roles       = request.Roles ?? ["user"],
+                CreatedAt   = DateTimeOffset.UtcNow,
+            };
+            session.Store(user);
+            await session.SaveChangesAsync(ct);
+
+            return Results.Ok(new { user.Id, user.DisplayName, user.Roles });
+        })
+        .WithName("E2eSeedInviteUser")
+        .WithSummary("Creates or replaces an InviteUser for a test user. Non-Production only.");
 
         // ── POST /e2e/seed/profile ────────────────────────────────────────────
         // Creates or replaces a UserProfile for a named seeded user.
@@ -181,9 +210,94 @@ public static class TestControlEndpoints
         .WithName("E2eSetFixtureResult")
         .WithSummary("Injects a fixture result deterministically and triggers scoring recompute.");
 
+        // ── POST /e2e/fixtures/{id}/inprogress ───────────────────────────────────
+        // Sets a fixture to InProgress with optional live scores.
+        // Does NOT trigger scoring recompute — verifies points only count at Completed.
+        group.MapPost("/fixtures/{fixtureId}/inprogress", async (
+            string fixtureId,
+            [FromBody] SetInProgressRequest request,
+            IDocumentSession session,
+            CancellationToken ct) =>
+        {
+            var fixture = await session.LoadAsync<Fixture>(fixtureId, ct);
+            if (fixture is null)
+                return Results.NotFound(new { error = $"Fixture '{fixtureId}' not found." });
+
+            fixture.Status    = MatchStatus.InProgress;
+            fixture.HomeScore = request.HomeScore;
+            fixture.AwayScore = request.AwayScore;
+            session.Store(fixture);
+            await session.SaveChangesAsync(ct);
+
+            return Results.Ok(new
+            {
+                fixture.Id,
+                fixture.HomeTeamId,
+                fixture.AwayTeamId,
+                fixture.HomeScore,
+                fixture.AwayScore,
+                Status = fixture.Status.ToString(),
+            });
+        })
+        .WithName("E2eSetFixtureInProgress")
+        .WithSummary("Sets a fixture to InProgress with optional live scores. No scoring recompute.");
+
+        // ── POST /e2e/fixtures/{id}/goal ──────────────────────────────────────
+        // Injects a GoalEvent without triggering scoring recompute.
+        // Use with /inprogress to populate the goal list on the live page mid-match.
+        group.MapPost("/fixtures/{fixtureId}/goal", async (
+            string fixtureId,
+            [FromBody] InjectGoalRequest request,
+            IDocumentSession session,
+            CancellationToken ct) =>
+        {
+            if (!Guid.TryParse(request.PlayerId, out var playerGuid))
+                return Results.BadRequest(new { error = "PlayerId must be a valid GUID." });
+
+            if (request.Minute < 1 || request.Minute > 120)
+                return Results.BadRequest(new { error = "Minute must be between 1 and 120." });
+
+            var fixture = await session.LoadAsync<Fixture>(fixtureId, ct);
+            if (fixture is null)
+                return Results.NotFound(new { error = $"Fixture '{fixtureId}' not found." });
+
+            var goalType = request.Type switch
+            {
+                "PenaltyInMatch" => GoalType.PenaltyInMatch,
+                "OwnGoal"        => GoalType.OwnGoal,
+                "Shootout"       => GoalType.Shootout,
+                _                => GoalType.OpenPlay,
+            };
+
+            var goal = new GoalEvent
+            {
+                Id        = Guid.NewGuid(),
+                FixtureId = fixtureId,
+                PlayerId  = playerGuid,
+                Type      = goalType,
+                Minute    = request.Minute,
+            };
+            session.Store(goal);
+            await session.SaveChangesAsync(ct);
+
+            return Results.Ok(new
+            {
+                goal.Id,
+                goal.FixtureId,
+                goal.PlayerId,
+                goal.Minute,
+                Type = goal.Type.ToString(),
+            });
+        })
+        .WithName("E2eInjectGoal")
+        .WithSummary("Injects a GoalEvent without triggering scoring recompute. For InProgress fixture tests.");
+
         return routes;
     }
 }
+
+/// <summary>Request body for POST /e2e/seed/invite-user.</summary>
+public sealed record SeedInviteUserRequest(string UserId, string DisplayName, string[]? Roles);
 
 /// <summary>Request body for POST /e2e/seed/profile.</summary>
 public sealed record SeedProfileRequest(string UserId, string DisplayName, string? CountryCode);
@@ -193,3 +307,9 @@ public sealed record SetKickoffRequest(DateTimeOffset KickoffUtc);
 
 /// <summary>Request body for POST /e2e/fixtures/{id}/result (test control variant).</summary>
 public sealed record SetFixtureResultRequest(int HomeScore, int AwayScore);
+
+/// <summary>Request body for POST /e2e/fixtures/{id}/inprogress.</summary>
+public sealed record SetInProgressRequest(int? HomeScore, int? AwayScore);
+
+/// <summary>Request body for POST /e2e/fixtures/{id}/goal.</summary>
+public sealed record InjectGoalRequest(string PlayerId, int Minute, string? Type);

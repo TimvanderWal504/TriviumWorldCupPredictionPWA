@@ -91,7 +91,7 @@ export function StandingsPage() {
 
       {hasNoScores && (
         <div className="rounded-card bg-surface border border-border p-5 text-fg-muted text-sm">
-          No matches scored yet — check back after the first results.
+          No matches scored yet. Check back after the first results.
         </div>
       )}
 

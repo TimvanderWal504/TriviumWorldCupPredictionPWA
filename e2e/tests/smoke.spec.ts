@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginAs, loginAndWait, USERS } from '../helpers/auth.js';
-import { seedProfile, resetDb } from '../helpers/seed.js';
+import { seedProfile, seedInviteUser, resetDb } from '../helpers/seed.js';
 import { AppPage } from '../pages/AppPage.js';
 import { GroupPredictionsPage } from '../pages/GroupPredictionsPage.js';
 import { TournamentPredictionPage } from '../pages/TournamentPredictionPage.js';
@@ -22,10 +22,13 @@ import { KnockoutBracketPage } from '../pages/KnockoutBracketPage.js';
  */
 
 test.describe('TWC-22 smoke', () => {
-  // Establish known DB state and seed profiles before the suite runs.
+  // Establish known DB state before the suite runs.
+  // InviteUsers must exist for link auth to authenticate — seed them first.
+  // Profiles are also seeded so users can navigate past the setup modal.
   test.beforeAll(async ({ request }) => {
     await resetDb(request);
-    // Seed profiles for Alice (regular user) and Diana (admin)
+    await seedInviteUser(request, 'alice');
+    await seedInviteUser(request, 'diana');
     await seedProfile(request, 'alice');
     await seedProfile(request, 'diana');
   });
@@ -37,7 +40,7 @@ test.describe('TWC-22 smoke', () => {
     await expect(app.nav).not.toBeVisible();
   });
 
-  test('mock login sets cookie and nav bar appears after login', async ({ page }) => {
+  test('link login sets cookie and nav bar appears after login', async ({ page }) => {
     const app = new AppPage(page);
     await loginAndWait(page, 'alice');
     await expect(app.nav).toBeVisible();
@@ -160,6 +163,7 @@ test.describe('TWC-22 smoke', () => {
 test.describe('TWC-22 time/result control', () => {
   test.beforeAll(async ({ request }) => {
     await resetDb(request);
+    await seedInviteUser(request, 'alice');
     await seedProfile(request, 'alice');
   });
 

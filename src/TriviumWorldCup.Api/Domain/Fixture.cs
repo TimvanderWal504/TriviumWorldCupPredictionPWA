@@ -34,4 +34,17 @@ public class Fixture
 
     public int? HomeScore { get; set; }
     public int? AwayScore { get; set; }
+
+    /// <summary>Clock minute from the API's status.elapsed (null when not live).</summary>
+    public int? ElapsedMinute { get; set; }
+    /// <summary>Stoppage-time extra minutes, e.g. 2 for "45+2'" (null when not in stoppage).</summary>
+    public int? ElapsedExtra { get; set; }
+
+    /// <summary>
+    /// Integer fixture ID from the API-Football v3 API (fixtures.fixture.id).
+    /// Populated on first contact via POST /admin/fixtures/sync-api-ids or automatically
+    /// during the first live/completed ingestion cycle for this fixture.
+    /// Null until then — use it to deep-link into API-Football data.
+    /// </summary>
+    public int? FootballApiFixtureId { get; set; }
 }
