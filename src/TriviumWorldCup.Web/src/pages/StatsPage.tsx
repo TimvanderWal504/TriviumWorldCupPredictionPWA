@@ -82,6 +82,10 @@ const POSITION_COLORS: Record<string, string> = {
   FWD: 'var(--win)', MID: 'var(--secondary)', DEF: 'var(--warning)', GK: 'var(--live)',
 };
 
+function shortDate(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 function pct(n: number, total: number) {
   if (total === 0) return 0;
   return Math.round((n / total) * 100);
@@ -323,32 +327,48 @@ export function StatsPage() {
               const drPct  = pct(f.drawCount,    total);
               const awPct  = pct(f.awayWinCount, total);
               return (
-                <div key={f.fixtureId} className="grid grid-cols-[1fr_auto_auto] gap-2 items-center text-sm">
-                  {/* Teams */}
-                  <div className="flex items-center gap-1 min-w-0">
-                    <Flag teamId={f.homeTeamId} size={16} />
-                    <span className="font-medium truncate">{f.homeTeamName}</span>
-                    <span className="text-fg-muted mx-1">vs</span>
-                    <Flag teamId={f.awayTeamId} size={16} />
-                    <span className="font-medium truncate">{f.awayTeamName}</span>
-                    <span className="text-[10px] text-fg-muted ml-1 shrink-0">Grp {f.groupLetter}</span>
+                <div key={f.fixtureId} className="rounded-input border border-border p-3 space-y-2"
+                  style={{ background: 'var(--surface-2)' }}>
+                  {/* Row 1: identity */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0"
+                      style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }}>
+                      M{f.matchNumber}
+                    </span>
+                    <span className="text-[11px] font-bold px-1.5 py-0.5 rounded shrink-0"
+                      style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }}>
+                      Grp {f.groupLetter}
+                    </span>
+                    <div className="flex items-center gap-1.5 text-sm font-medium">
+                      <Flag teamId={f.homeTeamId} size={16} />
+                      <span>{f.homeTeamName}</span>
+                      <span className="text-fg-muted">vs</span>
+                      <Flag teamId={f.awayTeamId} size={16} />
+                      <span>{f.awayTeamName}</span>
+                    </div>
+                    <span className="text-xs text-fg-muted ml-auto shrink-0">{shortDate(f.kickoffUtc)}</span>
                   </div>
-                  {/* Stacked bar */}
-                  <div className="flex h-5 rounded-sm overflow-hidden w-40 shrink-0" style={{ background: 'var(--surface-2)' }}>
-                    {hwPct > 0 && <div style={{ width: `${hwPct}%`, background: 'var(--win)' }} title={`Home ${hwPct}%`} />}
-                    {drPct > 0 && <div style={{ width: `${drPct}%`, background: 'var(--fg-muted)' }} title={`Draw ${drPct}%`} />}
-                    {awPct > 0 && <div style={{ width: `${awPct}%`, background: 'var(--loss)' }} title={`Away ${awPct}%`} />}
-                  </div>
-                  {/* Labels */}
-                  <div className="flex gap-2 text-[11px] shrink-0">
-                    <span style={{ color: 'var(--win)' }}>H {hwPct}%</span>
-                    <span className="text-fg-muted">D {drPct}%</span>
-                    <span style={{ color: 'var(--loss)' }}>A {awPct}%</span>
-                    <span className="text-fg-muted">({total})</span>
-                    {f.avgHomeScore != null && f.avgAwayScore != null && (
-                      <span className="text-fg-secondary ml-1">avg {f.avgHomeScore}–{f.avgAwayScore}</span>
+                  {/* Row 2: bar + labels */}
+                  {total === 0
+                    ? <p className="text-xs text-fg-muted">No predictions yet.</p>
+                    : (
+                      <div className="space-y-1">
+                        <div className="flex h-5 rounded-sm overflow-hidden" style={{ background: 'var(--surface-3)' }}>
+                          {hwPct > 0 && <div style={{ width: `${hwPct}%`, background: 'var(--win)' }} title={`Home win ${hwPct}%`} />}
+                          {drPct > 0 && <div style={{ width: `${drPct}%`, background: 'var(--fg-muted)' }} title={`Draw ${drPct}%`} />}
+                          {awPct > 0 && <div style={{ width: `${awPct}%`, background: 'var(--loss)' }} title={`Away win ${awPct}%`} />}
+                        </div>
+                        <div className="flex gap-3 text-[11px]">
+                          <span style={{ color: 'var(--win)' }}>H {hwPct}% ({f.homeWinCount})</span>
+                          <span className="text-fg-muted">D {drPct}% ({f.drawCount})</span>
+                          <span style={{ color: 'var(--loss)' }}>A {awPct}% ({f.awayWinCount})</span>
+                          {f.avgHomeScore != null && f.avgAwayScore != null && (
+                            <span className="text-fg-secondary ml-auto">avg {f.avgHomeScore}–{f.avgAwayScore}</span>
+                          )}
+                          <span className="text-fg-muted">{total} pred.</span>
+                        </div>
+                      </div>
                     )}
-                  </div>
                 </div>
               );
             })}

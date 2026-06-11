@@ -147,6 +147,12 @@ function buildRenderList(events: EventItem[], status: string): RenderItem[] {
   return result;
 }
 
+function eventKey(ev: EventItem): string {
+  if (ev.kind === 'sub')
+    return `sub-${ev.minute}-${ev.extraMinute ?? ''}-${ev.playerInName}-${ev.teamId}`;
+  return `${ev.kind}-${ev.minute}-${ev.extraMinute ?? ''}-${ev.playerName}-${ev.teamId}-${ev.type}`;
+}
+
 interface FixtureCardProps { fixture: LiveFixtureDto; goals: GoalEventDto[]; cards: CardEventDto[]; substitutions: SubstitutionEventDto[]; }
 
 function LiveFixtureCard({ fixture, goals, cards, substitutions }: FixtureCardProps) {
@@ -168,6 +174,13 @@ function LiveFixtureCard({ fixture, goals, cards, substitutions }: FixtureCardPr
     })),
   ];
   const renderItems = buildRenderList(events, fixture.status);
+
+  const seenKeysRef = useRef<Set<string> | null>(null);
+  const currentKeys = new Set(events.map(eventKey));
+  const newKeys: Set<string> = seenKeysRef.current === null
+    ? new Set()
+    : new Set([...currentKeys].filter(k => !seenKeysRef.current!.has(k)));
+  useEffect(() => { seenKeysRef.current = currentKeys; });
 
   const cardStyle = isLive
     ? { borderColor: 'transparent', boxShadow: 'var(--shadow-glow-live)' }
@@ -221,7 +234,7 @@ function LiveFixtureCard({ fixture, goals, cards, substitutions }: FixtureCardPr
             }
             if (item.kind === 'sub') {
               return (
-                <li key={i} className="flex items-center gap-2">
+                <li key={i} className={`flex items-center gap-2${newKeys.has(eventKey(item)) ? ' event-new' : ''}`}>
                   <span className="font-mono text-fg-muted w-10 text-right tnum">{formatMinute(item.minute, item.extraMinute)}</span>
                   <span className="inline-flex flex-col items-center shrink-0 text-[10px] leading-none gap-px w-2">
                     <span style={{ color: 'var(--win)' }}>▲</span>
@@ -236,7 +249,7 @@ function LiveFixtureCard({ fixture, goals, cards, substitutions }: FixtureCardPr
               );
             }
             return (
-              <li key={i} className="flex items-center gap-2">
+              <li key={i} className={`flex items-center gap-2${newKeys.has(eventKey(item)) ? ' event-new' : ''}`}>
                 <span className="font-mono text-fg-muted w-10 text-right tnum">{formatMinute(item.minute, item.extraMinute)}</span>
                 {item.kind === 'goal' ? <GoalIcon /> : <CardIcon type={item.type} />}
                 <span className="font-medium text-fg">{item.playerName}</span>

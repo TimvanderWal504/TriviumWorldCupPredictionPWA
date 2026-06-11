@@ -23,6 +23,13 @@
 }
 .flash { animation: save-flash 1.2s ease-out; }
 
+/* ── New live event flash ── */
+@keyframes event-flash {
+  0%   { background-color: color-mix(in srgb, var(--primary) 22%, transparent); }
+  100% { background-color: transparent; }
+}
+.event-new { animation: event-flash 1.4s ease-out forwards; border-radius: 4px; }
+
 /* ── Flag images ── */
 .flag { border-radius: 3px; object-fit: cover; box-shadow: 0 0 0 1px rgba(0,0,0,0.15); }
 
@@ -31,5 +38,5 @@
 .appscroll::-webkit-scrollbar { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .live-dot, .toast, .flash { animation: none !important; }
+  .live-dot, .toast, .flash, .event-new { animation: none !important; }
 }
