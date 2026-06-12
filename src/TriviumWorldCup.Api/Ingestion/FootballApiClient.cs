@@ -243,7 +243,7 @@ public sealed class ApiTime
 public sealed class ApiPlayer
 {
     [JsonPropertyName("id")]
-    public int Id { get; set; }
+    public int? Id { get; set; }
 
     [JsonPropertyName("name")]
     public string? Name { get; set; }
