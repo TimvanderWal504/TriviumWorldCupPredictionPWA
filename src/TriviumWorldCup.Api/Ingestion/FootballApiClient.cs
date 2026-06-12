@@ -83,6 +83,18 @@ public class FootballApiClient : IFootballApiClient
     public async Task<IReadOnlyList<ApiMatchEvent>> GetAllEventsAsync(int fixtureId, CancellationToken ct = default)
     {
         var response = await _http.GetAsync($"fixtures/events?fixture={fixtureId}", ct);
+
+        // Detect quota exhaustion so the job can log it clearly and backfill on the next cycle.
+        if ((int)response.StatusCode == 429)
+        {
+            var retryAfter = response.Headers.RetryAfter?.Delta?.TotalSeconds
+                          ?? response.Headers.RetryAfter?.Date?.Subtract(DateTimeOffset.UtcNow).TotalSeconds
+                          ?? 60;
+            throw new HttpRequestException(
+                $"API-Football quota exhausted (HTTP 429). Retry after {retryAfter}s. Daily quota resets at 00:00 UTC.",
+                new InvalidOperationException("Quota exceeded"));
+        }
+
         response.EnsureSuccessStatusCode();
 
         var body = await response.Content.ReadAsStringAsync(ct);

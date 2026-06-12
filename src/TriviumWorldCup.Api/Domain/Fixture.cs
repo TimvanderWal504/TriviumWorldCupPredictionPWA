@@ -47,4 +47,18 @@ public class Fixture
     /// Null until then — use it to deep-link into API-Football data.
     /// </summary>
     public int? FootballApiFixtureId { get; set; }
+
+    /// <summary>
+    /// Track whether match events (goals, cards, substitutions) have been successfully
+    /// fetched from the API. Set to true only after GetAllEventsAsync succeeds, even if
+    /// zero events were returned.
+    ///
+    /// Decouples "score recorded" (Status == Completed) from "events recorded" so that:
+    /// - If events fetch fails with 429 or timeout, the match stays Completed but EventsIngested=false
+    /// - On the next poll after quota reset (or if quota improves), events backfill is attempted
+    /// - Prevents losing events for a match forever due to a single transient failure
+    ///
+    /// Default: false. Set to true in ResultIngestionJob after a successful GetAllEventsAsync call.
+    /// </summary>
+    public bool EventsIngested { get; set; } = false;
 }

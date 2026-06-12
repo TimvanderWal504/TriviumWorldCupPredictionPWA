@@ -200,11 +200,12 @@ public class ResultIngestionJob(
                 continue;
             }
 
-            // Skip if already completed
-            if (completedSet.Contains(dbFixture.Id))
+            // Skip if already completed AND events were successfully ingested.
+            // If Completed but EventsIngested=false, retry events this cycle (backfill after quota reset / transient error).
+            if (completedSet.Contains(dbFixture.Id) && dbFixture.EventsIngested)
             {
                 logger.LogDebug(
-                    "ResultIngestionJob: fixture {Id} already Completed — skipping",
+                    "ResultIngestionJob: fixture {Id} already Completed with events ingested — skipping",
                     dbFixture.Id);
                 continue;
             }
@@ -221,18 +222,34 @@ public class ResultIngestionJob(
             // Fetch all events in one request (goals, cards, subs, VAR) then split locally.
             // Saves 3 API requests per completed fixture vs. calling /fixtures/events four times
             // with separate type= filters.
-            IReadOnlyList<ApiMatchEvent> allEvents;
-            try
+            IReadOnlyList<ApiMatchEvent> allEvents = [];
+            var eventsIngestionFailed = false;
+            var eventsIngestionWasQuotaError = false;
+
+            if (apiFixture.IsFullTime)
             {
-                allEvents = await apiClient.GetAllEventsAsync(apiFixture.FixtureId, ct);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex,
-                    "ResultIngestionJob: failed to fetch events for fixture {FixtureId} — " +
-                    "score recorded but all events skipped",
-                    apiFixture.FixtureId);
-                allEvents = [];
+                try
+                {
+                    allEvents = await apiClient.GetAllEventsAsync(apiFixture.FixtureId, ct);
+                }
+                catch (HttpRequestException ex) when (ex.InnerException is InvalidOperationException { Message: "Quota exceeded" })
+                {
+                    eventsIngestionFailed = true;
+                    eventsIngestionWasQuotaError = true;
+                    logger.LogWarning(ex,
+                        "ResultIngestionJob: API-Football quota exhausted while fetching events for fixture {FixtureId}. " +
+                        "Score recorded; events will backfill after quota reset (00:00 UTC).",
+                        apiFixture.FixtureId);
+                    statusStore.LastError = "API quota exhausted (429)";
+                }
+                catch (Exception ex)
+                {
+                    eventsIngestionFailed = true;
+                    logger.LogWarning(ex,
+                        "ResultIngestionJob: transient error fetching events for fixture {FixtureId} — " +
+                        "score recorded but events skipped, will retry on next cycle",
+                        apiFixture.FixtureId);
+                }
             }
 
             var goalEvents = allEvents.Where(e => e.IsGoal).ToList();
@@ -375,11 +392,17 @@ public class ResultIngestionJob(
                 });
             }
 
+            if (!eventsIngestionFailed)
+            {
+                dbFixture.EventsIngested = true;
+            }
+
             ingestedCount++;
             logger.LogInformation(
-                "ResultIngestionJob: ingested fixture {Id} ({Home} {HomeScore}-{AwayScore} {Away}), {Goals} goal(s), {Subs} sub(s)",
+                "ResultIngestionJob: ingested fixture {Id} ({Home} {HomeScore}-{AwayScore} {Away}), {Goals} goal(s), {Subs} sub(s), events={EventsStatus}",
                 dbFixture.Id, homeCode, apiFixture.HomeGoals, apiFixture.AwayGoals, awayCode,
-                goalEvents.Count(e => e.Player?.Name != null), subEvents.Count);
+                goalEvents.Count(e => e.Player?.Name != null), subEvents.Count,
+                eventsIngestionFailed ? (eventsIngestionWasQuotaError ? "429_quota" : "failed") : "ok");
         }
 
         // ── 8a. Update in-progress group-stage fixture clocks ───────────────────
