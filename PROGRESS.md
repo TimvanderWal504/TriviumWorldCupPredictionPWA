@@ -180,6 +180,23 @@ AK12 continues to run in parallel until staging is verified stable.
 
 **Build status:** `dotnet test` and `npx tsc --noEmit` both pass with zero errors.
 
+## Unversioned hotfix (fix/events-backfill-and-quota-handling, 12 June 2026)
+
+### Tournament prediction grace window
+- **`TournamentPredictionPage.tsx`** — frontend-only override: `GRACE_DATE = '2026-06-12'`; `effectiveLocked = isLocked && !isGraceDay` bypasses the server lock for today only so users can still submit champion and top-scorer predictions. Comparison uses UTC date (`toISOString().slice(0,10)`). **Remove or update `GRACE_DATE` once the grace window has passed.**
+
+## Unversioned work (fix/events-backfill-and-quota-handling, 12 June 2026)
+
+### Events backfill + quota resilience (PR #13)
+- **`Domain/Fixture.cs`** — added `EventsIngested` bool (default `false`). Decouples "score recorded" (`Status=Completed`) from "events recorded" so a failed events fetch no longer causes permanent data loss.
+- **`Ingestion/FootballApiClient.cs`** — `GetAllEventsAsync` now detects HTTP 429 and throws a recognisable `HttpRequestException(inner: InvalidOperationException("Quota exceeded"))` instead of silently returning an empty list.
+- **`Ingestion/ResultIngestionJob.cs`** — three related changes:
+  1. Skip condition changed from `Completed` to `Completed && EventsIngested`: completed fixtures without events are eligible for backfill on the next 30-second poll.
+  2. Separate catch handlers for quota exhaustion (429) vs. other transient errors; quota failures are recorded in `statusStore.LastError` for admin dashboard visibility.
+  3. `EventsIngested = true` is set only after `GetAllEventsAsync` returns successfully; log line now includes `events=ok|failed|429_quota`.
+- Existing `Fixture` documents default to `EventsIngested=false` and will backfill on the next poll — no migration required.
+- **337 tests pass.**
+
 ## Next action
 1. **`git push origin staging`** — triggers first GitHub Actions build; after ~5 min the web app URL serves the real app.
 2. **Seed admin user on staging** — navigate to `https://twc-web.bravesea-4935fc14.germanywestcentral.azurecontainerapps.io/auth/link/login?id=c0c53bf2-8c04-4f08-86ee-10d25e895fee`
