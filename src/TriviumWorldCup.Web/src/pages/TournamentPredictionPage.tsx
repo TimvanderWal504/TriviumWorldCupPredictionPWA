@@ -222,6 +222,9 @@ function TeamGrid({ teams, players, selectedPlayers, onAdd, onRemove, disabled }
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
+// Temporary grace window: predictions stay open all of 2026-06-12 regardless of the server lock.
+const GRACE_DATE = '2026-06-12';
+
 export function TournamentPredictionPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -234,6 +237,9 @@ export function TournamentPredictionPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
+
+  const isGraceDay = new Date().toISOString().slice(0, 10) === GRACE_DATE;
+  const effectiveLocked = isLocked && !isGraceDay;
 
   useEffect(() => {
     Promise.all([fetchTeams(), fetchPlayers(), fetchPrediction(), fetchLocked()]).then(([t, p, pred, locked]) => {
@@ -282,7 +288,13 @@ export function TournamentPredictionPage() {
         Predictions lock at first kickoff.
       </div>
 
-      {isLocked && (
+      {isGraceDay && isLocked && (
+        <div className="rounded-input px-4 py-3 text-sm font-medium border"
+             style={{ background: 'var(--win-soft)', borderColor: 'transparent', color: 'var(--win)' }}>
+          Extended deadline: predictions are open today (12 June) so everyone can still fill in their champion and top scorers.
+        </div>
+      )}
+      {effectiveLocked && (
         <div className="rounded-input px-4 py-3 text-sm font-medium border"
              style={{ background: 'var(--warning-soft)', borderColor: 'transparent', color: 'var(--warning)' }}>
           Locked. Predictions closed. The tournament has started.
@@ -297,7 +309,7 @@ export function TournamentPredictionPage() {
           <p className="text-fg-secondary text-[13px] mb-3">Select the team you predict will win the World Cup.</p>
 
           <input type="text" value={teamSearch} onChange={e => setTeamSearch(e.target.value)}
-            placeholder="Search teams…" disabled={isLocked}
+            placeholder="Search teams…" disabled={effectiveLocked}
             className="w-full bg-surface-2 text-fg rounded-input px-4 py-2.5 border border-border placeholder:text-fg-muted mb-2 disabled:opacity-50" />
 
           {championTeam && (
@@ -308,7 +320,7 @@ export function TournamentPredictionPage() {
               )}
               <span className="font-mono font-semibold text-secondary">{championTeam.fifaCode}</span>
               <span className="font-medium text-fg">{championTeam.name}</span>
-              {!isLocked && (
+              {!effectiveLocked && (
                 <button type="button" onClick={() => setChampionTeamId('')}
                   className="text-fg-muted hover:text-fg-secondary transition-colors text-xs ml-1">
                   Clear
@@ -321,7 +333,7 @@ export function TournamentPredictionPage() {
             {filteredTeams.length === 0
               ? <p className="text-fg-muted text-sm px-4 py-3">No teams match.</p>
               : filteredTeams.map(team => (
-                  <button key={team.id} type="button" disabled={isLocked}
+                  <button key={team.id} type="button" disabled={effectiveLocked}
                     onClick={() => setChampionTeamId(team.id)}
                     className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 transition-colors disabled:opacity-50 ${
                       team.id === championTeamId ? 'bg-blue-500/15' : 'hover:bg-surface-2'
@@ -373,7 +385,7 @@ export function TournamentPredictionPage() {
                   >
                     {player.position}
                   </span>
-                  {!isLocked && (
+                  {!effectiveLocked && (
                     <button type="button"
                       onClick={() => setSelectedPlayers(prev => prev.filter(p => p.id !== player.id))}
                       className="text-fg-muted hover:text-fg transition-colors text-xs shrink-0"
@@ -387,14 +399,14 @@ export function TournamentPredictionPage() {
           )}
 
           {/* Team grid + expanded player panel */}
-          {!isLocked || selectedPlayers.length > 0 ? (
+          {!effectiveLocked || selectedPlayers.length > 0 ? (
             <TeamGrid
               teams={teams}
               players={players}
               selectedPlayers={selectedPlayers}
               onAdd={p => setSelectedPlayers(prev => prev.length < 6 ? [...prev, p] : prev)}
               onRemove={id => setSelectedPlayers(prev => prev.filter(p => p.id !== id))}
-              disabled={isLocked}
+              disabled={effectiveLocked}
             />
           ) : null}
         </section>
@@ -408,7 +420,7 @@ export function TournamentPredictionPage() {
           </p>
         )}
 
-        {!isLocked && (
+        {!effectiveLocked && (
           <button type="submit" disabled={saving}
             className="font-semibold rounded-input px-6 py-2.5 transition-colors disabled:opacity-50"
             style={{ background: 'var(--primary-fill)', color: 'var(--fg-onbrand)' }}>
