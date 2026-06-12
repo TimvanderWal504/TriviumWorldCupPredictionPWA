@@ -225,10 +225,19 @@ public static class FixtureEndpoints
                 subDtos = new List<SubstitutionEventDto>();
             }
 
-            // liveWindowActive = true if any fixture is InProgress or kicks off within 30 min.
+            // liveWindowActive = true when polling should continue:
+            // - any fixture is InProgress / ExtraTime / PenaltyShootout
+            // - any fixture kicks off within the next 30 min
+            // - any non-completed fixture kicked off in the last 30 min (covers the
+            //   Scheduled→InProgress gap between kickoff and the first job cycle)
             var liveWindowActive =
-                fixtures.Any(f => f.Status == MatchStatus.InProgress) ||
-                fixtures.Any(f => f.KickoffUtc > now && f.KickoffUtc <= imminentCutoff);
+                fixtures.Any(f => f.Status is MatchStatus.InProgress
+                                           or MatchStatus.ExtraTime
+                                           or MatchStatus.PenaltyShootout) ||
+                fixtures.Any(f => f.KickoffUtc > now && f.KickoffUtc <= imminentCutoff) ||
+                fixtures.Any(f => f.KickoffUtc > now.AddMinutes(-30) && f.KickoffUtc <= now &&
+                                  f.Status != MatchStatus.Completed &&
+                                  f.Status != MatchStatus.Cancelled);
 
             return Results.Ok(new LiveFixturesResponse(
                 Fixtures:         fixtureDtos,

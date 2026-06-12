@@ -422,6 +422,54 @@ public class ResultIngestionJob(
             liveDbFixture.ElapsedExtra         = apiFixture.StatusExtra;
             liveDbFixture.FootballApiFixtureId ??= apiFixture.FixtureId;
             session.Store(liveDbFixture);
+
+            // Fetch live events so goal scorers and cards appear during the match.
+            // Uses the same deterministic IDs as FT processing → idempotent upserts.
+            IReadOnlyList<ApiMatchEvent> liveEvents = [];
+            try { liveEvents = await apiClient.GetAllEventsAsync(apiFixture.FixtureId, ct); }
+            catch { /* non-critical — score/clock updated above; events catch up at FT */ }
+
+            if (liveEvents.Count > 0)
+            {
+                var liveVarCancelled = liveEvents
+                    .Where(v => v.IsVar && v.IsGoalCancelled && v.Player?.Name is { Length: > 0 })
+                    .Select(v => (Name: v.Player!.Name!.Trim().ToUpperInvariant(), Minute: v.Time?.Elapsed ?? 0))
+                    .ToHashSet();
+
+                foreach (var evt in liveEvents.Where(e => e.IsGoal))
+                {
+                    if (evt.Player?.Name is not { Length: > 0 } pName) continue;
+                    if (liveVarCancelled.Contains((pName.Trim().ToUpperInvariant(), evt.Time?.Elapsed ?? 0))) continue;
+                    if (!playerByName.TryGetValue(pName, out var player)) continue;
+                    var gt = evt.IsOwnGoal ? GoalType.OwnGoal : evt.IsPenalty ? GoalType.PenaltyInMatch : GoalType.OpenPlay;
+                    session.Store(new GoalEvent
+                    {
+                        Id          = CreateDeterministicGuid(GoalEventNamespace, $"{apiFixture.FixtureId}:{pName}:{evt.Time?.Elapsed ?? 0}"),
+                        FixtureId   = liveDbFixture.Id,
+                        PlayerId    = player.Id,
+                        Type        = gt,
+                        Minute      = evt.Time?.Elapsed ?? 0,
+                        ExtraMinute = evt.Time?.Extra,
+                    });
+                }
+
+                foreach (var evt in liveEvents.Where(e => e.IsCard))
+                {
+                    if (evt.Player?.Name is not { Length: > 0 } pName) continue;
+                    if (!evt.IsYellow && !evt.IsSecondYellow && !evt.IsRed) continue;
+                    if (!playerByName.TryGetValue(pName, out var player)) continue;
+                    var ct2 = evt.IsSecondYellow ? CardType.SecondYellow : evt.IsRed ? CardType.Red : CardType.Yellow;
+                    session.Store(new CardEvent
+                    {
+                        Id          = CreateDeterministicGuid(GoalEventNamespace, $"card:{apiFixture.FixtureId}:{pName}:{ct2}:{evt.Time?.Elapsed ?? 0}"),
+                        FixtureId   = liveDbFixture.Id,
+                        PlayerId    = player.Id,
+                        Type        = ct2,
+                        Minute      = evt.Time?.Elapsed ?? 0,
+                        ExtraMinute = evt.Time?.Extra,
+                    });
+                }
+            }
         }
 
         // ── 8. Process live and completed knockout fixtures ───────────────────────

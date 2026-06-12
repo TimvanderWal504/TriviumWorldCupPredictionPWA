@@ -288,7 +288,12 @@ export function LiveScoresPage() {
       const response = await fetchLiveFixtures();
       setData(response);
       setLoadError(null);
-      if (!response.liveWindowActive) stopPolling();
+      if (!response.liveWindowActive) {
+        stopPolling();
+      } else if (intervalRef.current === null) {
+        // Live window became active after polling was paused — restart.
+        intervalRef.current = setInterval(() => void load(), POLL_INTERVAL_MS);
+      }
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Failed to load live scores.');
     } finally {
