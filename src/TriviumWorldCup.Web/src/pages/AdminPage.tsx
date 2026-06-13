@@ -62,6 +62,11 @@ export function AdminPage() {
   const [fetchAllBusy, setFetchAllBusy] = useState(false);
   const [fetchAllOnlyMissing, setFetchAllOnlyMissing] = useState(true);
 
+  const [resetFixtureId, setResetFixtureId] = useState('');
+  const [resetMsg, setResetMsg] = useState<string | null>(null);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetBusy, setResetBusy] = useState(false);
+
   const [pushTargetUserId, setPushTargetUserId] = useState('');
   const [pushTitle, setPushTitle] = useState('Test notification');
   const [pushBody, setPushBody] = useState('This is a test notification from the admin panel.');
@@ -306,6 +311,41 @@ export function AdminPage() {
       setFetchAllMsg(`Error: ${String(err)}`);
     } finally {
       setFetchAllBusy(false);
+    }
+  }
+
+  async function handleResetEvents(e: React.FormEvent) {
+    e.preventDefault();
+    setResetMsg(null);
+    setResetError(null);
+    if (!resetFixtureId.trim()) { setResetError('Fixture ID is required.'); return; }
+    if (!confirm(`This will DELETE all events for fixture ${resetFixtureId.trim()} and re-fetch from the Football API. Continue?`)) return;
+    setResetBusy(true);
+    try {
+      const res = await fetch(`/admin/fixtures/${encodeURIComponent(resetFixtureId.trim())}/reset-events`, {
+        method: 'POST', credentials: 'include',
+      });
+      const body = await res.json() as {
+        deletedGoals?: number; deletedCards?: number; deletedSubs?: number;
+        goalsStored?: number; cardsStored?: number; subsStored?: number;
+        playerMisses?: string[]; totalApiEvents?: number; detail?: string;
+      };
+      if (!res.ok) {
+        setResetError((body as { error?: string; detail?: string }).error ?? (body as { detail?: string }).detail ?? `HTTP ${res.status}`);
+        return;
+      }
+      const parts = [
+        `Cleared ${body.deletedGoals ?? 0} goals, ${body.deletedCards ?? 0} cards, ${body.deletedSubs ?? 0} subs.`,
+        `Re-fetched ${body.totalApiEvents ?? 0} API events → stored ${body.goalsStored ?? 0} goals, ${body.cardsStored ?? 0} cards, ${body.subsStored ?? 0} subs.`,
+      ];
+      if ((body.playerMisses?.length ?? 0) > 0)
+        parts.push(`Unmatched players (${body.playerMisses!.length}): ${body.playerMisses!.slice(0, 5).join(', ')}${body.playerMisses!.length > 5 ? '…' : ''}.`);
+      setResetMsg(parts.join(' '));
+      setResetFixtureId('');
+    } catch (err) {
+      setResetError(String(err));
+    } finally {
+      setResetBusy(false);
     }
   }
 
@@ -583,6 +623,32 @@ export function AdminPage() {
             {fetchAllMsg && <p className="text-sm" style={{ color: 'var(--win)' }}>{fetchAllMsg}</p>}
           </div>
         </div>
+      </section>
+
+      {/* Reset & re-fetch fixture events */}
+      <section className="rounded-card bg-surface border border-border p-5 space-y-4">
+        <h2 className="font-display font-bold text-lg tracking-tight">Reset Fixture Events</h2>
+        <p className="text-sm text-fg-muted">
+          Deletes <strong>all</strong> goals, cards, and substitutions for a fixture, then re-fetches them fresh from the
+          Football API. Use when events appear duplicated or are incorrect.
+        </p>
+        <form onSubmit={handleResetEvents} className="flex gap-2 items-end flex-wrap">
+          <div>
+            <label htmlFor="resetFixtureId" className={labelCls}>Fixture ID</label>
+            <input
+              id="resetFixtureId" type="text" value={resetFixtureId}
+              onChange={e => setResetFixtureId(e.target.value)}
+              placeholder="e.g. 1" className={`${inputCls} w-28`}
+            />
+          </div>
+          <button type="submit" disabled={resetBusy}
+            className="px-4 py-2 rounded-input text-sm font-semibold transition-colors disabled:opacity-50"
+            style={{ background: 'var(--loss)', color: '#fff' }}>
+            {resetBusy ? 'Resetting…' : 'Reset & re-fetch events'}
+          </button>
+        </form>
+        {resetError && <p className="text-sm" style={{ color: 'var(--loss)' }}>{resetError}</p>}
+        {resetMsg   && <p className="text-sm" style={{ color: 'var(--win)' }}>{resetMsg}</p>}
       </section>
 
       {/* Push notifications test */}

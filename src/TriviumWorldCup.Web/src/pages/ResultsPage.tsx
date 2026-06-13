@@ -53,11 +53,21 @@ interface MyPredictionDto {
   points: number;
 }
 
+interface VarEventDto {
+  fixtureId: string;
+  playerName: string;
+  teamId: string;
+  type: string;
+  minute: number;
+  extraMinute: number | null;
+}
+
 interface ResultsResponse {
   fixtures: ResultFixtureDto[];
   goals: GoalEventDto[];
   cards: CardEventDto[];
   substitutions: SubstitutionEventDto[];
+  varEvents: VarEventDto[];
   myPredictions: MyPredictionDto[];
 }
 
@@ -87,7 +97,14 @@ function CardIcon({ type }: { type: string }) {
 type EventItem =
   | { kind: 'goal'; minute: number; extraMinute: number | null; playerName: string; teamId: string; type: string }
   | { kind: 'card'; minute: number; extraMinute: number | null; playerName: string; teamId: string; type: string }
-  | { kind: 'sub'; minute: number; extraMinute: number | null; playerInName: string; playerOutName: string; teamId: string };
+  | { kind: 'sub';  minute: number; extraMinute: number | null; playerInName: string; playerOutName: string; teamId: string }
+  | { kind: 'var';  minute: number; extraMinute: number | null; playerName: string; teamId: string; type: string };
+
+function varLabel(type: string): string {
+  if (type === 'GoalCancelled') return 'Goal ruled out';
+  if (type === 'CardUpgradeRed') return 'Red card upgrade';
+  return '2nd yellow upgrade';
+}
 
 type RenderItem = EventItem | { kind: 'marker'; label: string };
 
@@ -153,10 +170,11 @@ interface ResultCardProps {
   goals: GoalEventDto[];
   cards: CardEventDto[];
   substitutions: SubstitutionEventDto[];
+  varEvents: VarEventDto[];
   prediction: MyPredictionDto | undefined;
 }
 
-function ResultFixtureCard({ fixture, goals, cards, substitutions, prediction }: ResultCardProps) {
+function ResultFixtureCard({ fixture, goals, cards, substitutions, varEvents, prediction }: ResultCardProps) {
   const homeLead = fixture.homeScore > fixture.awayScore;
   const awayLead = fixture.awayScore > fixture.homeScore;
   const [eventsOpen, setEventsOpen] = useState(false);
@@ -170,6 +188,9 @@ function ResultFixtureCard({ fixture, goals, cards, substitutions, prediction }:
     })),
     ...substitutions.filter(s => s.fixtureId === fixture.id).map(s => ({
       kind: 'sub' as const, minute: s.minute, extraMinute: s.extraMinute, playerInName: s.playerInName, playerOutName: s.playerOutName, teamId: s.teamId,
+    })),
+    ...varEvents.filter(v => v.fixtureId === fixture.id).map(v => ({
+      kind: 'var' as const, minute: v.minute, extraMinute: v.extraMinute, playerName: v.playerName, teamId: v.teamId, type: v.type,
     })),
   ];
   const renderItems = buildRenderList(events, 'Completed');
@@ -243,6 +264,17 @@ function ResultFixtureCard({ fixture, goals, cards, substitutions, prediction }:
                         <span className="text-fg-muted line-through">{item.playerOutName}</span>
                       </span>
                       <span className="font-mono text-fg-muted text-[11px]">{item.teamId.toUpperCase()}</span>
+                    </li>
+                  );
+                }
+                if (item.kind === 'var') {
+                  return (
+                    <li key={i} className="flex items-center gap-2">
+                      <span className="font-mono text-fg-muted w-10 text-right tnum">{formatMinute(item.minute, item.extraMinute)}</span>
+                      <span className="text-[9px] font-extrabold px-1.5 py-px rounded shrink-0"
+                            style={{ background: 'rgba(147,51,234,.15)', color: '#a855f7' }}>VAR</span>
+                      <span className="font-medium text-fg">{item.playerName}</span>
+                      <span className="text-[11px] text-fg-muted">{varLabel(item.type)}</span>
                     </li>
                   );
                 }
@@ -342,6 +374,7 @@ export function ResultsPage() {
           goals={data?.goals ?? []}
           cards={data?.cards ?? []}
           substitutions={data?.substitutions ?? []}
+          varEvents={data?.varEvents ?? []}
           prediction={predMap.get(f.id)}
         />
       ))}

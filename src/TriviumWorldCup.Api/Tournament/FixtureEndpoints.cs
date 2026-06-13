@@ -55,6 +55,7 @@ public static class FixtureEndpoints
             List<GoalEventDto> goalDtos;
             List<CardEventDto> cardDtos;
             List<SubstitutionEventDto> subDtos;
+            List<VarEventDto> varDtos;
             if (fixtureIds.Count > 0)
             {
                 var goals = await session.Query<GoalEvent>()
@@ -65,6 +66,9 @@ public static class FixtureEndpoints
                     .ToListAsync(ct);
                 var subs = await session.Query<SubstitutionEvent>()
                     .Where(s => s.FixtureId.IsOneOf(fixtureIds))
+                    .ToListAsync(ct);
+                var vars = await session.Query<VarEvent>()
+                    .Where(v => v.FixtureId.IsOneOf(fixtureIds))
                     .ToListAsync(ct);
 
                 // Resolve all player names in one query.
@@ -95,12 +99,17 @@ public static class FixtureEndpoints
                 subDtos = subs.Select(s => new SubstitutionEventDto(
                     s.FixtureId, s.PlayerInName, s.PlayerOutName, s.TeamId, s.Minute, s.ExtraMinute
                 )).OrderBy(s => s.Minute).ToList();
+
+                varDtos = vars.Select(v => new VarEventDto(
+                    v.FixtureId, v.PlayerName, v.TeamId, v.Type.ToString(), v.Minute, v.ExtraMinute
+                )).OrderBy(v => v.Minute).ToList();
             }
             else
             {
                 goalDtos = new List<GoalEventDto>();
                 cardDtos = new List<CardEventDto>();
                 subDtos = new List<SubstitutionEventDto>();
+                varDtos = new List<VarEventDto>();
             }
 
             // Load the current user's predictions for completed fixtures and compute points.
@@ -127,7 +136,7 @@ public static class FixtureEndpoints
                 myPredictions = new List<MyFixturePredictionDto>();
             }
 
-            return Results.Ok(new FixtureResultsResponse(fixtureDtos, goalDtos, cardDtos, subDtos, myPredictions));
+            return Results.Ok(new FixtureResultsResponse(fixtureDtos, goalDtos, cardDtos, subDtos, varDtos, myPredictions));
         })
         .WithName("GetFixtureResults")
         .WithTags("fixtures")
@@ -173,11 +182,12 @@ public static class FixtureEndpoints
                 ElapsedExtra:  f.ElapsedExtra
             )).ToList();
 
-            // Load goal, card and substitution events for all fixtures in the response.
+            // Load goal, card, substitution, and VAR events for all fixtures in the response.
             var fixtureIds = fixtures.Select(f => f.Id).ToList();
             List<GoalEventDto> goalDtos;
             List<CardEventDto> cardDtos;
             List<SubstitutionEventDto> subDtos;
+            List<VarEventDto> varDtos;
             if (fixtureIds.Count > 0)
             {
                 var goals = await session.Query<GoalEvent>()
@@ -188,6 +198,9 @@ public static class FixtureEndpoints
                     .ToListAsync(ct);
                 var subs = await session.Query<SubstitutionEvent>()
                     .Where(s => s.FixtureId.IsOneOf(fixtureIds))
+                    .ToListAsync(ct);
+                var vars = await session.Query<VarEvent>()
+                    .Where(v => v.FixtureId.IsOneOf(fixtureIds))
                     .ToListAsync(ct);
 
                 var allPlayerIds = goals.Select(g => g.PlayerId)
@@ -217,12 +230,17 @@ public static class FixtureEndpoints
                 subDtos = subs.Select(s => new SubstitutionEventDto(
                     s.FixtureId, s.PlayerInName, s.PlayerOutName, s.TeamId, s.Minute, s.ExtraMinute
                 )).OrderBy(s => s.Minute).ToList();
+
+                varDtos = vars.Select(v => new VarEventDto(
+                    v.FixtureId, v.PlayerName, v.TeamId, v.Type.ToString(), v.Minute, v.ExtraMinute
+                )).OrderBy(v => v.Minute).ToList();
             }
             else
             {
                 goalDtos = new List<GoalEventDto>();
                 cardDtos = new List<CardEventDto>();
                 subDtos = new List<SubstitutionEventDto>();
+                varDtos = new List<VarEventDto>();
             }
 
             // liveWindowActive = true when polling should continue:
@@ -244,6 +262,7 @@ public static class FixtureEndpoints
                 Goals:            goalDtos,
                 Cards:            cardDtos,
                 Substitutions:    subDtos,
+                VarEvents:        varDtos,
                 LiveWindowActive: liveWindowActive
             ));
         })
@@ -365,12 +384,22 @@ public sealed record SubstitutionEventDto(
     int Minute,
     int? ExtraMinute);
 
+/// <summary>VAR decision DTO embedded in fixture responses.</summary>
+public sealed record VarEventDto(
+    string FixtureId,
+    string PlayerName,
+    string TeamId,
+    string Type,
+    int Minute,
+    int? ExtraMinute);
+
 /// <summary>Response for GET /fixtures/live.</summary>
 public sealed record LiveFixturesResponse(
     IReadOnlyList<FixtureDto> Fixtures,
     IReadOnlyList<GoalEventDto> Goals,
     IReadOnlyList<CardEventDto> Cards,
     IReadOnlyList<SubstitutionEventDto> Substitutions,
+    IReadOnlyList<VarEventDto> VarEvents,
     bool LiveWindowActive);
 
 /// <summary>Per-fixture prediction result for the current user, returned by GET /fixtures/results.</summary>
@@ -386,4 +415,5 @@ public sealed record FixtureResultsResponse(
     IReadOnlyList<GoalEventDto> Goals,
     IReadOnlyList<CardEventDto> Cards,
     IReadOnlyList<SubstitutionEventDto> Substitutions,
+    IReadOnlyList<VarEventDto> VarEvents,
     IReadOnlyList<MyFixturePredictionDto> MyPredictions);

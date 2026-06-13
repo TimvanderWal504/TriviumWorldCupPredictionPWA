@@ -49,11 +49,21 @@ interface SubstitutionEventDto {
   extraMinute: number | null;
 }
 
+interface VarEventDto {
+  fixtureId: string;
+  playerName: string;
+  teamId: string;
+  type: string;
+  minute: number;
+  extraMinute: number | null;
+}
+
 interface LiveFixturesResponse {
   fixtures: LiveFixtureDto[];
   goals: GoalEventDto[];
   cards: CardEventDto[];
   substitutions: SubstitutionEventDto[];
+  varEvents: VarEventDto[];
   liveWindowActive: boolean;
 }
 
@@ -116,7 +126,8 @@ function CardIcon({ type }: { type: string }) {
 type EventItem =
   | { kind: 'goal'; minute: number; extraMinute: number | null; playerName: string; teamId: string; type: string }
   | { kind: 'card'; minute: number; extraMinute: number | null; playerName: string; teamId: string; type: string }
-  | { kind: 'sub'; minute: number; extraMinute: number | null; playerInName: string; playerOutName: string; teamId: string };
+  | { kind: 'sub';  minute: number; extraMinute: number | null; playerInName: string; playerOutName: string; teamId: string }
+  | { kind: 'var';  minute: number; extraMinute: number | null; playerName: string; teamId: string; type: string };
 
 type RenderItem = EventItem | { kind: 'marker'; label: string };
 
@@ -162,9 +173,15 @@ function eventKey(ev: EventItem): string {
   return `${ev.kind}-${ev.minute}-${ev.extraMinute ?? ''}-${ev.playerName}-${ev.teamId}-${ev.type}`;
 }
 
-interface FixtureCardProps { fixture: LiveFixtureDto; goals: GoalEventDto[]; cards: CardEventDto[]; substitutions: SubstitutionEventDto[]; }
+function varLabel(type: string): string {
+  if (type === 'GoalCancelled') return 'Goal ruled out';
+  if (type === 'CardUpgradeRed') return 'Red card upgrade';
+  return '2nd yellow upgrade';
+}
 
-function LiveFixtureCard({ fixture, goals, cards, substitutions }: FixtureCardProps) {
+interface FixtureCardProps { fixture: LiveFixtureDto; goals: GoalEventDto[]; cards: CardEventDto[]; substitutions: SubstitutionEventDto[]; varEvents: VarEventDto[]; }
+
+function LiveFixtureCard({ fixture, goals, cards, substitutions, varEvents }: FixtureCardProps) {
   const isLive = fixture.status === 'InProgress';
   const hasScore = (fixture.status === 'InProgress' || fixture.status === 'Completed')
     && fixture.homeScore !== null && fixture.awayScore !== null;
@@ -180,6 +197,9 @@ function LiveFixtureCard({ fixture, goals, cards, substitutions }: FixtureCardPr
     })),
     ...substitutions.filter(s => s.fixtureId === fixture.id).map(s => ({
       kind: 'sub' as const, minute: s.minute, extraMinute: s.extraMinute, playerInName: s.playerInName, playerOutName: s.playerOutName, teamId: s.teamId,
+    })),
+    ...varEvents.filter(v => v.fixtureId === fixture.id).map(v => ({
+      kind: 'var' as const, minute: v.minute, extraMinute: v.extraMinute, playerName: v.playerName, teamId: v.teamId, type: v.type,
     })),
   ];
   const renderItems = buildRenderList(events, fixture.status);
@@ -254,6 +274,17 @@ function LiveFixtureCard({ fixture, goals, cards, substitutions }: FixtureCardPr
                     <span className="text-fg-muted line-through">{item.playerOutName}</span>
                   </span>
                   <span className="font-mono text-fg-muted text-[11px]">{item.teamId.toUpperCase()}</span>
+                </li>
+              );
+            }
+            if (item.kind === 'var') {
+              return (
+                <li key={i} className={`flex items-center gap-2${newKeys.has(eventKey(item)) ? ' event-new' : ''}`}>
+                  <span className="font-mono text-fg-muted w-10 text-right tnum">{formatMinute(item.minute, item.extraMinute)}</span>
+                  <span className="text-[9px] font-extrabold px-1.5 py-px rounded shrink-0"
+                        style={{ background: 'rgba(147,51,234,.15)', color: '#a855f7' }}>VAR</span>
+                  <span className="font-medium text-fg">{item.playerName}</span>
+                  <span className="text-[11px] text-fg-muted">{varLabel(item.type)}</span>
                 </li>
               );
             }
@@ -340,7 +371,7 @@ export function LiveScoresPage() {
       )}
 
       {liveMatches.map(f => (
-        <LiveFixtureCard key={f.id} fixture={f} goals={data?.goals ?? []} cards={data?.cards ?? []} substitutions={data?.substitutions ?? []} />
+        <LiveFixtureCard key={f.id} fixture={f} goals={data?.goals ?? []} cards={data?.cards ?? []} substitutions={data?.substitutions ?? []} varEvents={data?.varEvents ?? []} />
       ))}
 
       {otherMatches.length > 0 && (
@@ -350,7 +381,7 @@ export function LiveScoresPage() {
           </p>
           <div className="flex flex-col gap-2">
             {otherMatches.map(f => (
-              <LiveFixtureCard key={f.id} fixture={f} goals={data?.goals ?? []} cards={data?.cards ?? []} substitutions={data?.substitutions ?? []} />
+              <LiveFixtureCard key={f.id} fixture={f} goals={data?.goals ?? []} cards={data?.cards ?? []} substitutions={data?.substitutions ?? []} varEvents={data?.varEvents ?? []} />
             ))}
           </div>
         </>

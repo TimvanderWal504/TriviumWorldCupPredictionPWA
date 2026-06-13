@@ -260,44 +260,11 @@ public class ResultIngestionJob(
             var cardEvents = allEvents.Where(e => e.IsCard).ToList();
             var subEvents  = allEvents.Where(e => e.IsSub).ToList();
 
-            // Cancelled goals: lookup by normalised player name → list of VAR event minutes.
-            // Proximity match (±15 min) handles the common case where the API logs the VAR
-            // review at a slightly different minute than the goal event.
-            var cancelledGoalsByPlayer = varEvents
-                .Where(v => v.IsGoalCancelled && v.Player?.Name is { Length: > 0 })
-                .ToLookup(
-                    v => v.Player!.Name!.Trim().ToUpperInvariant(),
-                    v => v.Time?.Elapsed ?? 0);
-
-            // Card upgrades: lookup by normalised name → (varMinute, upgraded type).
-            // Using ToLookup (not ToDictionary) avoids a crash when the same player has two
-            // upgrade events; proximity match below ensures only the matching card is upgraded.
-            var cardUpgrades = varEvents
-                .Where(v => (v.IsCardUpgradeRed || v.IsCardUpgrade2ndYel) && v.Player?.Name is { Length: > 0 })
-                .ToLookup(
-                    v => v.Player!.Name!.Trim().ToUpperInvariant(),
-                    v => (VarMinute: v.Time?.Elapsed ?? 0,
-                          Type: v.IsCardUpgradeRed ? CardType.Red : CardType.SecondYellow));
-
             foreach (var evt in goalEvents)
             {
                 if (evt.Player?.Name is not { Length: > 0 } playerName)
                     continue;
 
-                // Skip goals cancelled by VAR. Proximity match (±10 min) so a VAR event logged
-                // a few minutes after the goal still cancels it, while a valid earlier goal by
-                // the same player is not discarded.
-                var goalMinute = evt.Time?.Elapsed ?? 0;
-                if (cancelledGoalsByPlayer[playerName.Trim().ToUpperInvariant()]
-                    .Any(varMin => Math.Abs(goalMinute - varMin) <= 15))
-                {
-                    logger.LogDebug(
-                        "ResultIngestionJob: goal by '{Player}' at {Minute}' cancelled by VAR — skipping",
-                        playerName, goalMinute);
-                    continue;
-                }
-
-                // Resolve player by name — tries exact match then last-name fallback
                 var player = ResolvePlayer(playerName, playerByName, playersByLastName);
                 if (player == null)
                 {
@@ -311,11 +278,10 @@ public class ResultIngestionJob(
                                evt.IsPenalty     ? GoalType.PenaltyInMatch :
                                                    GoalType.OpenPlay;
 
-                // Deterministic ID: same fixture + player name + minute → same Guid
                 var goalId = CreateDeterministicGuid(GoalEventNamespace,
                     $"{apiFixture.FixtureId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
 
-                var goalEvent = new GoalEvent
+                session.Store(new GoalEvent
                 {
                     Id          = goalId,
                     FixtureId   = dbFixture.Id,
@@ -323,9 +289,7 @@ public class ResultIngestionJob(
                     Type        = goalType,
                     Minute      = evt.Time?.Elapsed ?? 0,
                     ExtraMinute = evt.Time?.Extra,
-                };
-
-                session.Store(goalEvent);
+                });
             }
 
             foreach (var evt in cardEvents)
@@ -352,22 +316,6 @@ public class ResultIngestionJob(
 
                 var cardMinute = evt.Time?.Elapsed ?? 0;
 
-                // Apply VAR upgrade for this specific card: VAR minute must be at or after the
-                // card minute and within 15 minutes, so only the matching card is upgraded.
-                var upgrade = cardUpgrades[playerName.Trim().ToUpperInvariant()]
-                    .Where(u => u.VarMinute >= cardMinute && u.VarMinute - cardMinute <= 15)
-                    .Select(u => (CardType?)u.Type)
-                    .FirstOrDefault();
-                if (upgrade is { } upgradedType)
-                {
-                    logger.LogDebug(
-                        "ResultIngestionJob: card for '{Player}' at {Minute}' upgraded by VAR from {Original} to {Upgraded}",
-                        playerName, cardMinute, cardType, upgradedType);
-                    cardType = upgradedType;
-                }
-
-                // ID excludes card type so a live-stored Yellow is overwritten by the FT pass
-                // when a VAR upgrade changes it to Red — same minute always produces the same ID.
                 var cardId = CreateDeterministicGuid(GoalEventNamespace,
                     $"card:{apiFixture.FixtureId}:{playerName}:{cardMinute}");
 
@@ -414,6 +362,32 @@ public class ResultIngestionJob(
                 });
             }
 
+            foreach (var evt in varEvents)
+            {
+                if (evt.Player?.Name is not { Length: > 0 } playerName) continue;
+                VarDecisionType? decType =
+                    evt.IsGoalCancelled     ? VarDecisionType.GoalCancelled :
+                    evt.IsCardUpgradeRed    ? VarDecisionType.CardUpgradeRed :
+                    evt.IsCardUpgrade2ndYel ? VarDecisionType.CardUpgradeSecondYellow :
+                    null;
+                if (decType is null) continue;
+                var varTeam = evt.Team?.Name is { } vtn
+                    ? FootballApiTeamMap.Resolve(evt.Team.Id, vtn) ?? string.Empty
+                    : string.Empty;
+                var varId = CreateDeterministicGuid(GoalEventNamespace,
+                    $"var:{apiFixture.FixtureId}:{decType}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                session.Store(new VarEvent
+                {
+                    Id          = varId,
+                    FixtureId   = dbFixture.Id,
+                    Type        = decType.Value,
+                    PlayerName  = playerName,
+                    TeamId      = varTeam,
+                    Minute      = evt.Time?.Elapsed ?? 0,
+                    ExtraMinute = evt.Time?.Extra,
+                });
+            }
+
             if (!eventsIngestionFailed)
             {
                 dbFixture.EventsIngested = true;
@@ -453,25 +427,10 @@ public class ResultIngestionJob(
 
             if (liveEvents.Count > 0)
             {
-                var liveVarCancelledByPlayer = liveEvents
-                    .Where(v => v.IsVar && v.IsGoalCancelled && v.Player?.Name is { Length: > 0 })
-                    .ToLookup(
-                        v => v.Player!.Name!.Trim().ToUpperInvariant(),
-                        v => v.Time?.Elapsed ?? 0);
-
-                var liveCardUpgrades = liveEvents
-                    .Where(v => v.IsVar && (v.IsCardUpgradeRed || v.IsCardUpgrade2ndYel) && v.Player?.Name is { Length: > 0 })
-                    .ToLookup(
-                        v => v.Player!.Name!.Trim().ToUpperInvariant(),
-                        v => (VarMinute: v.Time?.Elapsed ?? 0,
-                              Type: v.IsCardUpgradeRed ? CardType.Red : CardType.SecondYellow));
-
                 foreach (var evt in liveEvents.Where(e => e.IsGoal))
                 {
                     if (evt.Player?.Name is not { Length: > 0 } pName) continue;
                     var liveGoalMinute = evt.Time?.Elapsed ?? 0;
-                    if (liveVarCancelledByPlayer[pName.Trim().ToUpperInvariant()]
-                        .Any(varMin => Math.Abs(liveGoalMinute - varMin) <= 15)) continue;
                     var player = ResolvePlayer(pName, playerByName, playersByLastName);
                     if (player == null) continue;
                     var gt = evt.IsOwnGoal ? GoalType.OwnGoal : evt.IsPenalty ? GoalType.PenaltyInMatch : GoalType.OpenPlay;
@@ -494,11 +453,6 @@ public class ResultIngestionJob(
                     if (player == null) continue;
                     var liveCt = evt.IsSecondYellow ? CardType.SecondYellow : evt.IsRed ? CardType.Red : CardType.Yellow;
                     var liveCardMinute = evt.Time?.Elapsed ?? 0;
-                    var liveUpgrade = liveCardUpgrades[pName.Trim().ToUpperInvariant()]
-                        .Where(u => u.VarMinute >= liveCardMinute && u.VarMinute - liveCardMinute <= 15)
-                        .Select(u => (CardType?)u.Type)
-                        .FirstOrDefault();
-                    if (liveUpgrade is { } liveUpgradedType) liveCt = liveUpgradedType;
                     session.Store(new CardEvent
                     {
                         Id          = CreateDeterministicGuid(GoalEventNamespace, $"card:{apiFixture.FixtureId}:{pName}:{liveCardMinute}"),
@@ -506,6 +460,32 @@ public class ResultIngestionJob(
                         PlayerId    = player.Id,
                         Type        = liveCt,
                         Minute      = liveCardMinute,
+                        ExtraMinute = evt.Time?.Extra,
+                    });
+                }
+
+                foreach (var evt in liveEvents.Where(e => e.IsVar))
+                {
+                    if (evt.Player?.Name is not { Length: > 0 } pName) continue;
+                    VarDecisionType? liveDecType =
+                        evt.IsGoalCancelled     ? VarDecisionType.GoalCancelled :
+                        evt.IsCardUpgradeRed    ? VarDecisionType.CardUpgradeRed :
+                        evt.IsCardUpgrade2ndYel ? VarDecisionType.CardUpgradeSecondYellow :
+                        null;
+                    if (liveDecType is null) continue;
+                    var liveVarTeam = evt.Team?.Name is { } vtn
+                        ? FootballApiTeamMap.Resolve(evt.Team.Id, vtn) ?? string.Empty
+                        : string.Empty;
+                    var liveVarId = CreateDeterministicGuid(GoalEventNamespace,
+                        $"var:{apiFixture.FixtureId}:{liveDecType}:{pName}:{evt.Time?.Elapsed ?? 0}");
+                    session.Store(new VarEvent
+                    {
+                        Id          = liveVarId,
+                        FixtureId   = liveDbFixture.Id,
+                        Type        = liveDecType.Value,
+                        PlayerName  = pName,
+                        TeamId      = liveVarTeam,
+                        Minute      = evt.Time?.Elapsed ?? 0,
                         ExtraMinute = evt.Time?.Extra,
                     });
                 }

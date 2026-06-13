@@ -906,20 +906,6 @@ public static class AdminEndpoints
             var cardEvents = allEvents.Where(e => e.IsCard).ToList();
             var subEvents  = allEvents.Where(e => e.IsSub).ToList();
 
-            var cancelledGoals = varEvents
-                .Where(v => v.IsGoalCancelled && v.Player?.Name is { Length: > 0 })
-                .Select(v => (Name: v.Player!.Name!.Trim().ToUpperInvariant(), Minute: v.Time?.Elapsed ?? 0))
-                .ToHashSet();
-
-            var cardUpgrades = varEvents
-                .Where(v => (v.IsCardUpgradeRed || v.IsCardUpgrade2ndYel) && v.Player?.Name is { Length: > 0 })
-                .ToDictionary(
-                    v => v.Player!.Name!,
-                    v => v.IsCardUpgradeRed ? CardType.Red : CardType.SecondYellow,
-                    StringComparer.OrdinalIgnoreCase);
-
-            // Same namespace GUID as ResultIngestionJob — ensures IDs are identical to
-            // what the regular job would have produced (idempotent upsert).
             var ns = new Guid("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
             var goalsStored = 0;
             var cardsStored = 0;
@@ -928,7 +914,6 @@ public static class AdminEndpoints
             foreach (var evt in goalEvents)
             {
                 if (evt.Player?.Name is not { Length: > 0 } playerName) continue;
-                if (cancelledGoals.Contains((playerName.Trim().ToUpperInvariant(), evt.Time?.Elapsed ?? 0))) continue;
                 if (!playerByName.TryGetValue(playerName, out var player))
                 {
                     playerMisses.Add($"goal: {playerName}");
@@ -959,9 +944,8 @@ public static class AdminEndpoints
                     continue;
                 }
                 var cardType = evt.IsSecondYellow ? CardType.SecondYellow : evt.IsRed ? CardType.Red : CardType.Yellow;
-                if (cardUpgrades.TryGetValue(playerName, out var upgraded)) cardType = upgraded;
                 var cardId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                    $"card:{fixture.FootballApiFixtureId}:{playerName}:{cardType}:{evt.Time?.Elapsed ?? 0}");
+                    $"card:{fixture.FootballApiFixtureId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
                 session.Store(new CardEvent
                 {
                     Id          = cardId,
@@ -1001,6 +985,32 @@ public static class AdminEndpoints
                 });
             }
 
+            foreach (var evt in varEvents)
+            {
+                if (evt.Player?.Name is not { Length: > 0 } playerName) continue;
+                VarDecisionType? decType =
+                    evt.IsGoalCancelled     ? VarDecisionType.GoalCancelled :
+                    evt.IsCardUpgradeRed    ? VarDecisionType.CardUpgradeRed :
+                    evt.IsCardUpgrade2ndYel ? VarDecisionType.CardUpgradeSecondYellow :
+                    null;
+                if (decType is null) continue;
+                var varTeam = evt.Team?.Name is { } vtn
+                    ? FootballApiTeamMap.Resolve(evt.Team.Id, vtn) ?? string.Empty
+                    : string.Empty;
+                var varId = ResultIngestionJob.CreateDeterministicGuid(ns,
+                    $"var:{fixture.FootballApiFixtureId}:{decType}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                session.Store(new VarEvent
+                {
+                    Id          = varId,
+                    FixtureId   = fixtureId,
+                    Type        = decType.Value,
+                    PlayerName  = playerName,
+                    TeamId      = varTeam,
+                    Minute      = evt.Time?.Elapsed ?? 0,
+                    ExtraMinute = evt.Time?.Extra,
+                });
+            }
+
             fixture.EventsIngested = true;
             session.Store(fixture);
             await session.SaveChangesAsync(ct);
@@ -1019,6 +1029,201 @@ public static class AdminEndpoints
         })
         .WithName("FetchFixtureEvents")
         .WithSummary("Fetches events from the Football API for any completed fixture and writes them. Backfills matches missed by the date-window ingestion job. Idempotent.");
+
+        // ── POST /admin/fixtures/{fixtureId}/reset-events ───────────────────
+        // Wipes ALL existing goal, card, and substitution events for the fixture,
+        // then immediately re-fetches them from the Football API. Use when events
+        // appear duplicated or incorrect — gives a clean slate before re-ingestion.
+        group.MapPost("/fixtures/{fixtureId}/reset-events", async (
+            string fixtureId,
+            HttpContext context,
+            IFootballApiClient apiClient,
+            IDocumentStore store,
+            ScoringRecomputeService scoringService,
+            CancellationToken ct) =>
+        {
+            var user = context.GetAppUser();
+            if (!user.IsInRole("admin"))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            await using var session = store.LightweightSession();
+
+            var fixture = await session.LoadAsync<Fixture>(fixtureId, ct);
+            if (fixture is null)
+                return Results.NotFound(new { error = $"Fixture '{fixtureId}' not found." });
+
+            if (fixture.FootballApiFixtureId is null)
+                return Results.UnprocessableEntity(new
+                {
+                    error = "Fixture has no FootballApiFixtureId — call POST /admin/fixtures/sync-api-ids first."
+                });
+
+            var existingGoals = await session.Query<GoalEvent>()
+                .Where(g => g.FixtureId == fixtureId).ToListAsync(ct);
+            var existingCards = await session.Query<CardEvent>()
+                .Where(c => c.FixtureId == fixtureId).ToListAsync(ct);
+            var existingSubs = await session.Query<SubstitutionEvent>()
+                .Where(s => s.FixtureId == fixtureId).ToListAsync(ct);
+            var existingVars = await session.Query<VarEvent>()
+                .Where(v => v.FixtureId == fixtureId).ToListAsync(ct);
+
+            foreach (var g in existingGoals) session.Delete(g);
+            foreach (var c in existingCards) session.Delete(c);
+            foreach (var s in existingSubs) session.Delete(s);
+            foreach (var v in existingVars) session.Delete(v);
+
+            fixture.EventsIngested = false;
+            session.Store(fixture);
+            await session.SaveChangesAsync(ct);
+
+            IReadOnlyList<ApiMatchEvent> allEvents;
+            try
+            {
+                allEvents = await apiClient.GetAllEventsAsync(fixture.FootballApiFixtureId.Value, ct);
+            }
+            catch (Exception ex)
+            {
+                return Results.Problem(
+                    $"Events cleared but Football API call failed: {ex.Message}. The ingestion job will backfill on the next cycle.",
+                    statusCode: 502);
+            }
+
+            var allPlayers = await session.Query<Player>().ToListAsync(ct);
+            var playerByName = allPlayers
+                .GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            var goalEvents = allEvents.Where(e => e.IsGoal).ToList();
+            var varEvents  = allEvents.Where(e => e.IsVar).ToList();
+            var cardEvents = allEvents.Where(e => e.IsCard).ToList();
+            var subEvents  = allEvents.Where(e => e.IsSub).ToList();
+
+            var ns = new Guid("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
+            var goalsStored = 0;
+            var cardsStored = 0;
+            var playerMisses = new List<string>();
+
+            foreach (var evt in goalEvents)
+            {
+                if (evt.Player?.Name is not { Length: > 0 } playerName) continue;
+                if (!playerByName.TryGetValue(playerName, out var player))
+                {
+                    playerMisses.Add($"goal: {playerName}");
+                    continue;
+                }
+                var goalType = evt.IsOwnGoal ? GoalType.OwnGoal : evt.IsPenalty ? GoalType.PenaltyInMatch : GoalType.OpenPlay;
+                var goalId = ResultIngestionJob.CreateDeterministicGuid(ns,
+                    $"{fixture.FootballApiFixtureId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                session.Store(new GoalEvent
+                {
+                    Id          = goalId,
+                    FixtureId   = fixtureId,
+                    PlayerId    = player.Id,
+                    Type        = goalType,
+                    Minute      = evt.Time?.Elapsed ?? 0,
+                    ExtraMinute = evt.Time?.Extra,
+                });
+                goalsStored++;
+            }
+
+            foreach (var evt in cardEvents)
+            {
+                if (evt.Player?.Name is not { Length: > 0 } playerName) continue;
+                if (!evt.IsYellow && !evt.IsSecondYellow && !evt.IsRed) continue;
+                if (!playerByName.TryGetValue(playerName, out var player))
+                {
+                    playerMisses.Add($"card: {playerName}");
+                    continue;
+                }
+                var cardType = evt.IsSecondYellow ? CardType.SecondYellow : evt.IsRed ? CardType.Red : CardType.Yellow;
+                var cardId = ResultIngestionJob.CreateDeterministicGuid(ns,
+                    $"card:{fixture.FootballApiFixtureId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                session.Store(new CardEvent
+                {
+                    Id          = cardId,
+                    FixtureId   = fixtureId,
+                    PlayerId    = player.Id,
+                    Type        = cardType,
+                    Minute      = evt.Time?.Elapsed ?? 0,
+                    ExtraMinute = evt.Time?.Extra,
+                });
+                cardsStored++;
+            }
+
+            foreach (var evt in subEvents)
+            {
+                var playerOutName = evt.Player?.Name ?? string.Empty;
+                var playerInName  = evt.Assist?.Name  ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(playerOutName) && string.IsNullOrWhiteSpace(playerInName)) continue;
+                playerByName.TryGetValue(playerOutName, out var playerOut);
+                playerByName.TryGetValue(playerInName,  out var playerIn);
+                var teamFifaCode = evt.Team?.Name is { } tn
+                    ? FootballApiTeamMap.Resolve(evt.Team.Id, tn) ?? string.Empty
+                    : string.Empty;
+                var subId = ResultIngestionJob.CreateDeterministicGuid(ns,
+                    $"sub:{fixture.FootballApiFixtureId}:{playerOutName}:{playerInName}:{evt.Time?.Elapsed ?? 0}");
+                session.Store(new SubstitutionEvent
+                {
+                    Id            = subId,
+                    FixtureId     = fixtureId,
+                    PlayerOutId   = playerOut?.Id,
+                    PlayerInId    = playerIn?.Id,
+                    PlayerOutName = playerOutName,
+                    PlayerInName  = playerInName,
+                    TeamId        = teamFifaCode,
+                    Minute        = evt.Time?.Elapsed ?? 0,
+                    ExtraMinute   = evt.Time?.Extra,
+                });
+            }
+
+            foreach (var evt in varEvents)
+            {
+                if (evt.Player?.Name is not { Length: > 0 } playerName) continue;
+                VarDecisionType? decType =
+                    evt.IsGoalCancelled     ? VarDecisionType.GoalCancelled :
+                    evt.IsCardUpgradeRed    ? VarDecisionType.CardUpgradeRed :
+                    evt.IsCardUpgrade2ndYel ? VarDecisionType.CardUpgradeSecondYellow :
+                    null;
+                if (decType is null) continue;
+                var varTeam = evt.Team?.Name is { } vtn
+                    ? FootballApiTeamMap.Resolve(evt.Team.Id, vtn) ?? string.Empty
+                    : string.Empty;
+                var varId = ResultIngestionJob.CreateDeterministicGuid(ns,
+                    $"var:{fixture.FootballApiFixtureId}:{decType}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                session.Store(new VarEvent
+                {
+                    Id          = varId,
+                    FixtureId   = fixtureId,
+                    Type        = decType.Value,
+                    PlayerName  = playerName,
+                    TeamId      = varTeam,
+                    Minute      = evt.Time?.Elapsed ?? 0,
+                    ExtraMinute = evt.Time?.Extra,
+                });
+            }
+
+            fixture.EventsIngested = true;
+            session.Store(fixture);
+            await session.SaveChangesAsync(ct);
+            await scoringService.RecomputeAllAsync(ct);
+
+            return Results.Ok(new
+            {
+                fixtureId,
+                footballApiFixtureId = fixture.FootballApiFixtureId,
+                deletedGoals  = existingGoals.Count,
+                deletedCards  = existingCards.Count,
+                deletedSubs   = existingSubs.Count,
+                deletedVars   = existingVars.Count,
+                totalApiEvents = allEvents.Count,
+                goalsStored,
+                cardsStored,
+                subsStored    = subEvents.Count,
+                playerMisses,
+            });
+        })
+        .WithName("ResetFixtureEvents")
+        .WithSummary("Deletes all events for a fixture then re-fetches them from the Football API. Fixes duplicated or incorrect events.");
 
         // ── POST /admin/fixtures/fetch-all-events ────────────────────────────
         // Bulk-fetches events (goals, cards, subs) from the Football API for all
@@ -1096,22 +1301,9 @@ public static class AdminEndpoints
                 var cardEvents = allEvents.Where(e => e.IsCard).ToList();
                 var subEvents  = allEvents.Where(e => e.IsSub).ToList();
 
-                var cancelledGoals = varEvents
-                    .Where(v => v.IsGoalCancelled && v.Player?.Name is { Length: > 0 })
-                    .Select(v => (Name: v.Player!.Name!.Trim().ToUpperInvariant(), Minute: v.Time?.Elapsed ?? 0))
-                    .ToHashSet();
-
-                var cardUpgrades = varEvents
-                    .Where(v => (v.IsCardUpgradeRed || v.IsCardUpgrade2ndYel) && v.Player?.Name is { Length: > 0 })
-                    .ToDictionary(
-                        v => v.Player!.Name!,
-                        v => v.IsCardUpgradeRed ? CardType.Red : CardType.SecondYellow,
-                        StringComparer.OrdinalIgnoreCase);
-
                 foreach (var evt in goalEvents)
                 {
                     if (evt.Player?.Name is not { Length: > 0 } playerName) continue;
-                    if (cancelledGoals.Contains((playerName.Trim().ToUpperInvariant(), evt.Time?.Elapsed ?? 0))) continue;
                     if (!playerByName.TryGetValue(playerName, out var player))
                     {
                         playerMisses.Add($"{fixture.Id}/goal: {playerName}");
@@ -1142,9 +1334,8 @@ public static class AdminEndpoints
                         continue;
                     }
                     var cardType = evt.IsSecondYellow ? CardType.SecondYellow : evt.IsRed ? CardType.Red : CardType.Yellow;
-                    if (cardUpgrades.TryGetValue(playerName, out var upgraded)) cardType = upgraded;
                     var cardId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                        $"card:{fixture.FootballApiFixtureId}:{playerName}:{cardType}:{evt.Time?.Elapsed ?? 0}");
+                        $"card:{fixture.FootballApiFixtureId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
                     session.Store(new CardEvent
                     {
                         Id          = cardId,
@@ -1182,6 +1373,32 @@ public static class AdminEndpoints
                         ExtraMinute   = evt.Time?.Extra,
                     });
                     totalSubs++;
+                }
+
+                foreach (var evt in varEvents)
+                {
+                    if (evt.Player?.Name is not { Length: > 0 } playerName) continue;
+                    VarDecisionType? decType =
+                        evt.IsGoalCancelled     ? VarDecisionType.GoalCancelled :
+                        evt.IsCardUpgradeRed    ? VarDecisionType.CardUpgradeRed :
+                        evt.IsCardUpgrade2ndYel ? VarDecisionType.CardUpgradeSecondYellow :
+                        null;
+                    if (decType is null) continue;
+                    var varTeam = evt.Team?.Name is { } vtn
+                        ? FootballApiTeamMap.Resolve(evt.Team.Id, vtn) ?? string.Empty
+                        : string.Empty;
+                    var varId = ResultIngestionJob.CreateDeterministicGuid(ns,
+                        $"var:{fixture.FootballApiFixtureId}:{decType}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                    session.Store(new VarEvent
+                    {
+                        Id          = varId,
+                        FixtureId   = fixture.Id,
+                        Type        = decType.Value,
+                        PlayerName  = playerName,
+                        TeamId      = varTeam,
+                        Minute      = evt.Time?.Elapsed ?? 0,
+                        ExtraMinute = evt.Time?.Extra,
+                    });
                 }
 
                 fixture.EventsIngested = true;
