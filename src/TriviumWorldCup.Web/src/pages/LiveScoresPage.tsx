@@ -120,22 +120,31 @@ type EventItem =
 
 type RenderItem = EventItem | { kind: 'marker'; label: string };
 
-const PERIOD_THRESHOLDS: { minute: number; label: string }[] = [
-  { minute: 45, label: 'HT' },
-  { minute: 90, label: "90'" },
-  { minute: 105, label: 'ET HT' },
+// beforeExtra=false (HT): marker comes AFTER period stoppage — fires when minute crosses into next period (>45 means 2nd half started)
+// beforeExtra=true  (90', ET HT): marker comes BEFORE period stoppage — fires when reaching minute+extra of threshold (90+1 means regulation ended)
+const PERIOD_THRESHOLDS: { minute: number; label: string; beforeExtra: boolean }[] = [
+  { minute: 45,  label: 'HT',    beforeExtra: false },
+  { minute: 90,  label: "90'",   beforeExtra: true  },
+  { minute: 105, label: 'ET HT', beforeExtra: true  },
 ];
 
 function buildRenderList(events: EventItem[], status: string): RenderItem[] {
   const sorted = [...events].sort((a, b) =>
     a.minute !== b.minute ? a.minute - b.minute : (a.extraMinute ?? 0) - (b.extraMinute ?? 0)
   );
+  const hasExtraTime = sorted.some(e => e.minute > 90);
+  const thresholds = PERIOD_THRESHOLDS.filter(t => t.label !== "90'" || hasExtraTime);
   const result: RenderItem[] = [];
   if (sorted.length > 0) result.push({ kind: 'marker', label: 'Kick-off' });
   let tIdx = 0;
   for (const evt of sorted) {
-    while (tIdx < PERIOD_THRESHOLDS.length && evt.minute > PERIOD_THRESHOLDS[tIdx].minute) {
-      result.push({ kind: 'marker', label: PERIOD_THRESHOLDS[tIdx].label });
+    while (tIdx < thresholds.length) {
+      const t = thresholds[tIdx];
+      const crosses = t.beforeExtra
+        ? evt.minute > t.minute || (evt.minute === t.minute && evt.extraMinute != null)
+        : evt.minute > t.minute;
+      if (!crosses) break;
+      result.push({ kind: 'marker', label: t.label });
       tIdx++;
     }
     result.push(evt);

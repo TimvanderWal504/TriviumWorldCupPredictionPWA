@@ -58,6 +58,9 @@ export function AdminPage() {
   const [recomputeMsg, setRecomputeMsg] = useState<string | null>(null);
   const [syncApiIdsMsg, setSyncApiIdsMsg] = useState<string | null>(null);
   const [syncApiIdsBusy, setSyncApiIdsBusy] = useState(false);
+  const [fetchAllMsg, setFetchAllMsg] = useState<string | null>(null);
+  const [fetchAllBusy, setFetchAllBusy] = useState(false);
+  const [fetchAllOnlyMissing, setFetchAllOnlyMissing] = useState(true);
 
   const [pushTargetUserId, setPushTargetUserId] = useState('');
   const [pushTitle, setPushTitle] = useState('Test notification');
@@ -276,6 +279,34 @@ export function AdminPage() {
       const body = await res.json();
       setRecomputeMsg((body as { message?: string }).message ?? 'Recompute triggered.');
     } catch (err) { setRecomputeMsg(`Error: ${String(err)}`); }
+  }
+
+  async function handleFetchAllEvents() {
+    setFetchAllMsg(null);
+    setFetchAllBusy(true);
+    try {
+      const url = `/admin/fixtures/fetch-all-events?onlyMissing=${fetchAllOnlyMissing}`;
+      const res = await fetch(url, { method: 'POST', credentials: 'include' });
+      const body = await res.json() as {
+        processed?: number; total?: number;
+        totalGoals?: number; totalCards?: number; totalSubs?: number;
+        quotaExhausted?: boolean; skipped?: string[]; playerMisses?: string[]; message?: string;
+      };
+      if (!res.ok) { setFetchAllMsg(`Error: HTTP ${res.status}`); return; }
+      if (body.message && !body.processed) { setFetchAllMsg(body.message); return; }
+      const parts = [
+        `Processed ${body.processed ?? 0}/${body.total ?? 0} fixture(s).`,
+        `Goals: ${body.totalGoals ?? 0}, Cards: ${body.totalCards ?? 0}, Subs: ${body.totalSubs ?? 0}.`,
+      ];
+      if (body.quotaExhausted) parts.push('API quota exhausted — remaining fixtures will backfill on next cycle.');
+      if ((body.skipped?.length ?? 0) > 0) parts.push(`Skipped: ${body.skipped!.join(', ')}.`);
+      if ((body.playerMisses?.length ?? 0) > 0) parts.push(`Unmatched players (${body.playerMisses!.length}): ${body.playerMisses!.slice(0, 5).join(', ')}${body.playerMisses!.length > 5 ? '…' : ''}.`);
+      setFetchAllMsg(parts.join(' '));
+    } catch (err) {
+      setFetchAllMsg(`Error: ${String(err)}`);
+    } finally {
+      setFetchAllBusy(false);
+    }
   }
 
   async function handleSyncApiIds() {
@@ -534,6 +565,22 @@ export function AdminPage() {
               {syncApiIdsBusy ? 'Syncing…' : 'Sync fixture API IDs'}
             </button>
             {syncApiIdsMsg && <p className="text-sm" style={{ color: 'var(--win)' }}>{syncApiIdsMsg}</p>}
+          </div>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2 mb-1">
+              <input id="fetchAllOnlyMissing" type="checkbox" checked={fetchAllOnlyMissing}
+                onChange={e => setFetchAllOnlyMissing(e.target.checked)}
+                className="w-4 h-4 accent-[var(--secondary)]" />
+              <label htmlFor="fetchAllOnlyMissing" className="text-xs text-fg-secondary cursor-pointer select-none">
+                Only fixtures missing events
+              </label>
+            </div>
+            <button onClick={handleFetchAllEvents} disabled={fetchAllBusy}
+              className="px-4 py-2 rounded-input text-sm font-semibold transition-colors disabled:opacity-50"
+              style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }}>
+              {fetchAllBusy ? 'Fetching…' : 'Fetch all fixture events'}
+            </button>
+            {fetchAllMsg && <p className="text-sm" style={{ color: 'var(--win)' }}>{fetchAllMsg}</p>}
           </div>
         </div>
       </section>

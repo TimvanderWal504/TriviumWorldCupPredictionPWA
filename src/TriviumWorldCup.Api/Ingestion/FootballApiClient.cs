@@ -225,7 +225,10 @@ public sealed class ApiMatchEvent
     public bool IsRed          => string.Equals(Detail, "Red Card",      StringComparison.OrdinalIgnoreCase);
 
     // ── VAR detail helpers ───────────────────────────────────────────────────
-    public bool IsGoalCancelled     => string.Equals(Detail, "Goal cancelled",              StringComparison.OrdinalIgnoreCase);
+    public bool IsGoalCancelled     =>
+        Detail is { Length: > 0 } d &&
+        (d.StartsWith("Goal cancelled",  StringComparison.OrdinalIgnoreCase) ||
+         d.StartsWith("Goal Disallowed", StringComparison.OrdinalIgnoreCase));
     public bool IsCardUpgradeRed    => string.Equals(Detail, "Card Upgrade - Red Card",      StringComparison.OrdinalIgnoreCase);
     public bool IsCardUpgrade2ndYel => string.Equals(Detail, "Card Upgrade - Second Yellow", StringComparison.OrdinalIgnoreCase);
 }

@@ -1020,6 +1020,196 @@ public static class AdminEndpoints
         .WithName("FetchFixtureEvents")
         .WithSummary("Fetches events from the Football API for any completed fixture and writes them. Backfills matches missed by the date-window ingestion job. Idempotent.");
 
+        // ── POST /admin/fixtures/fetch-all-events ────────────────────────────
+        // Bulk-fetches events (goals, cards, subs) from the Football API for all
+        // completed group-stage fixtures and upserts them into Marten using the same
+        // deterministic IDs as the individual /fetch-events endpoint — idempotent.
+        // Use onlyMissing=true to skip fixtures that already have EventsIngested=true
+        // and conserve the daily API-Football quota (100 requests/day on the free plan).
+        group.MapPost("/fixtures/fetch-all-events", async (
+            HttpContext context,
+            [FromQuery] bool onlyMissing,
+            IFootballApiClient apiClient,
+            IDocumentStore store,
+            ScoringRecomputeService scoringService,
+            CancellationToken ct) =>
+        {
+            var user = context.GetAppUser();
+            if (!user.IsInRole("admin"))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            await using var session = store.LightweightSession();
+
+            var allCompleted = await session
+                .Query<Fixture>()
+                .Where(f => f.Status == MatchStatus.Completed && f.FootballApiFixtureId != null)
+                .ToListAsync(ct);
+
+            var toProcess = onlyMissing
+                ? allCompleted.Where(f => !f.EventsIngested).ToList()
+                : allCompleted;
+
+            if (toProcess.Count == 0)
+                return Results.Ok(new
+                {
+                    message        = "No fixtures to process.",
+                    processed      = 0,
+                    total          = allCompleted.Count,
+                    quotaExhausted = false,
+                });
+
+            var allPlayers = await session.Query<Player>().ToListAsync(ct);
+            var playerByName = allPlayers
+                .GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            // Same namespace as ResultIngestionJob and the single-fixture fetch-events endpoint
+            var ns           = new Guid("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
+            var totalGoals   = 0;
+            var totalCards   = 0;
+            var totalSubs    = 0;
+            var processed    = 0;
+            var skipped      = new List<string>();
+            var playerMisses = new List<string>();
+            var quotaExhausted = false;
+
+            foreach (var fixture in toProcess)
+            {
+                IReadOnlyList<ApiMatchEvent> allEvents;
+                try
+                {
+                    allEvents = await apiClient.GetAllEventsAsync(fixture.FootballApiFixtureId!.Value, ct);
+                }
+                catch (HttpRequestException ex) when (ex.InnerException is InvalidOperationException { Message: "Quota exceeded" })
+                {
+                    quotaExhausted = true;
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    skipped.Add($"{fixture.Id}: {ex.Message}");
+                    continue;
+                }
+
+                var goalEvents = allEvents.Where(e => e.IsGoal).ToList();
+                var varEvents  = allEvents.Where(e => e.IsVar).ToList();
+                var cardEvents = allEvents.Where(e => e.IsCard).ToList();
+                var subEvents  = allEvents.Where(e => e.IsSub).ToList();
+
+                var cancelledGoals = varEvents
+                    .Where(v => v.IsGoalCancelled && v.Player?.Name is { Length: > 0 })
+                    .Select(v => (Name: v.Player!.Name!.Trim().ToUpperInvariant(), Minute: v.Time?.Elapsed ?? 0))
+                    .ToHashSet();
+
+                var cardUpgrades = varEvents
+                    .Where(v => (v.IsCardUpgradeRed || v.IsCardUpgrade2ndYel) && v.Player?.Name is { Length: > 0 })
+                    .ToDictionary(
+                        v => v.Player!.Name!,
+                        v => v.IsCardUpgradeRed ? CardType.Red : CardType.SecondYellow,
+                        StringComparer.OrdinalIgnoreCase);
+
+                foreach (var evt in goalEvents)
+                {
+                    if (evt.Player?.Name is not { Length: > 0 } playerName) continue;
+                    if (cancelledGoals.Contains((playerName.Trim().ToUpperInvariant(), evt.Time?.Elapsed ?? 0))) continue;
+                    if (!playerByName.TryGetValue(playerName, out var player))
+                    {
+                        playerMisses.Add($"{fixture.Id}/goal: {playerName}");
+                        continue;
+                    }
+                    var goalType = evt.IsOwnGoal ? GoalType.OwnGoal : evt.IsPenalty ? GoalType.PenaltyInMatch : GoalType.OpenPlay;
+                    var goalId   = ResultIngestionJob.CreateDeterministicGuid(ns,
+                        $"{fixture.FootballApiFixtureId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                    session.Store(new GoalEvent
+                    {
+                        Id          = goalId,
+                        FixtureId   = fixture.Id,
+                        PlayerId    = player.Id,
+                        Type        = goalType,
+                        Minute      = evt.Time?.Elapsed ?? 0,
+                        ExtraMinute = evt.Time?.Extra,
+                    });
+                    totalGoals++;
+                }
+
+                foreach (var evt in cardEvents)
+                {
+                    if (evt.Player?.Name is not { Length: > 0 } playerName) continue;
+                    if (!evt.IsYellow && !evt.IsSecondYellow && !evt.IsRed) continue;
+                    if (!playerByName.TryGetValue(playerName, out var player))
+                    {
+                        playerMisses.Add($"{fixture.Id}/card: {playerName}");
+                        continue;
+                    }
+                    var cardType = evt.IsSecondYellow ? CardType.SecondYellow : evt.IsRed ? CardType.Red : CardType.Yellow;
+                    if (cardUpgrades.TryGetValue(playerName, out var upgraded)) cardType = upgraded;
+                    var cardId = ResultIngestionJob.CreateDeterministicGuid(ns,
+                        $"card:{fixture.FootballApiFixtureId}:{playerName}:{cardType}:{evt.Time?.Elapsed ?? 0}");
+                    session.Store(new CardEvent
+                    {
+                        Id          = cardId,
+                        FixtureId   = fixture.Id,
+                        PlayerId    = player.Id,
+                        Type        = cardType,
+                        Minute      = evt.Time?.Elapsed ?? 0,
+                        ExtraMinute = evt.Time?.Extra,
+                    });
+                    totalCards++;
+                }
+
+                foreach (var evt in subEvents)
+                {
+                    var playerOutName = evt.Player?.Name ?? string.Empty;
+                    var playerInName  = evt.Assist?.Name ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(playerOutName) && string.IsNullOrWhiteSpace(playerInName)) continue;
+                    playerByName.TryGetValue(playerOutName, out var playerOut);
+                    playerByName.TryGetValue(playerInName,  out var playerIn);
+                    var teamFifaCode = evt.Team?.Name is { } tn
+                        ? FootballApiTeamMap.Resolve(evt.Team.Id, tn) ?? string.Empty
+                        : string.Empty;
+                    var subId = ResultIngestionJob.CreateDeterministicGuid(ns,
+                        $"sub:{fixture.FootballApiFixtureId}:{playerOutName}:{playerInName}:{evt.Time?.Elapsed ?? 0}");
+                    session.Store(new SubstitutionEvent
+                    {
+                        Id            = subId,
+                        FixtureId     = fixture.Id,
+                        PlayerOutId   = playerOut?.Id,
+                        PlayerInId    = playerIn?.Id,
+                        PlayerOutName = playerOutName,
+                        PlayerInName  = playerInName,
+                        TeamId        = teamFifaCode,
+                        Minute        = evt.Time?.Elapsed ?? 0,
+                        ExtraMinute   = evt.Time?.Extra,
+                    });
+                    totalSubs++;
+                }
+
+                fixture.EventsIngested = true;
+                session.Store(fixture);
+                processed++;
+            }
+
+            if (processed > 0)
+            {
+                await session.SaveChangesAsync(ct);
+                await scoringService.RecomputeAllAsync(ct);
+            }
+
+            return Results.Ok(new
+            {
+                processed,
+                total          = toProcess.Count,
+                totalGoals,
+                totalCards,
+                totalSubs,
+                quotaExhausted,
+                skipped,
+                playerMisses,
+            });
+        })
+        .WithName("FetchAllFixtureEvents")
+        .WithSummary("Bulk-fetches events (goals, cards, subs) for all completed group-stage fixtures and upserts them. Pass onlyMissing=true to skip fixtures that already have events (saves API quota). Idempotent.");
+
         // ── POST /admin/recompute ─────────────────────────────────────────────
         group.MapPost("/recompute", async (
             HttpContext context,

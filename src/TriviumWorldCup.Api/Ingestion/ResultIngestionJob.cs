@@ -172,8 +172,11 @@ public class ResultIngestionJob(
             .ToListAsync(ct);
 
         var playerByName = allPlayers
-            .GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(p => StripDiacritics(p.Name), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+        var playersByLastName = allPlayers
+            .ToLookup(p => LastWord(p.Name), StringComparer.OrdinalIgnoreCase);
 
         // ── 7. Process each newly-completed fixture ───────────────────────────
         var ingestedCount = 0;
@@ -257,37 +260,46 @@ public class ResultIngestionJob(
             var cardEvents = allEvents.Where(e => e.IsCard).ToList();
             var subEvents  = allEvents.Where(e => e.IsSub).ToList();
 
-            // Build lookups: cancelled goals by (playerName, minute) and card-upgrade decisions.
-            // Keying on minute prevents a valid earlier goal by the same player being discarded.
-            var cancelledGoals = varEvents
+            // Cancelled goals: lookup by normalised player name → list of VAR event minutes.
+            // Proximity match (±15 min) handles the common case where the API logs the VAR
+            // review at a slightly different minute than the goal event.
+            var cancelledGoalsByPlayer = varEvents
                 .Where(v => v.IsGoalCancelled && v.Player?.Name is { Length: > 0 })
-                .Select(v => (Name: v.Player!.Name!.Trim().ToUpperInvariant(), Minute: v.Time?.Elapsed ?? 0))
-                .ToHashSet();
+                .ToLookup(
+                    v => v.Player!.Name!.Trim().ToUpperInvariant(),
+                    v => v.Time?.Elapsed ?? 0);
 
+            // Card upgrades: lookup by normalised name → (varMinute, upgraded type).
+            // Using ToLookup (not ToDictionary) avoids a crash when the same player has two
+            // upgrade events; proximity match below ensures only the matching card is upgraded.
             var cardUpgrades = varEvents
                 .Where(v => (v.IsCardUpgradeRed || v.IsCardUpgrade2ndYel) && v.Player?.Name is { Length: > 0 })
-                .ToDictionary(
-                    v => v.Player!.Name!,
-                    v => v.IsCardUpgradeRed ? CardType.Red : CardType.SecondYellow,
-                    StringComparer.OrdinalIgnoreCase);
+                .ToLookup(
+                    v => v.Player!.Name!.Trim().ToUpperInvariant(),
+                    v => (VarMinute: v.Time?.Elapsed ?? 0,
+                          Type: v.IsCardUpgradeRed ? CardType.Red : CardType.SecondYellow));
 
             foreach (var evt in goalEvents)
             {
                 if (evt.Player?.Name is not { Length: > 0 } playerName)
                     continue;
 
-                // Skip goals cancelled by VAR — match on both player name and minute so a valid
-                // earlier goal by the same player is not discarded.
-                if (cancelledGoals.Contains((playerName.Trim().ToUpperInvariant(), evt.Time?.Elapsed ?? 0)))
+                // Skip goals cancelled by VAR. Proximity match (±10 min) so a VAR event logged
+                // a few minutes after the goal still cancels it, while a valid earlier goal by
+                // the same player is not discarded.
+                var goalMinute = evt.Time?.Elapsed ?? 0;
+                if (cancelledGoalsByPlayer[playerName.Trim().ToUpperInvariant()]
+                    .Any(varMin => Math.Abs(goalMinute - varMin) <= 15))
                 {
                     logger.LogDebug(
                         "ResultIngestionJob: goal by '{Player}' at {Minute}' cancelled by VAR — skipping",
-                        playerName, evt.Time?.Elapsed ?? 0);
+                        playerName, goalMinute);
                     continue;
                 }
 
-                // Resolve player by name
-                if (!playerByName.TryGetValue(playerName, out var player))
+                // Resolve player by name — tries exact match then last-name fallback
+                var player = ResolvePlayer(playerName, playerByName, playersByLastName);
+                if (player == null)
                 {
                     logger.LogDebug(
                         "ResultIngestionJob: player '{Name}' not found in roster — goal event skipped",
@@ -325,7 +337,8 @@ public class ResultIngestionJob(
                 if (!evt.IsYellow && !evt.IsSecondYellow && !evt.IsRed)
                     continue;
 
-                if (!playerByName.TryGetValue(playerName, out var player))
+                var player = ResolvePlayer(playerName, playerByName, playersByLastName);
+                if (player == null)
                 {
                     logger.LogDebug(
                         "ResultIngestionJob: player '{Name}' not found in roster — card event skipped",
@@ -337,17 +350,26 @@ public class ResultIngestionJob(
                                evt.IsRed          ? CardType.Red :
                                                     CardType.Yellow;
 
-                // Apply VAR card upgrade if one exists for this player
-                if (cardUpgrades.TryGetValue(playerName, out var upgradedType))
+                var cardMinute = evt.Time?.Elapsed ?? 0;
+
+                // Apply VAR upgrade for this specific card: VAR minute must be at or after the
+                // card minute and within 15 minutes, so only the matching card is upgraded.
+                var upgrade = cardUpgrades[playerName.Trim().ToUpperInvariant()]
+                    .Where(u => u.VarMinute >= cardMinute && u.VarMinute - cardMinute <= 15)
+                    .Select(u => (CardType?)u.Type)
+                    .FirstOrDefault();
+                if (upgrade is { } upgradedType)
                 {
                     logger.LogDebug(
-                        "ResultIngestionJob: card for '{Player}' upgraded by VAR from {Original} to {Upgraded}",
-                        playerName, cardType, upgradedType);
+                        "ResultIngestionJob: card for '{Player}' at {Minute}' upgraded by VAR from {Original} to {Upgraded}",
+                        playerName, cardMinute, cardType, upgradedType);
                     cardType = upgradedType;
                 }
 
+                // ID excludes card type so a live-stored Yellow is overwritten by the FT pass
+                // when a VAR upgrade changes it to Red — same minute always produces the same ID.
                 var cardId = CreateDeterministicGuid(GoalEventNamespace,
-                    $"card:{apiFixture.FixtureId}:{playerName}:{cardType}:{evt.Time?.Elapsed ?? 0}");
+                    $"card:{apiFixture.FixtureId}:{playerName}:{cardMinute}");
 
                 session.Store(new CardEvent
                 {
@@ -367,8 +389,8 @@ public class ResultIngestionJob(
                 if (string.IsNullOrWhiteSpace(playerOutName) && string.IsNullOrWhiteSpace(playerInName))
                     continue;
 
-                playerByName.TryGetValue(playerOutName, out var playerOut);
-                playerByName.TryGetValue(playerInName,  out var playerIn);
+                var playerOut = ResolvePlayer(playerOutName, playerByName, playersByLastName);
+                var playerIn  = ResolvePlayer(playerInName,  playerByName, playersByLastName);
 
                 // Resolve team FIFA code from API team id
                 var teamFifaCode = evt.Team?.Name is { } teamName
@@ -431,24 +453,35 @@ public class ResultIngestionJob(
 
             if (liveEvents.Count > 0)
             {
-                var liveVarCancelled = liveEvents
+                var liveVarCancelledByPlayer = liveEvents
                     .Where(v => v.IsVar && v.IsGoalCancelled && v.Player?.Name is { Length: > 0 })
-                    .Select(v => (Name: v.Player!.Name!.Trim().ToUpperInvariant(), Minute: v.Time?.Elapsed ?? 0))
-                    .ToHashSet();
+                    .ToLookup(
+                        v => v.Player!.Name!.Trim().ToUpperInvariant(),
+                        v => v.Time?.Elapsed ?? 0);
+
+                var liveCardUpgrades = liveEvents
+                    .Where(v => v.IsVar && (v.IsCardUpgradeRed || v.IsCardUpgrade2ndYel) && v.Player?.Name is { Length: > 0 })
+                    .ToLookup(
+                        v => v.Player!.Name!.Trim().ToUpperInvariant(),
+                        v => (VarMinute: v.Time?.Elapsed ?? 0,
+                              Type: v.IsCardUpgradeRed ? CardType.Red : CardType.SecondYellow));
 
                 foreach (var evt in liveEvents.Where(e => e.IsGoal))
                 {
                     if (evt.Player?.Name is not { Length: > 0 } pName) continue;
-                    if (liveVarCancelled.Contains((pName.Trim().ToUpperInvariant(), evt.Time?.Elapsed ?? 0))) continue;
-                    if (!playerByName.TryGetValue(pName, out var player)) continue;
+                    var liveGoalMinute = evt.Time?.Elapsed ?? 0;
+                    if (liveVarCancelledByPlayer[pName.Trim().ToUpperInvariant()]
+                        .Any(varMin => Math.Abs(liveGoalMinute - varMin) <= 15)) continue;
+                    var player = ResolvePlayer(pName, playerByName, playersByLastName);
+                    if (player == null) continue;
                     var gt = evt.IsOwnGoal ? GoalType.OwnGoal : evt.IsPenalty ? GoalType.PenaltyInMatch : GoalType.OpenPlay;
                     session.Store(new GoalEvent
                     {
-                        Id          = CreateDeterministicGuid(GoalEventNamespace, $"{apiFixture.FixtureId}:{pName}:{evt.Time?.Elapsed ?? 0}"),
+                        Id          = CreateDeterministicGuid(GoalEventNamespace, $"{apiFixture.FixtureId}:{pName}:{liveGoalMinute}"),
                         FixtureId   = liveDbFixture.Id,
                         PlayerId    = player.Id,
                         Type        = gt,
-                        Minute      = evt.Time?.Elapsed ?? 0,
+                        Minute      = liveGoalMinute,
                         ExtraMinute = evt.Time?.Extra,
                     });
                 }
@@ -457,15 +490,22 @@ public class ResultIngestionJob(
                 {
                     if (evt.Player?.Name is not { Length: > 0 } pName) continue;
                     if (!evt.IsYellow && !evt.IsSecondYellow && !evt.IsRed) continue;
-                    if (!playerByName.TryGetValue(pName, out var player)) continue;
-                    var ct2 = evt.IsSecondYellow ? CardType.SecondYellow : evt.IsRed ? CardType.Red : CardType.Yellow;
+                    var player = ResolvePlayer(pName, playerByName, playersByLastName);
+                    if (player == null) continue;
+                    var liveCt = evt.IsSecondYellow ? CardType.SecondYellow : evt.IsRed ? CardType.Red : CardType.Yellow;
+                    var liveCardMinute = evt.Time?.Elapsed ?? 0;
+                    var liveUpgrade = liveCardUpgrades[pName.Trim().ToUpperInvariant()]
+                        .Where(u => u.VarMinute >= liveCardMinute && u.VarMinute - liveCardMinute <= 15)
+                        .Select(u => (CardType?)u.Type)
+                        .FirstOrDefault();
+                    if (liveUpgrade is { } liveUpgradedType) liveCt = liveUpgradedType;
                     session.Store(new CardEvent
                     {
-                        Id          = CreateDeterministicGuid(GoalEventNamespace, $"card:{apiFixture.FixtureId}:{pName}:{ct2}:{evt.Time?.Elapsed ?? 0}"),
+                        Id          = CreateDeterministicGuid(GoalEventNamespace, $"card:{apiFixture.FixtureId}:{pName}:{liveCardMinute}"),
                         FixtureId   = liveDbFixture.Id,
                         PlayerId    = player.Id,
-                        Type        = ct2,
-                        Minute      = evt.Time?.Elapsed ?? 0,
+                        Type        = liveCt,
+                        Minute      = liveCardMinute,
                         ExtraMinute = evt.Time?.Extra,
                     });
                 }
@@ -615,6 +655,73 @@ public class ResultIngestionJob(
         Array.Reverse(b, 0, 4);
         Array.Reverse(b, 4, 2);
         Array.Reverse(b, 6, 2);
+    }
+
+    /// <summary>
+    /// Resolves a player from the API event name using two steps:
+    /// 1. Exact full-name match (case-insensitive) — handles "Themba Zwane", "César Montes".
+    /// 2. Last-name match — extracts the last word of the API name and compares it against
+    ///    the last word of every DB player name. Handles abbreviated API names like "F. Balogun".
+    ///    When multiple DB players share a last name, the first-letter initial from an
+    ///    abbreviated API name (e.g. "T." in "T. Adams") is used to disambiguate.
+    /// Returns null when the name cannot be resolved unambiguously.
+    /// </summary>
+    internal static Player? ResolvePlayer(
+        string apiName,
+        Dictionary<string, Player> byFullName,
+        ILookup<string, Player> byLastName)
+    {
+        if (string.IsNullOrWhiteSpace(apiName)) return null;
+
+        // 1. Exact full-name match — normalized so "Brian Gutierrez" matches "Brian Gutiérrez"
+        if (byFullName.TryGetValue(StripDiacritics(apiName), out var exact)) return exact;
+
+        // 2. Last-name match — compare last word of API name against last word of DB name
+        var lastWord = LastWord(apiName);
+        var candidates = byLastName[lastWord].ToList();
+
+        if (candidates.Count == 1) return candidates[0];
+        if (candidates.Count == 0) return null;
+
+        // Multiple DB players share this last name — try first-initial disambiguation.
+        // API abbreviated format: "T. Adams" → first part is "T.", initial is 'T'.
+        var parts = apiName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 2 && parts[0].Length == 2 && parts[0][1] == '.')
+        {
+            var initial = char.ToUpperInvariant(parts[0][0]);
+            var byInitial = candidates
+                .Where(p => char.ToUpperInvariant(p.Name[0]) == initial)
+                .ToList();
+            if (byInitial.Count == 1) return byInitial[0];
+        }
+
+        return null;
+    }
+
+    private static string LastWord(string name)
+    {
+        var idx = name.LastIndexOf(' ');
+        var word = idx < 0 ? name : name[(idx + 1)..];
+        return StripDiacritics(word);
+    }
+
+    /// <summary>
+    /// Strips diacritical marks (accents, tildes, umlauts) from a string so that
+    /// "Quiñones" == "Quinones", "Jiménez" == "Jimenez", "Gutiérrez" == "Gutierrez".
+    /// Uses Unicode FormD decomposition to separate base letters from combining marks,
+    /// removes the combining marks, then recomposes to FormC.
+    /// </summary>
+    private static string StripDiacritics(string text)
+    {
+        var decomposed = text.Normalize(System.Text.NormalizationForm.FormD);
+        var sb = new System.Text.StringBuilder(decomposed.Length);
+        foreach (var c in decomposed)
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c)
+                != System.Globalization.UnicodeCategory.NonSpacingMark)
+                sb.Append(c);
+        }
+        return sb.ToString().Normalize(System.Text.NormalizationForm.FormC);
     }
 
     /// <summary>
