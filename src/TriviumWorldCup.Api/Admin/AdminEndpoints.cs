@@ -898,8 +898,10 @@ public static class AdminEndpoints
 
             var allPlayers = await session.Query<Player>().ToListAsync(ct);
             var playerByName = allPlayers
-                .GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+                .GroupBy(p => ResultIngestionJob.StripDiacritics(p.Name), StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+            var playersByLastName = allPlayers
+                .ToLookup(p => ResultIngestionJob.LastWord(p.Name), StringComparer.OrdinalIgnoreCase);
 
             var goalEvents = allEvents.Where(e => e.IsGoal).ToList();
             var varEvents  = allEvents.Where(e => e.IsVar).ToList();
@@ -914,7 +916,8 @@ public static class AdminEndpoints
             foreach (var evt in goalEvents)
             {
                 if (evt.Player?.Name is not { Length: > 0 } playerName) continue;
-                if (!playerByName.TryGetValue(playerName, out var player))
+                var player = ResultIngestionJob.ResolvePlayer(playerName, playerByName, playersByLastName);
+                if (player is null)
                 {
                     playerMisses.Add($"goal: {playerName}");
                     continue;
@@ -938,7 +941,8 @@ public static class AdminEndpoints
             {
                 if (evt.Player?.Name is not { Length: > 0 } playerName) continue;
                 if (!evt.IsYellow && !evt.IsSecondYellow && !evt.IsRed) continue;
-                if (!playerByName.TryGetValue(playerName, out var player))
+                var player = ResultIngestionJob.ResolvePlayer(playerName, playerByName, playersByLastName);
+                if (player is null)
                 {
                     playerMisses.Add($"card: {playerName}");
                     continue;
@@ -964,8 +968,8 @@ public static class AdminEndpoints
                 var playerInName  = evt.Assist?.Name ?? string.Empty;
                 if (string.IsNullOrWhiteSpace(playerOutName) && string.IsNullOrWhiteSpace(playerInName)) continue;
 
-                playerByName.TryGetValue(playerOutName, out var playerOut);
-                playerByName.TryGetValue(playerInName,  out var playerIn);
+                var playerOut = ResultIngestionJob.ResolvePlayer(playerOutName, playerByName, playersByLastName);
+                var playerIn  = ResultIngestionJob.ResolvePlayer(playerInName,  playerByName, playersByLastName);
                 var teamFifaCode = evt.Team?.Name is { } tn
                     ? FootballApiTeamMap.Resolve(evt.Team.Id, tn) ?? string.Empty
                     : string.Empty;
@@ -1090,8 +1094,10 @@ public static class AdminEndpoints
 
             var allPlayers = await session.Query<Player>().ToListAsync(ct);
             var playerByName = allPlayers
-                .GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+                .GroupBy(p => ResultIngestionJob.StripDiacritics(p.Name), StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+            var playersByLastName = allPlayers
+                .ToLookup(p => ResultIngestionJob.LastWord(p.Name), StringComparer.OrdinalIgnoreCase);
 
             var goalEvents = allEvents.Where(e => e.IsGoal).ToList();
             var varEvents  = allEvents.Where(e => e.IsVar).ToList();
@@ -1106,7 +1112,8 @@ public static class AdminEndpoints
             foreach (var evt in goalEvents)
             {
                 if (evt.Player?.Name is not { Length: > 0 } playerName) continue;
-                if (!playerByName.TryGetValue(playerName, out var player))
+                var player = ResultIngestionJob.ResolvePlayer(playerName, playerByName, playersByLastName);
+                if (player is null)
                 {
                     playerMisses.Add($"goal: {playerName}");
                     continue;
@@ -1130,7 +1137,8 @@ public static class AdminEndpoints
             {
                 if (evt.Player?.Name is not { Length: > 0 } playerName) continue;
                 if (!evt.IsYellow && !evt.IsSecondYellow && !evt.IsRed) continue;
-                if (!playerByName.TryGetValue(playerName, out var player))
+                var player = ResultIngestionJob.ResolvePlayer(playerName, playerByName, playersByLastName);
+                if (player is null)
                 {
                     playerMisses.Add($"card: {playerName}");
                     continue;
@@ -1155,8 +1163,8 @@ public static class AdminEndpoints
                 var playerOutName = evt.Player?.Name ?? string.Empty;
                 var playerInName  = evt.Assist?.Name  ?? string.Empty;
                 if (string.IsNullOrWhiteSpace(playerOutName) && string.IsNullOrWhiteSpace(playerInName)) continue;
-                playerByName.TryGetValue(playerOutName, out var playerOut);
-                playerByName.TryGetValue(playerInName,  out var playerIn);
+                var playerOut = ResultIngestionJob.ResolvePlayer(playerOutName, playerByName, playersByLastName);
+                var playerIn  = ResultIngestionJob.ResolvePlayer(playerInName,  playerByName, playersByLastName);
                 var teamFifaCode = evt.Team?.Name is { } tn
                     ? FootballApiTeamMap.Resolve(evt.Team.Id, tn) ?? string.Empty
                     : string.Empty;
@@ -1265,10 +1273,11 @@ public static class AdminEndpoints
 
             var allPlayers = await session.Query<Player>().ToListAsync(ct);
             var playerByName = allPlayers
-                .GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+                .GroupBy(p => ResultIngestionJob.StripDiacritics(p.Name), StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+            var playersByLastName = allPlayers
+                .ToLookup(p => ResultIngestionJob.LastWord(p.Name), StringComparer.OrdinalIgnoreCase);
 
-            // Same namespace as ResultIngestionJob and the single-fixture fetch-events endpoint
             var ns           = new Guid("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
             var totalGoals   = 0;
             var totalCards   = 0;
@@ -1304,7 +1313,8 @@ public static class AdminEndpoints
                 foreach (var evt in goalEvents)
                 {
                     if (evt.Player?.Name is not { Length: > 0 } playerName) continue;
-                    if (!playerByName.TryGetValue(playerName, out var player))
+                    var player = ResultIngestionJob.ResolvePlayer(playerName, playerByName, playersByLastName);
+                    if (player is null)
                     {
                         playerMisses.Add($"{fixture.Id}/goal: {playerName}");
                         continue;
@@ -1328,7 +1338,8 @@ public static class AdminEndpoints
                 {
                     if (evt.Player?.Name is not { Length: > 0 } playerName) continue;
                     if (!evt.IsYellow && !evt.IsSecondYellow && !evt.IsRed) continue;
-                    if (!playerByName.TryGetValue(playerName, out var player))
+                    var player = ResultIngestionJob.ResolvePlayer(playerName, playerByName, playersByLastName);
+                    if (player is null)
                     {
                         playerMisses.Add($"{fixture.Id}/card: {playerName}");
                         continue;
@@ -1353,8 +1364,8 @@ public static class AdminEndpoints
                     var playerOutName = evt.Player?.Name ?? string.Empty;
                     var playerInName  = evt.Assist?.Name ?? string.Empty;
                     if (string.IsNullOrWhiteSpace(playerOutName) && string.IsNullOrWhiteSpace(playerInName)) continue;
-                    playerByName.TryGetValue(playerOutName, out var playerOut);
-                    playerByName.TryGetValue(playerInName,  out var playerIn);
+                    var playerOut = ResultIngestionJob.ResolvePlayer(playerOutName, playerByName, playersByLastName);
+                    var playerIn  = ResultIngestionJob.ResolvePlayer(playerInName,  playerByName, playersByLastName);
                     var teamFifaCode = evt.Team?.Name is { } tn
                         ? FootballApiTeamMap.Resolve(evt.Team.Id, tn) ?? string.Empty
                         : string.Empty;

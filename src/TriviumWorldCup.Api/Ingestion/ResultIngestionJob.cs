@@ -678,7 +678,7 @@ public class ResultIngestionJob(
         return null;
     }
 
-    private static string LastWord(string name)
+    internal static string LastWord(string name)
     {
         var idx = name.LastIndexOf(' ');
         var word = idx < 0 ? name : name[(idx + 1)..];
@@ -691,7 +691,7 @@ public class ResultIngestionJob(
     /// Uses Unicode FormD decomposition to separate base letters from combining marks,
     /// removes the combining marks, then recomposes to FormC.
     /// </summary>
-    private static string StripDiacritics(string text)
+    internal static string StripDiacritics(string text)
     {
         var decomposed = text.Normalize(System.Text.NormalizationForm.FormD);
         var sb = new System.Text.StringBuilder(decomposed.Length);
