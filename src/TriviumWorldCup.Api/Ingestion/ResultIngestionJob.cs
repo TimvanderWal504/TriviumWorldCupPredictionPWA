@@ -106,7 +106,7 @@ public class ResultIngestionJob(
             if (windowStartDay != today)
             {
                 var prev = await apiClient.GetFixturesByDateAsync(windowStartDay, ct);
-                allApiFixtures = [..allApiFixtures, ..prev];
+                allApiFixtures = allApiFixtures.Concat(prev).DistinctBy(f => f.FixtureId).ToList();
             }
         }
         catch (Exception ex)
@@ -255,8 +255,8 @@ public class ResultIngestionJob(
                 }
             }
 
-            var goalEvents = allEvents.Where(e => e.IsGoal).ToList();
             var varEvents  = allEvents.Where(e => e.IsVar).ToList();
+            var goalEvents = FilterCancelledGoals(allEvents.Where(e => e.IsGoal), varEvents.Where(e => e.IsGoalCancelled));
             var cardEvents = allEvents.Where(e => e.IsCard).ToList();
             var subEvents  = allEvents.Where(e => e.IsSub).ToList();
 
@@ -427,7 +427,9 @@ public class ResultIngestionJob(
 
             if (liveEvents.Count > 0)
             {
-                foreach (var evt in liveEvents.Where(e => e.IsGoal))
+                var liveVarCancels    = liveEvents.Where(e => e.IsVar && e.IsGoalCancelled);
+                var liveFilteredGoals = FilterCancelledGoals(liveEvents.Where(e => e.IsGoal), liveVarCancels);
+                foreach (var evt in liveFilteredGoals)
                 {
                     if (evt.Player?.Name is not { Length: > 0 } pName) continue;
                     var liveGoalMinute = evt.Time?.Elapsed ?? 0;
@@ -763,5 +765,35 @@ public class ResultIngestionJob(
             Minute      = minute,
             ExtraMinute = evt.Time?.Extra,
         };
+    }
+
+    /// <summary>
+    /// Removes goal events that were subsequently cancelled by a VAR decision.
+    /// For each VAR GoalCancelled event, finds the most recent goal by the same player
+    /// at or before the VAR minute and drops it from the list.
+    /// </summary>
+    private static List<ApiMatchEvent> FilterCancelledGoals(
+        IEnumerable<ApiMatchEvent> goalEvents,
+        IEnumerable<ApiMatchEvent> varCancellations)
+    {
+        var cancels = varCancellations.ToList();
+        if (cancels.Count == 0) return goalEvents.ToList();
+
+        var remaining = goalEvents.ToList();
+        foreach (var varEvt in cancels)
+        {
+            var name = varEvt.Player?.Name;
+            if (string.IsNullOrEmpty(name)) continue;
+            var varMinute = varEvt.Time?.Elapsed ?? int.MaxValue;
+
+            var target = remaining
+                .Where(g => string.Equals(g.Player?.Name, name, StringComparison.OrdinalIgnoreCase)
+                         && (g.Time?.Elapsed ?? 0) <= varMinute)
+                .OrderByDescending(g => g.Time?.Elapsed ?? 0)
+                .FirstOrDefault();
+
+            if (target != null) remaining.Remove(target);
+        }
+        return remaining;
     }
 }
