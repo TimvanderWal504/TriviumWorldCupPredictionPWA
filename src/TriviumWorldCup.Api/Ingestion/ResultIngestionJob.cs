@@ -464,6 +464,31 @@ public class ResultIngestionJob(
                     });
                 }
 
+                foreach (var evt in liveEvents.Where(e => e.IsSub))
+                {
+                    var livePlayerOutName = evt.Player?.Name ?? string.Empty;
+                    var livePlayerInName  = evt.Assist?.Name ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(livePlayerOutName) && string.IsNullOrWhiteSpace(livePlayerInName))
+                        continue;
+                    var liveSubTeam = evt.Team?.Name is { } stn
+                        ? FootballApiTeamMap.Resolve(evt.Team.Id, stn) ?? string.Empty
+                        : string.Empty;
+                    var liveSubId = CreateDeterministicGuid(GoalEventNamespace,
+                        $"sub:{apiFixture.FixtureId}:{livePlayerOutName}:{livePlayerInName}:{evt.Time?.Elapsed ?? 0}");
+                    session.Store(new SubstitutionEvent
+                    {
+                        Id            = liveSubId,
+                        FixtureId     = liveDbFixture.Id,
+                        PlayerOutId   = ResolvePlayer(livePlayerOutName, playerByName, playersByLastName)?.Id,
+                        PlayerInId    = ResolvePlayer(livePlayerInName,  playerByName, playersByLastName)?.Id,
+                        PlayerOutName = livePlayerOutName,
+                        PlayerInName  = livePlayerInName,
+                        TeamId        = liveSubTeam,
+                        Minute        = evt.Time?.Elapsed ?? 0,
+                        ExtraMinute   = evt.Time?.Extra,
+                    });
+                }
+
                 foreach (var evt in liveEvents.Where(e => e.IsVar))
                 {
                     if (evt.Player?.Name is not { Length: > 0 } pName) continue;
