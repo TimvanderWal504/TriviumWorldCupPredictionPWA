@@ -13,21 +13,25 @@ namespace TriviumWorldCup.Api.Ingestion;
 ///
 /// Scheduling strategy (single-trigger, adaptive):
 ///   - Job runs every 30 seconds unconditionally.
-///   - At the start of each execution, the job checks whether any fixture is in a
-///     "live window" (KickoffUtc within the last 3 hours OR in the next 30 minutes).
-///   - If no live window is detected, the job performs a lightweight check for any
-///     new FT fixtures since the last run and exits early to respect rate limits.
-///   - During live windows the full ingestion pipeline runs every cycle.
-///   - API-Football free plan allows 100 requests/day; each full cycle costs at most
-///     1 (GetAll) + N (events per newly-completed fixture) requests. With 72 fixtures
-///     and worst-case 72 event calls = 73 calls in one burst; subsequent runs only
-///     call events for fixtures newly completed since last poll.
+///   - At the start of each execution, the job checks the LOCAL DATABASE only (no API
+///     call) for a "live window": a fixture/slot is in it if it's already InProgress (or
+///     ExtraTime/PenaltyShootout for knockout slots) — regardless of how long ago kickoff
+///     was, since matches run well past 30 minutes — OR it's still Scheduled with
+///     KickoffUtc within 30 minutes either side of now, to catch an imminent kickoff.
+///   - If nothing is in that window, the job returns immediately — zero API calls.
+///   - Only when the DB check finds a candidate does the job call the Football API.
+///   - Fixtures/slots the API reports as postponed or cancelled are marked Postponed or
+///     Cancelled (respectively) in Marten immediately, so the DB-only check above — which
+///     only opens the live window for Scheduled fixtures — stops doing so for them on
+///     future polls.
 ///
 /// Idempotency:
 ///   - Already-Completed fixtures in Marten are skipped (no API call for events).
-///   - GoalEvent IDs are deterministic: Version 5 UUID derived from
-///     (fixtureId, playerName, minute) — re-processing the same match produces the
-///     same Guid, so session.Store() is an upsert that overwrites with identical data.
+///   - GoalEvent/CardEvent/SubstitutionEvent IDs are deterministic: Version 5 UUID derived
+///     from (fixtureId, resolved PlayerId, minute) — re-processing the same match produces
+///     the same Guid, so session.Store() is an upsert that overwrites with identical data.
+///     The resolved PlayerId is used rather than the raw API name text because API-Football
+///     doesn't always return the same name format for a player across separate calls.
 ///
 /// Player matching:
 ///   - Goal scorer resolved by exact name match against Player Marten documents.
@@ -61,16 +65,22 @@ public class ResultIngestionJob(
         // The fixture seed data has all kickoff times, so we can determine the live
         // window entirely from our own DB without spending a Football API request.
         var now = DateTimeOffset.UtcNow;
-        var liveWindowStart = now.AddHours(-3);
+        var liveWindowStart = now.AddMinutes(-30);
         var liveWindowEnd   = now.AddMinutes(30);
 
+        // The ±30min window only gates fixtures that haven't kicked off yet (Scheduled) —
+        // it catches an upcoming kickoff cheaply. Once a fixture/slot is confirmed
+        // InProgress (or in extra time / penalties for knockout slots), it's polled every
+        // cycle regardless of elapsed time, since matches can run well past 30 minutes
+        // (stoppage time, extra time, penalty shootouts) and we must not stop tracking
+        // a match that's actually still being played.
         await using var checkSession = store.LightweightSession();
         var anyLiveInDb = await checkSession
             .Query<Fixture>()
-            .Where(f => f.Status != MatchStatus.Completed
-                     && f.Status != MatchStatus.Cancelled
-                     && f.KickoffUtc >= liveWindowStart
-                     && f.KickoffUtc <= liveWindowEnd)
+            .Where(f => f.Status == MatchStatus.InProgress
+                     || (f.Status == MatchStatus.Scheduled
+                         && f.KickoffUtc >= liveWindowStart
+                         && f.KickoffUtc <= liveWindowEnd))
             .AnyAsync(ct);
 
         // Also check knockout slots — during the knockout phase all group Fixtures are
@@ -79,17 +89,53 @@ public class ResultIngestionJob(
         {
             anyLiveInDb = await checkSession
                 .Query<KnockoutSlot>()
-                .Where(s => s.Status != MatchStatus.Completed
-                         && s.Status != MatchStatus.Cancelled
-                         && s.KickoffUtc != null
-                         && s.KickoffUtc >= liveWindowStart
-                         && s.KickoffUtc <= liveWindowEnd)
+                .Where(s => s.Status == MatchStatus.InProgress
+                         || s.Status == MatchStatus.ExtraTime
+                         || s.Status == MatchStatus.PenaltyShootout
+                         || (s.Status == MatchStatus.Scheduled
+                             && s.KickoffUtc != null
+                             && s.KickoffUtc >= liveWindowStart
+                             && s.KickoffUtc <= liveWindowEnd))
                 .AnyAsync(ct);
+        }
+
+        // ── 1b. Periodically recheck Postponed fixtures/slots for a status change ─
+        // A postponed fixture sits on its ORIGINAL kickoff date, which the per-date
+        // fetch in step 2 won't include once that date is no longer "today" — so without
+        // this, a postponed fixture would never be looked at again. Throttled to once a
+        // minute (rather than every 30s) since a new kickoff time, cancellation, or
+        // resumption is not time-critical the way an in-progress match is.
+        var shouldRecheckPostponed = false;
+        if (statusStore.LastPostponedRecheck is null
+            || now - statusStore.LastPostponedRecheck >= TimeSpan.FromMinutes(1))
+        {
+            shouldRecheckPostponed = await checkSession.Query<Fixture>()
+                .Where(f => f.Status == MatchStatus.Postponed)
+                .AnyAsync(ct);
+
+            if (!shouldRecheckPostponed)
+            {
+                shouldRecheckPostponed = await checkSession.Query<KnockoutSlot>()
+                    .Where(s => s.Status == MatchStatus.Postponed)
+                    .AnyAsync(ct);
+            }
+        }
+
+        if (!anyLiveInDb && !shouldRecheckPostponed)
+        {
+            logger.LogDebug("ResultIngestionJob: no fixtures in live window — skipping API call");
+            return;
+        }
+
+        if (shouldRecheckPostponed)
+        {
+            statusStore.LastPostponedRecheck = now;
+            await RecheckPostponedFixturesAsync(ct);
         }
 
         if (!anyLiveInDb)
         {
-            logger.LogDebug("ResultIngestionJob: no fixtures in live window — skipping API call");
+            // Nothing else due this cycle — the postponed recheck above already ran.
             return;
         }
 
@@ -151,7 +197,9 @@ public class ResultIngestionJob(
             })
             .ToList();
 
-        if (!anyLive && toIngest.Count == 0)
+        var anyCancelledOrPostponed = allApiFixtures.Any(f => f.IsCancelledOrPostponed);
+
+        if (!anyLive && toIngest.Count == 0 && !anyCancelledOrPostponed)
         {
             logger.LogDebug("ResultIngestionJob: no live window, no new completed fixtures — skipping");
             return;
@@ -165,6 +213,32 @@ public class ResultIngestionJob(
         // Index Marten fixtures by team pair for O(1) lookup
         var fixtureByTeamPair = allDbFixtures
             .ToDictionary(f => (f.HomeTeamId, f.AwayTeamId));
+
+        // ── 5a. Mark fixtures the API reports as postponed/cancelled ──────────
+        // Postponed means delayed to an as-yet-unknown new kickoff time; Cancelled means
+        // it will not be played/resumed at all. Either way, the Status is no longer
+        // Scheduled, so the live-window check in step 1 stops opening for this fixture on
+        // future polls — no more wasted API calls for a match that isn't on at its
+        // originally scheduled time. If the fixture is later rescheduled, an admin can
+        // update its KickoffUtc and Status back to Scheduled.
+        var cancelledCount = 0;
+        foreach (var apiFixture in allApiFixtures.Where(f => f.IsCancelledOrPostponed))
+        {
+            var homeCode = FootballApiTeamMap.Resolve(apiFixture.HomeTeamId, apiFixture.HomeTeamName);
+            var awayCode = FootballApiTeamMap.Resolve(apiFixture.AwayTeamId, apiFixture.AwayTeamName);
+            if (homeCode == null || awayCode == null) continue;
+            if (!fixtureByTeamPair.TryGetValue((homeCode, awayCode), out var affectedFixture)) continue;
+
+            var newStatus = apiFixture.IsPostponed ? MatchStatus.Postponed : MatchStatus.Cancelled;
+            if (affectedFixture.Status == newStatus) continue;
+
+            affectedFixture.Status = newStatus;
+            session.Store(affectedFixture);
+            cancelledCount++;
+            logger.LogInformation(
+                "ResultIngestionJob: fixture {Id} ({Home} vs {Away}) marked {NewStatus} — API status {Status}",
+                affectedFixture.Id, homeCode, awayCode, newStatus, apiFixture.StatusShort);
+        }
 
         // ── 6. Pre-load all players for name-based matching ───────────────────
         var allPlayers = await session
@@ -279,7 +353,7 @@ public class ResultIngestionJob(
                                                    GoalType.OpenPlay;
 
                 var goalId = CreateDeterministicGuid(GoalEventNamespace,
-                    $"{apiFixture.FixtureId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                    $"{apiFixture.FixtureId}:{player.Id}:{evt.Time?.Elapsed ?? 0}");
 
                 session.Store(new GoalEvent
                 {
@@ -317,7 +391,7 @@ public class ResultIngestionJob(
                 var cardMinute = evt.Time?.Elapsed ?? 0;
 
                 var cardId = CreateDeterministicGuid(GoalEventNamespace,
-                    $"card:{apiFixture.FixtureId}:{playerName}:{cardMinute}");
+                    $"card:{apiFixture.FixtureId}:{player.Id}:{cardMinute}");
 
                 session.Store(new CardEvent
                 {
@@ -345,7 +419,7 @@ public class ResultIngestionJob(
                     ? FootballApiTeamMap.Resolve(evt.Team.Id, teamName) ?? string.Empty
                     : string.Empty;
 
-                var subKey = $"sub:{apiFixture.FixtureId}:{playerOutName}:{playerInName}:{evt.Time?.Elapsed ?? 0}";
+                var subKey = $"sub:{apiFixture.FixtureId}:{PlayerKey(playerOutName, playerOut)}:{PlayerKey(playerInName, playerIn)}:{evt.Time?.Elapsed ?? 0}";
                 var subId  = CreateDeterministicGuid(GoalEventNamespace, subKey);
 
                 session.Store(new SubstitutionEvent
@@ -438,7 +512,7 @@ public class ResultIngestionJob(
                     var gt = evt.IsOwnGoal ? GoalType.OwnGoal : evt.IsPenalty ? GoalType.PenaltyInMatch : GoalType.OpenPlay;
                     session.Store(new GoalEvent
                     {
-                        Id          = CreateDeterministicGuid(GoalEventNamespace, $"{apiFixture.FixtureId}:{pName}:{liveGoalMinute}"),
+                        Id          = CreateDeterministicGuid(GoalEventNamespace, $"{apiFixture.FixtureId}:{player.Id}:{liveGoalMinute}"),
                         FixtureId   = liveDbFixture.Id,
                         PlayerId    = player.Id,
                         Type        = gt,
@@ -457,7 +531,7 @@ public class ResultIngestionJob(
                     var liveCardMinute = evt.Time?.Elapsed ?? 0;
                     session.Store(new CardEvent
                     {
-                        Id          = CreateDeterministicGuid(GoalEventNamespace, $"card:{apiFixture.FixtureId}:{pName}:{liveCardMinute}"),
+                        Id          = CreateDeterministicGuid(GoalEventNamespace, $"card:{apiFixture.FixtureId}:{player.Id}:{liveCardMinute}"),
                         FixtureId   = liveDbFixture.Id,
                         PlayerId    = player.Id,
                         Type        = liveCt,
@@ -475,14 +549,16 @@ public class ResultIngestionJob(
                     var liveSubTeam = evt.Team?.Name is { } stn
                         ? FootballApiTeamMap.Resolve(evt.Team.Id, stn) ?? string.Empty
                         : string.Empty;
+                    var livePlayerOut = ResolvePlayer(livePlayerOutName, playerByName, playersByLastName);
+                    var livePlayerIn  = ResolvePlayer(livePlayerInName,  playerByName, playersByLastName);
                     var liveSubId = CreateDeterministicGuid(GoalEventNamespace,
-                        $"sub:{apiFixture.FixtureId}:{livePlayerOutName}:{livePlayerInName}:{evt.Time?.Elapsed ?? 0}");
+                        $"sub:{apiFixture.FixtureId}:{PlayerKey(livePlayerOutName, livePlayerOut)}:{PlayerKey(livePlayerInName, livePlayerIn)}:{evt.Time?.Elapsed ?? 0}");
                     session.Store(new SubstitutionEvent
                     {
                         Id            = liveSubId,
                         FixtureId     = liveDbFixture.Id,
-                        PlayerOutId   = ResolvePlayer(livePlayerOutName, playerByName, playersByLastName)?.Id,
-                        PlayerInId    = ResolvePlayer(livePlayerInName,  playerByName, playersByLastName)?.Id,
+                        PlayerOutId   = livePlayerOut?.Id,
+                        PlayerInId    = livePlayerIn?.Id,
                         PlayerOutName = livePlayerOutName,
                         PlayerInName  = livePlayerInName,
                         TeamId        = liveSubTeam,
@@ -528,7 +604,8 @@ public class ResultIngestionJob(
             .Where(s => s.HomeTeamId != null
                      && s.AwayTeamId != null
                      && s.Status != MatchStatus.Completed
-                     && s.Status != MatchStatus.Cancelled)
+                     && s.Status != MatchStatus.Cancelled
+                     && s.Status != MatchStatus.Postponed)
             .ToListAsync(ct);
 
         var knockoutUpdated = 0;
@@ -537,12 +614,24 @@ public class ResultIngestionJob(
             var knockoutByTeamPair = knockoutSlots
                 .ToDictionary(s => (s.HomeTeamId!, s.AwayTeamId!));
 
-            foreach (var apiFixture in allApiFixtures.Where(f => f.IsLive || f.IsFullTime))
+            foreach (var apiFixture in allApiFixtures.Where(f => f.IsLive || f.IsFullTime || f.IsCancelledOrPostponed))
             {
                 var homeCode = FootballApiTeamMap.Resolve(apiFixture.HomeTeamId, apiFixture.HomeTeamName);
                 var awayCode = FootballApiTeamMap.Resolve(apiFixture.AwayTeamId, apiFixture.AwayTeamName);
                 if (homeCode == null || awayCode == null) continue;
                 if (!knockoutByTeamPair.TryGetValue((homeCode, awayCode), out var slot)) continue;
+
+                if (apiFixture.IsCancelledOrPostponed)
+                {
+                    var newSlotStatus = apiFixture.IsPostponed ? MatchStatus.Postponed : MatchStatus.Cancelled;
+                    slot.Status = newSlotStatus;
+                    session.Store(slot);
+                    cancelledCount++;
+                    logger.LogInformation(
+                        "ResultIngestionJob: knockout slot {SlotKey} ({Home} vs {Away}) marked {NewStatus} — API status {Status}",
+                        slot.SlotKey, homeCode, awayCode, newSlotStatus, apiFixture.StatusShort);
+                    continue;
+                }
 
                 if (apiFixture.IsLive)
                 {
@@ -601,7 +690,7 @@ public class ResultIngestionJob(
             }
         }
 
-        if (ingestedCount > 0 || anyLive || knockoutUpdated > 0)
+        if (ingestedCount > 0 || anyLive || knockoutUpdated > 0 || cancelledCount > 0)
         {
             await session.SaveChangesAsync(ct);
         }
@@ -622,6 +711,140 @@ public class ResultIngestionJob(
 
         logger.LogDebug("ResultIngestionJob: completed (ingested={Count}, liveWindow={Live})",
             ingestedCount, anyLive);
+    }
+
+    /// <summary>
+    /// Rechecks every Postponed Fixture/KnockoutSlot against the full-season API fixture
+    /// list (since a postponed fixture's original date is no longer "today", the per-date
+    /// fetch in the main pipeline won't surface it). Costs one API request, throttled by
+    /// the caller to roughly once a minute.
+    ///
+    /// Outcomes:
+    ///   - API reports it cancelled/abandoned/awarded/walkover/suspended → Status=Cancelled.
+    ///     No further processing — there's nothing to ingest for a match that won't happen.
+    ///   - API still reports it postponed → stays Postponed; KickoffUtc is updated if the
+    ///     API has since announced a tentative new date.
+    ///   - API reports anything else (a concrete new kickoff, already live, or already
+    ///     full-time) → Status=Scheduled with KickoffUtc set from the API's date. This puts
+    ///     the fixture back into the normal pipeline, which will pick it up on this or a
+    ///     subsequent cycle and ingest it exactly like any other match — "consume as normal".
+    /// </summary>
+    private async Task RecheckPostponedFixturesAsync(CancellationToken ct)
+    {
+        await using var session = store.LightweightSession();
+
+        var postponedFixtures = await session
+            .Query<Fixture>()
+            .Where(f => f.Status == MatchStatus.Postponed)
+            .ToListAsync(ct);
+
+        var postponedSlots = await session
+            .Query<KnockoutSlot>()
+            .Where(s => s.Status == MatchStatus.Postponed)
+            .ToListAsync(ct);
+
+        if (postponedFixtures.Count == 0 && postponedSlots.Count == 0)
+            return;
+
+        IReadOnlyList<ApiFixture> allApiFixtures;
+        try
+        {
+            allApiFixtures = await apiClient.GetAllFixturesForSeasonAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "ResultIngestionJob: failed to recheck postponed fixtures — will retry on next scheduled recheck");
+            return;
+        }
+
+        var apiFixtureByTeamPair = new Dictionary<(string Home, string Away), ApiFixture>();
+        foreach (var af in allApiFixtures)
+        {
+            var homeCode = FootballApiTeamMap.Resolve(af.HomeTeamId, af.HomeTeamName);
+            var awayCode = FootballApiTeamMap.Resolve(af.AwayTeamId, af.AwayTeamName);
+            if (homeCode == null || awayCode == null) continue;
+            apiFixtureByTeamPair[(homeCode, awayCode)] = af;
+        }
+
+        var updated = 0;
+
+        foreach (var fixture in postponedFixtures)
+        {
+            if (!apiFixtureByTeamPair.TryGetValue((fixture.HomeTeamId, fixture.AwayTeamId), out var apiFixture))
+                continue;
+
+            if (ApplyPostponedRecheck(fixture.Id, apiFixture,
+                    s => fixture.Status = s, d => fixture.KickoffUtc = d))
+            {
+                session.Store(fixture);
+                updated++;
+            }
+        }
+
+        foreach (var slot in postponedSlots)
+        {
+            if (slot.HomeTeamId is null || slot.AwayTeamId is null) continue;
+            if (!apiFixtureByTeamPair.TryGetValue((slot.HomeTeamId, slot.AwayTeamId), out var apiFixture))
+                continue;
+
+            if (ApplyPostponedRecheck(slot.SlotKey, apiFixture,
+                    s => slot.Status = s, d => slot.KickoffUtc = d))
+            {
+                session.Store(slot);
+                updated++;
+            }
+        }
+
+        if (updated > 0)
+            await session.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Pure decision logic for a single postponed fixture/slot recheck. Returns true if the
+    /// caller's setters were invoked (i.e. something changed and needs to be persisted).
+    /// </summary>
+    private bool ApplyPostponedRecheck(
+        string id,
+        ApiFixture apiFixture,
+        Action<MatchStatus> setStatus,
+        Action<DateTimeOffset> setKickoffUtc)
+    {
+        if (apiFixture.IsCancelled)
+        {
+            setStatus(MatchStatus.Cancelled);
+            logger.LogInformation(
+                "ResultIngestionJob: postponed fixture/slot {Id} marked Cancelled — API status {Status}",
+                id, apiFixture.StatusShort);
+            return true;
+        }
+
+        if (apiFixture.IsPostponed)
+        {
+            // Still postponed — only persist a change if the API has since announced a
+            // tentative new date for it.
+            if (DateTimeOffset.TryParse(apiFixture.Date, out var tentativeDate))
+            {
+                setKickoffUtc(tentativeDate);
+                logger.LogDebug(
+                    "ResultIngestionJob: postponed fixture/slot {Id} still postponed — tentative new kickoff {Kickoff}",
+                    id, tentativeDate);
+                return true;
+            }
+            return false;
+        }
+
+        // Anything else (a concrete new kickoff, already live, or already full-time) means
+        // the fixture is back on track — hand it back to the normal Scheduled pipeline.
+        setStatus(MatchStatus.Scheduled);
+        if (DateTimeOffset.TryParse(apiFixture.Date, out var newKickoff))
+            setKickoffUtc(newKickoff);
+
+        logger.LogInformation(
+            "ResultIngestionJob: postponed fixture/slot {Id} resumed (API status {Status}) — " +
+            "marked Scheduled and will be ingested normally",
+            id, apiFixture.StatusShort);
+        return true;
     }
 
     /// <summary>
@@ -732,6 +955,16 @@ public class ResultIngestionJob(
     }
 
     /// <summary>
+    /// Stable key for an event-ID hash: the resolved Player's Guid when known, otherwise a
+    /// normalized form of the raw API name. API-Football's events feed doesn't always return
+    /// the same name format for a given player across separate calls (abbreviated vs. full,
+    /// accented vs. not) — hashing the resolved PlayerId instead avoids minting a second
+    /// GoalEvent/CardEvent/SubstitutionEvent for the same real-world event when that happens.
+    /// </summary>
+    internal static string PlayerKey(string rawName, Player? resolved) =>
+        resolved?.Id.ToString() ?? StripDiacritics(rawName).Trim().ToLowerInvariant();
+
+    /// <summary>
     /// Maps an API-Football goal event detail string to the app's <see cref="GoalType"/>.
     /// Pure function — testable without any infrastructure.
     /// </summary>
@@ -752,13 +985,12 @@ public class ResultIngestionJob(
         Guid playerId,
         ApiMatchEvent evt)
     {
-        var playerName = evt.Player?.Name ?? string.Empty;
-        var minute     = evt.Time?.Elapsed ?? 0;
+        var minute = evt.Time?.Elapsed ?? 0;
 
         return new GoalEvent
         {
             Id          = CreateDeterministicGuid(GoalEventNamespace,
-                              $"{apiFixtureId}:{playerName}:{minute}"),
+                              $"{apiFixtureId}:{playerId}:{minute}"),
             FixtureId   = dbFixtureId,
             PlayerId    = playerId,
             Type        = MapGoalType(evt),

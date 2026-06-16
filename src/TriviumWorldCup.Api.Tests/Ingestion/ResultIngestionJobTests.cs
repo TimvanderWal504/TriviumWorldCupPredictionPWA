@@ -98,6 +98,56 @@ public class ResultIngestionJobTests
     }
 
     [Fact]
+    public void SamePlayer_DifferentRawNameFormat_ProducesSameGoalEventId()
+    {
+        // API-Football doesn't always return the same name format for a player across
+        // separate calls (e.g. abbreviated "M. De Cuyper" while live, full "Maxim De Cuyper"
+        // at full time). Both calls resolve to the same Player, so the ID must be based on
+        // the resolved PlayerId, not the raw event text — otherwise a second GoalEvent
+        // document is minted for the same real-world goal and the UI shows a duplicate.
+        var playerId = Guid.NewGuid();
+
+        var liveCallEvt = new ApiMatchEvent
+        {
+            Time   = new ApiTime { Elapsed = 56 },
+            Player = new ApiPlayer { Name = "M. De Cuyper" },
+            Detail = "Normal Goal",
+        };
+        var fullTimeCallEvt = new ApiMatchEvent
+        {
+            Time   = new ApiTime { Elapsed = 56 },
+            Player = new ApiPlayer { Name = "Maxim De Cuyper" },
+            Detail = "Normal Goal",
+        };
+
+        var goalFromLiveCall     = ResultIngestionJob.BuildGoalEvent(99001, "fixture-1", playerId, liveCallEvt);
+        var goalFromFullTimeCall = ResultIngestionJob.BuildGoalEvent(99001, "fixture-1", playerId, fullTimeCallEvt);
+
+        Assert.Equal(goalFromLiveCall.Id, goalFromFullTimeCall.Id);
+    }
+
+    [Fact]
+    public void PlayerKey_ResolvedPlayer_UsesPlayerIdRegardlessOfRawNameFormat()
+    {
+        var player = new Player { Id = Guid.NewGuid(), Name = "Maxim De Cuyper", TeamId = "BEL", Position = Position.DEF };
+
+        var keyFromAbbreviated = ResultIngestionJob.PlayerKey("M. De Cuyper", player);
+        var keyFromFull        = ResultIngestionJob.PlayerKey("Maxim De Cuyper", player);
+
+        Assert.Equal(keyFromAbbreviated, keyFromFull);
+        Assert.Equal(player.Id.ToString(), keyFromAbbreviated);
+    }
+
+    [Fact]
+    public void PlayerKey_UnresolvedPlayer_FallsBackToNormalizedRawName()
+    {
+        var key1 = ResultIngestionJob.PlayerKey("Jiménez", null);
+        var key2 = ResultIngestionJob.PlayerKey("jimenez", null);
+
+        Assert.Equal(key1, key2);
+    }
+
+    [Fact]
     public void TwoDistinctGoals_ProduceDifferentGoalEventIds()
     {
         var playerId = Guid.NewGuid();

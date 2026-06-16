@@ -178,6 +178,15 @@ public sealed class ApiFixture
 
     /// <summary>Returns true if this fixture is currently being played.</summary>
     public bool IsLive => StatusShort is "1H" or "HT" or "2H" or "ET" or "BT" or "P";
+
+    /// <summary>Returns true if the API reports this fixture as delayed to an as-yet-unknown new kickoff time.</summary>
+    public bool IsPostponed => StatusShort is "PST";
+
+    /// <summary>Returns true if the API reports this fixture as cancelled, abandoned, suspended, or awarded — it will not resume.</summary>
+    public bool IsCancelled => StatusShort is "CANC" or "ABD" or "AWD" or "WO" or "SUSP";
+
+    /// <summary>Returns true if the fixture is off its originally scheduled course — postponed or cancelled.</summary>
+    public bool IsCancelledOrPostponed => IsPostponed || IsCancelled;
 }
 
 /// <summary>

@@ -14,8 +14,9 @@ public static class FixtureEndpoints
 {
     public static IEndpointRouteBuilder MapFixtureEndpoints(this IEndpointRouteBuilder routes)
     {
-        // GET /fixtures/results — all Completed fixtures (newest first) with goal events and
-        // the current user's prediction + computed points per fixture.
+        // GET /fixtures/results — all Completed and Cancelled fixtures (newest first) with goal
+        // events and the current user's prediction + computed points per fixture. Cancelled
+        // fixtures never score points.
         // Must be registered before /fixtures to avoid route ambiguity.
         routes.MapGet("/fixtures/results", async (HttpContext context, IDocumentSession session, CancellationToken ct) =>
         {
@@ -24,7 +25,7 @@ public static class FixtureEndpoints
                 return Results.Unauthorized();
 
             var fixtures = await session.Query<Fixture>()
-                .Where(f => f.Status == MatchStatus.Completed)
+                .Where(f => f.Status == MatchStatus.Completed || f.Status == MatchStatus.Cancelled)
                 .OrderByDescending(f => f.KickoffUtc)
                 .ThenByDescending(f => f.MatchNumber)
                 .ToListAsync(ct);
