@@ -269,6 +269,7 @@ public class ResultIngestionJobTests
     [InlineData("DR Congo",      "COD")]
     [InlineData("Cabo Verde",    "CPV")]
     [InlineData("Cape Verde",    "CPV")]
+    [InlineData("Cape Verde Islands", "CPV")]
     public void FootballApiTeamMap_AlternateNames_ResolveCorrectly(string apiName, string expectedCode)
     {
         var result = FootballApiTeamMap.Resolve(99999, apiName);

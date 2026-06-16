@@ -89,6 +89,7 @@ public static class FootballApiTeamMap
         { "Spain",                   "ESP" },
         { "Cape Verde",              "CPV" },
         { "Cabo Verde",              "CPV" },
+        { "Cape Verde Islands",      "CPV" },
         { "Saudi Arabia",            "KSA" },
         { "Uruguay",                 "URU" },
 
