@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
-import { Clock, ChevronDown, ChevronUp } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { flagUrl } from '../utils/flagUrl.ts';
 import {
   buildEventItems, buildRenderList, MatchEventsList,
   type GoalEventDto, type CardEventDto, type SubstitutionEventDto, type VarEventDto,
 } from '../components/MatchEvents.tsx';
+import { GroupStandingsTable, type StandingsMatchInput } from '../components/GroupStandingsTable.tsx';
 
 interface ResultFixtureDto {
   id: string;
@@ -21,6 +22,8 @@ interface ResultFixtureDto {
   city: string;
   status: string;
 }
+
+type FixtureDto = ResultFixtureDto;
 
 interface MyPredictionDto {
   fixtureId: string;
@@ -42,6 +45,12 @@ async function fetchResults(): Promise<ResultsResponse> {
   const res = await fetch('/fixtures/results', { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to load results (${res.status})`);
   return res.json() as Promise<ResultsResponse>;
+}
+
+async function fetchAllFixtures(): Promise<FixtureDto[]> {
+  const res = await fetch('/fixtures', { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to load fixtures (${res.status})`);
+  return res.json() as Promise<FixtureDto[]>;
 }
 
 function formatKickoff(kickoffUtc: string): string {
@@ -176,17 +185,39 @@ function ResultFixtureCard({ fixture, goals, cards, substitutions, varEvents, pr
   );
 }
 
-export function ResultsPage() {
+interface ResultsPageProps {
+  viewMode: 'group' | 'date';
+}
+
+export function ResultsPage({ viewMode }: ResultsPageProps) {
   const [data, setData] = useState<ResultsResponse | null>(null);
+  const [allFixtures, setAllFixtures] = useState<FixtureDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [activeGroup, setActiveGroup] = useState<string>('A');
+
+  const tabsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetchResults()
-      .then(setData)
+    Promise.all([fetchResults(), fetchAllFixtures()])
+      .then(([res, fixtureList]) => {
+        setData(res);
+        setAllFixtures(fixtureList);
+        if (fixtureList.length > 0) {
+          const letters = [...new Set(fixtureList.map(f => f.groupLetter))].sort();
+          setActiveGroup(letters[0]);
+        }
+      })
       .catch((err: unknown) => setLoadError(err instanceof Error ? err.message : 'Failed to load results.'))
       .finally(() => setLoading(false));
   }, []);
+
+  // Scroll the active tab into view whenever activeGroup changes
+  useEffect(() => {
+    if (!tabsRef.current) return;
+    const btn = tabsRef.current.querySelector('[aria-selected="true"]') as HTMLElement | null;
+    btn?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+  }, [activeGroup]);
 
   if (loading) return <div className="flex items-center justify-center py-20 text-fg-muted">Loading results…</div>;
   if (loadError) return (
@@ -195,10 +226,37 @@ export function ResultsPage() {
     </div>
   );
 
-  const fixtures = data?.fixtures ?? [];
+  const playedFixtures = data?.fixtures ?? [];
   const predMap = new Map((data?.myPredictions ?? []).map(p => [p.fixtureId, p]));
 
-  if (fixtures.length === 0) {
+  if (viewMode === 'date') {
+    if (playedFixtures.length === 0) {
+      return (
+        <div className="max-w-3xl mx-auto px-4 py-4">
+          <div className="rounded-card bg-surface border border-border px-4 py-16 text-center">
+            <p className="text-fg-muted text-sm">No results yet. Come back after the first match.</p>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-4 flex flex-col gap-3">
+        {playedFixtures.map(f => (
+          <ResultFixtureCard
+            key={f.id}
+            fixture={f}
+            goals={data?.goals ?? []}
+            cards={data?.cards ?? []}
+            substitutions={data?.substitutions ?? []}
+            varEvents={data?.varEvents ?? []}
+            prediction={predMap.get(f.id)}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  if (allFixtures.length === 0) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-4">
         <div className="rounded-card bg-surface border border-border px-4 py-16 text-center">
@@ -208,19 +266,88 @@ export function ResultsPage() {
     );
   }
 
+  const groupLetters = [...new Set(allFixtures.map(f => f.groupLetter))].sort();
+  const activeGroupFixtures = allFixtures.filter(f => f.groupLetter === activeGroup);
+  const activePlayedFixtures = playedFixtures.filter(f => f.groupLetter === activeGroup);
+
+  const activeGroupStandingsMatches: StandingsMatchInput[] = activeGroupFixtures.map(f => ({
+    homeTeamId: f.homeTeamId, homeTeamName: f.homeTeamName,
+    awayTeamId: f.awayTeamId, awayTeamName: f.awayTeamName,
+    homeScore: f.status === 'Cancelled' ? null : f.homeScore,
+    awayScore: f.status === 'Cancelled' ? null : f.awayScore,
+  }));
+
+  const btnBase = 'w-7 h-7 flex items-center justify-center rounded-input text-sm font-bold transition-opacity disabled:opacity-25';
+
   return (
-    <div className="max-w-3xl mx-auto px-4 py-4 flex flex-col gap-3">
-      {fixtures.map(f => (
-        <ResultFixtureCard
-          key={f.id}
-          fixture={f}
-          goals={data?.goals ?? []}
-          cards={data?.cards ?? []}
-          substitutions={data?.substitutions ?? []}
-          varEvents={data?.varEvents ?? []}
-          prediction={predMap.get(f.id)}
-        />
-      ))}
+    <div className="max-w-3xl mx-auto px-4 py-4">
+      {/* Group tab bar */}
+      <div ref={tabsRef} className="flex gap-1.5 overflow-x-auto appscroll pb-1.5" role="tablist">
+        {groupLetters.map(letter => (
+          <button
+            key={letter} role="tab" aria-selected={activeGroup === letter}
+            onClick={() => setActiveGroup(letter)}
+            className={`px-3.5 py-1.5 rounded-input text-[13px] font-semibold whitespace-nowrap transition-colors ${
+              activeGroup !== letter ? 'bg-surface-3 text-fg-secondary' : ''
+            }`}
+            style={activeGroup === letter
+              ? { background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }
+              : undefined}
+          >
+            Group {letter}
+          </button>
+        ))}
+      </div>
+
+      {/* Group navigator: prev/next buttons + 5-dot window */}
+      {groupLetters.length > 1 && (() => {
+        const n = groupLetters.length;
+        const activeIdx = groupLetters.indexOf(activeGroup);
+        const windowSize = Math.min(5, n);
+        const windowStart = Math.max(0, Math.min(n - windowSize, activeIdx - Math.floor(windowSize / 2)));
+        const visibleLetters = groupLetters.slice(windowStart, windowStart + windowSize);
+        return (
+          <div className="flex items-center justify-center gap-3 mb-3 mt-1.5">
+            <button onClick={() => setActiveGroup(groupLetters[activeIdx - 1])} disabled={activeIdx === 0} className={btnBase} style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }} aria-label="Previous group">
+              <ChevronLeft size={16} />
+            </button>
+            <div className="flex items-center gap-2.5">
+              {visibleLetters.map(letter => {
+                const active = activeGroup === letter;
+                return (
+                  <button key={letter} onClick={() => setActiveGroup(letter)} aria-label={`Group ${letter}`} className="flex flex-col items-center gap-0.5">
+                    <div className="rounded-full transition-all duration-150" style={{ width: active ? 10 : 7, height: active ? 10 : 7, background: active ? 'var(--secondary)' : 'var(--surface-3)' }} />
+                    <span className="text-[9px] font-mono leading-none" style={{ color: active ? 'var(--secondary)' : 'var(--fg-muted)' }}>{letter}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <button onClick={() => setActiveGroup(groupLetters[activeIdx + 1])} disabled={activeIdx === n - 1} className={btnBase} style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }} aria-label="Next group">
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        );
+      })()}
+
+      {activePlayedFixtures.length === 0 ? (
+        <p className="text-fg-muted text-[13px] text-center py-6">No matches played yet in this group.</p>
+      ) : (
+        <div className="flex flex-col gap-2.5">
+          {activePlayedFixtures.map(f => (
+            <ResultFixtureCard
+              key={f.id}
+              fixture={f}
+              goals={data?.goals ?? []}
+              cards={data?.cards ?? []}
+              substitutions={data?.substitutions ?? []}
+              varEvents={data?.varEvents ?? []}
+              prediction={predMap.get(f.id)}
+            />
+          ))}
+        </div>
+      )}
+      
+      <GroupStandingsTable matches={activeGroupStandingsMatches} />
     </div>
   );
 }

@@ -70,7 +70,7 @@ export function GroupStandingsTable({ matches }: GroupStandingsTableProps) {
   if (standings.length === 0) return null;
 
   return (
-    <div className="rounded-card bg-surface border border-border overflow-hidden mb-3">
+    <div className="rounded-card bg-surface border border-border overflow-hidden mt-6">
       <div className="overflow-x-auto">
         <table className="w-full text-[12px]">
           <thead>
@@ -93,7 +93,7 @@ export function GroupStandingsTable({ matches }: GroupStandingsTableProps) {
                 <td className="px-2 py-2">
                   <div className="flex items-center gap-2 min-w-0">
                     {flagUrl(row.teamId) && (
-                      <img src={flagUrl(row.teamId)} alt="" width={20} height={14} className="flag shrink-0" />
+                      <img src={flagUrl(row.teamId)} alt="" width={30} height={21} className="flag shrink-0" />
                     )}
                     <span className="truncate font-semibold text-fg">{row.teamName}</span>
                   </div>

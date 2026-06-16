@@ -382,13 +382,13 @@ export function GroupPredictionsPage({ onAllGroupsComplete, viewMode }: GroupPre
             );
           })()}
 
-          <GroupStandingsTable matches={activeGroupStandingsMatches} />
-
           <div className="flex flex-col gap-2.5">
             {activeFixtures.map(fixture => (
               <FixtureCard key={fixture.id} fixture={fixture} prediction={predictions.get(fixture.id)} onSaved={updated => setPredictions(prev => new Map(prev).set(updated.fixtureId, updated))} />
             ))}
           </div>
+
+          <GroupStandingsTable matches={activeGroupStandingsMatches} />
         </>
       ) : (
         <>

@@ -82,6 +82,7 @@ function AppShell() {
   const [subPage, setSubPage] = useState<SubPage>(null);
   const [predictView, setPredictView] = useState<PredictView>('group');
   const [groupViewMode, setGroupViewMode] = useState<'group' | 'date'>('group');
+  const [resultsViewMode, setResultsViewMode] = useState<'group' | 'date'>('date');
 
   // Visibility gates for Live, Results, and Bracket tabs
   const [liveActive, setLiveActive] = useState(false);
@@ -186,7 +187,25 @@ function AppShell() {
           <LiveScoresPage />
 
         ) : tab === 'results' ? (
-          <ResultsPage />
+          <div>
+            <div className="max-w-3xl mx-auto px-4 pt-4 pb-2 flex items-center justify-end gap-2">
+              <div className="flex gap-0.5 bg-surface-3 rounded-input p-0.5">
+                {(['group', 'date'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    onClick={() => setResultsViewMode(mode)}
+                    className="px-3 py-1.5 rounded-input text-[12px] font-semibold whitespace-nowrap transition-colors"
+                    style={resultsViewMode === mode
+                      ? { background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }
+                      : { color: 'var(--fg-secondary)' }}
+                  >
+                    {mode === 'group' ? 'By Group' : 'By Date'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <ResultsPage viewMode={resultsViewMode} />
+          </div>
 
         ) : tab === 'predict' ? (
           <div>
