@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { ChevronLeft, ChevronRight, Clock } from 'lucide-react';
 import { flagUrl } from '../utils/flagUrl.ts';
+import { GroupStandingsTable, type StandingsMatchInput } from '../components/GroupStandingsTable.tsx';
 
 interface FixtureDto {
   id: string;
@@ -303,6 +304,18 @@ export function GroupPredictionsPage({ onAllGroupsComplete, viewMode }: GroupPre
   const groupLetters = [...new Set(fixtures.map(f => f.groupLetter))].sort();
   const activeFixtures = fixtures.filter(f => f.groupLetter === activeGroup);
 
+  // Actual results take priority once played; otherwise fall back to the user's prediction.
+  const activeGroupStandingsMatches: StandingsMatchInput[] = activeFixtures.map(f => {
+    const prediction = predictions.get(f.id);
+    const homeScore = f.homeScore ?? prediction?.homeScore ?? null;
+    const awayScore = f.awayScore ?? prediction?.awayScore ?? null;
+    return {
+      homeTeamId: f.homeTeamId, homeTeamName: f.homeTeamName,
+      awayTeamId: f.awayTeamId, awayTeamName: f.awayTeamName,
+      homeScore, awayScore,
+    };
+  });
+
   const dates = [...new Set(fixtures.map(f => getLocalDateKey(f.kickoffUtc)))].sort();
   const activeDateFixtures = fixtures
     .filter(f => getLocalDateKey(f.kickoffUtc) === activeDate)
@@ -368,6 +381,8 @@ export function GroupPredictionsPage({ onAllGroupsComplete, viewMode }: GroupPre
               </div>
             );
           })()}
+
+          <GroupStandingsTable matches={activeGroupStandingsMatches} />
 
           <div className="flex flex-col gap-2.5">
             {activeFixtures.map(fixture => (

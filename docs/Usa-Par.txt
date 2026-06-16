@@ -1,0 +1,477 @@
+{
+get: "fixtures/events"
+parameters: {
+fixture: "1489370"
+}
+errors: [
+]
+results: 21
+paging: {
+current: 1
+total: 1
+}
+response: [
+{
+time: {
+elapsed: 7
+extra: null
+}
+team: {
+id: 2384
+name: "USA"
+logo: "https://media.api-sports.io/football/teams/2384.png"
+}
+player: {
+id: 195107
+name: "D. Bobadilla"
+}
+assist: {
+id: null
+name: null
+}
+type: "Goal"
+detail: "Own Goal"
+comments: null
+}
+{
+time: {
+elapsed: 10
+extra: null
+}
+team: {
+id: 2380
+name: "Paraguay"
+logo: "https://media.api-sports.io/football/teams/2380.png"
+}
+player: {
+id: 195992
+name: "J. Caceres"
+}
+assist: {
+id: null
+name: null
+}
+type: "Card"
+detail: "Yellow Card"
+comments: "Tripping"
+}
+{
+time: {
+elapsed: 28
+extra: null
+}
+team: {
+id: 2384
+name: "USA"
+logo: "https://media.api-sports.io/football/teams/2384.png"
+}
+player: {
+id: 138835
+name: "F. Balogun"
+}
+assist: {
+id: null
+name: null
+}
+type: "Var"
+detail: "Goal Disallowed - offside"
+comments: null
+}
+{
+time: {
+elapsed: 31
+extra: null
+}
+team: {
+id: 2384
+name: "USA"
+logo: "https://media.api-sports.io/football/teams/2384.png"
+}
+player: {
+id: 138835
+name: "F. Balogun"
+}
+assist: {
+id: 17
+name: "C. Pulisic"
+}
+type: "Goal"
+detail: "Normal Goal"
+comments: null
+}
+{
+time: {
+elapsed: 45
+extra: 5
+}
+team: {
+id: 2384
+name: "USA"
+logo: "https://media.api-sports.io/football/teams/2384.png"
+}
+player: {
+id: 138835
+name: "F. Balogun"
+}
+assist: {
+id: 162037
+name: "M. Tillman"
+}
+type: "Goal"
+detail: "Normal Goal"
+comments: null
+}
+{
+time: {
+elapsed: 46
+extra: null
+}
+team: {
+id: 2380
+name: "Paraguay"
+logo: "https://media.api-sports.io/football/teams/2380.png"
+}
+player: {
+id: 195107
+name: "D. Bobadilla"
+}
+assist: {
+id: 106485
+name: "Mauricio"
+}
+type: "subst"
+detail: "Substitution 1"
+comments: null
+}
+{
+time: {
+elapsed: 46
+extra: null
+}
+team: {
+id: 2384
+name: "USA"
+logo: "https://media.api-sports.io/football/teams/2384.png"
+}
+player: {
+id: 17
+name: "C. Pulisic"
+}
+assist: {
+id: 201713
+name: "S. Berhalter"
+}
+type: "subst"
+detail: "Substitution 1"
+comments: null
+}
+{
+time: {
+elapsed: 53
+extra: null
+}
+team: {
+id: 2380
+name: "Paraguay"
+logo: "https://media.api-sports.io/football/teams/2380.png"
+}
+player: {
+id: 2507
+name: "M. Almiron"
+}
+assist: {
+id: null
+name: null
+}
+type: "Card"
+detail: "Yellow Card"
+comments: "Diving"
+}
+{
+time: {
+elapsed: 59
+extra: null
+}
+team: {
+id: 2384
+name: "USA"
+logo: "https://media.api-sports.io/football/teams/2384.png"
+}
+player: {
+id: 1150
+name: "T. Adams"
+}
+assist: {
+id: null
+name: null
+}
+type: "Card"
+detail: "Yellow Card"
+comments: "Roughing"
+}
+{
+time: {
+elapsed: 62
+extra: null
+}
+team: {
+id: 2380
+name: "Paraguay"
+logo: "https://media.api-sports.io/football/teams/2380.png"
+}
+player: {
+id: 2522
+name: "A. Sanabria"
+}
+assist: {
+id: 95460
+name: "A. Arce"
+}
+type: "subst"
+detail: "Substitution 2"
+comments: null
+}
+{
+time: {
+elapsed: 72
+extra: null
+}
+team: {
+id: 2384
+name: "USA"
+logo: "https://media.api-sports.io/football/teams/2384.png"
+}
+player: {
+id: 38735
+name: "S. Dest"
+}
+assist: {
+id: 1138
+name: "T. Weah"
+}
+type: "subst"
+detail: "Substitution 2"
+comments: null
+}
+{
+time: {
+elapsed: 72
+extra: null
+}
+team: {
+id: 2384
+name: "USA"
+logo: "https://media.api-sports.io/football/teams/2384.png"
+}
+player: {
+id: 138835
+name: "F. Balogun"
+}
+assist: {
+id: 73868
+name: "R. Pepi"
+}
+type: "subst"
+detail: "Substitution 3"
+comments: null
+}
+{
+time: {
+elapsed: 73
+extra: null
+}
+team: {
+id: 2380
+name: "Paraguay"
+logo: "https://media.api-sports.io/football/teams/2380.png"
+}
+player: {
+id: 106485
+name: "Mauricio"
+}
+assist: {
+id: 70747
+name: "J. Enciso"
+}
+type: "Goal"
+detail: "Normal Goal"
+comments: null
+}
+{
+time: {
+elapsed: 79
+extra: null
+}
+team: {
+id: 2380
+name: "Paraguay"
+logo: "https://media.api-sports.io/football/teams/2380.png"
+}
+player: {
+id: 278370
+name: "D. Gomez"
+}
+assist: {
+id: null
+name: null
+}
+type: "Card"
+detail: "Yellow Card"
+comments: "Holding"
+}
+{
+time: {
+elapsed: 79
+extra: null
+}
+team: {
+id: 2380
+name: "Paraguay"
+logo: "https://media.api-sports.io/football/teams/2380.png"
+}
+player: {
+id: 2507
+name: "M. Almiron"
+}
+assist: {
+id: 196298
+name: "R. Sosa"
+}
+type: "subst"
+detail: "Substitution 3"
+comments: null
+}
+{
+time: {
+elapsed: 79
+extra: null
+}
+team: {
+id: 2380
+name: "Paraguay"
+logo: "https://media.api-sports.io/football/teams/2380.png"
+}
+player: {
+id: 195992
+name: "J. Caceres"
+}
+assist: {
+id: 35808
+name: "G. Velazquez"
+}
+type: "subst"
+detail: "Substitution 4"
+comments: null
+}
+{
+time: {
+elapsed: 80
+extra: null
+}
+team: {
+id: 2380
+name: "Paraguay"
+logo: "https://media.api-sports.io/football/teams/2380.png"
+}
+player: {
+id: 278370
+name: "D. Gomez"
+}
+assist: {
+id: 2514
+name: "Kaku"
+}
+type: "subst"
+detail: "Substitution 5"
+comments: null
+}
+{
+time: {
+elapsed: 82
+extra: null
+}
+team: {
+id: 2384
+name: "USA"
+logo: "https://media.api-sports.io/football/teams/2384.png"
+}
+player: {
+id: 162037
+name: "M. Tillman"
+}
+assist: {
+id: 161921
+name: "G. Reyna"
+}
+type: "subst"
+detail: "Substitution 4"
+comments: null
+}
+{
+time: {
+elapsed: 88
+extra: null
+}
+team: {
+id: 2380
+name: "Paraguay"
+logo: "https://media.api-sports.io/football/teams/2380.png"
+}
+player: {
+id: 95460
+name: "A. Arce"
+}
+assist: {
+id: null
+name: null
+}
+type: "Card"
+detail: "Yellow Card"
+comments: "Roughing"
+}
+{
+time: {
+elapsed: 90
+extra: 3
+}
+team: {
+id: 2380
+name: "Paraguay"
+logo: "https://media.api-sports.io/football/teams/2380.png"
+}
+player: {
+id: 2499
+name: "J. Alonso"
+}
+assist: {
+id: null
+name: null
+}
+type: "Card"
+detail: "Yellow Card"
+comments: "Holding"
+}
+{
+time: {
+elapsed: 90
+extra: 8
+}
+team: {
+id: 2384
+name: "USA"
+logo: "https://media.api-sports.io/football/teams/2384.png"
+}
+player: {
+id: 161921
+name: "G. Reyna"
+}
+assist: {
+id: 355994
+name: "A. Freeman"
+}
+type: "Goal"
+detail: "Normal Goal"
+comments: null
+}
+]
+}
