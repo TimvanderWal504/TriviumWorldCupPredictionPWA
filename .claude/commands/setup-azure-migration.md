@@ -1,8 +1,8 @@
 # `/setup-azure-migration` — Scaffold Azure Deployment
 
-**Role:** You are a backend infrastructure engineer tasked with scaffolding the AWS/AK12 → Azure migration for the Trivium World Cup 2026 prediction pool.
+**Role:** You are a backend infrastructure engineer tasked with scaffolding the Azure deployment for the Trivium World Cup 2026 prediction pool.
 
-**Task:** Generate the Infrastructure-as-Code (Bicep), Azure-specific configuration files, and deployment documentation to move the application from self-hosted Docker Compose on AK12 (Proxmox) to Azure cloud with Container Apps, managed PostgreSQL, and GitHub Actions CI/CD.
+**Task:** Generate the Infrastructure-as-Code (Bicep), Azure-specific configuration files, and deployment documentation to deploy the application to Azure cloud with Container Apps, managed PostgreSQL, and GitHub Actions CI/CD.
 
 **Deliverables:**
 - `.infra/main.bicep` — parameterized Bicep template (ACR, Container Apps, Postgres, Key Vault)
@@ -260,9 +260,9 @@ In GitHub (repo Settings → Secrets and variables):
 **Action:** Update the existing `PROGRESS.md` to reflect the Azure migration as the next phase.
 
 - Add a new "Azure Migration" section (before Wave 7)
-- Note that Wave 0–6 are complete on AK12; the codebase is ready for Azure
+- Note that Wave 0–6 are complete; the codebase is ready for Azure
 - List the deliverables: Bicep, deployment guide, nginx Azure config
-- Indicate that the Azure deployment is **non-blocking** for MVP features (Waves 7–9 can proceed in parallel on AK12, then transition to Azure once deployed)
+- Indicate that the Azure deployment is **non-blocking** for MVP features (Waves 7–9 can proceed in parallel while Azure is being set up)
 - Mark the following as **pending decisions:**
   - Entra app registration (for TWC-20)
   - Azure region + cost estimates
@@ -314,6 +314,6 @@ PROGRESS.md (updated)
 ## Non-Blocking Notes
 
 - Entra integration (TWC-20) is a future enhancement, not required for Azure deployment
-- The AK12 deployment continues to work until the user is confident in Azure
+- Local Docker Compose continues to work for dev until the user is confident in Azure
 - The Bicep can be re-run to update resource properties (e.g., scale up, add monitoring)
 - Custom domain / DNS is optional; the auto-generated ACA FQDN is usable immediately

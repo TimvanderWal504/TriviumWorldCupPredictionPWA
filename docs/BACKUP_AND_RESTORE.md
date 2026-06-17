@@ -33,13 +33,13 @@ volumes:
     name: twc_postgres_backups
 ```
 
-On the AK12 this volume persists on the host's Docker storage even when the stack is recreated.
+This volume persists on the host's Docker storage even when the stack is recreated.
 
 ---
 
 ## 2. Listing available backups
 
-Run against the volume from any machine with Docker access to the AK12:
+Run against the volume from any machine with Docker access to the host:
 
 ```sh
 docker run --rm -v twc_postgres_backups:/backups alpine ls -lh /backups
@@ -59,7 +59,7 @@ Expected output (example):
 ### 3.1 Copy the backup file to your local machine (if it is on the volume only)
 
 ```sh
-# On the AK12 host — copy the file out of the volume
+# On the host — copy the file out of the volume
 docker run --rm \
   -v twc_postgres_backups:/backups \
   -v "$(pwd)":/out \
@@ -122,7 +122,7 @@ After a restore, confirm the following before declaring success:
 
 ## 5. Verified restore
 
-The restore procedure has been verified manually on the AK12 — see the AC in TWC-19.
+The restore procedure has been verified manually — see the AC in TWC-19.
 
 (This note must be updated with the date and operator name when the first live restore drill is
 performed.)
@@ -131,12 +131,12 @@ performed.)
 
 ## 6. Optional offsite copy
 
-The backup volume is local to the AK12. For additional durability, configure a remote copy via
+The backup volume is local to the Docker host. For additional durability, configure a remote copy via
 **rclone** or **rsync/sftp**. The pattern:
 
 ### Option A — rclone (S3, Backblaze B2, OneDrive, etc.)
 
-1. Install rclone on the AK12 host: `sudo apt install rclone` (or via the official installer).
+1. Install rclone on the host: `sudo apt install rclone` (or via the official installer).
 2. Configure a remote: `rclone config` — follow the interactive wizard and save the remote as e.g.
    `myremote`.
 3. Add to `.env` (see `.env.example`):

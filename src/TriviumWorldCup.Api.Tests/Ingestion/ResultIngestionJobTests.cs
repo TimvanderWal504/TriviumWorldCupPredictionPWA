@@ -372,4 +372,170 @@ public class ResultIngestionJobTests
         Assert.NotEqual(GoalType.OpenPlay, mapped);
         Assert.NotEqual(GoalType.PenaltyInMatch, mapped);
     }
+
+    // ── NormalizeName — non-decomposable characters and separators ────────────
+
+    [Theory]
+    [InlineData("Quiñones",          "Quinones")]          // ñ — standard diacritic (FormD)
+    [InlineData("Østigård",          "Ostigard")]          // Ø → O, å via FormD
+    [InlineData("Ødegaard",          "Odegaard")]          // Ø → O
+    [InlineData("Ørjan",             "Orjan")]             // Ø → O
+    [InlineData("Sørloth",           "Sorloth")]           // ø → o
+    [InlineData("Bjørkan",           "Bjorkan")]           // ø → o
+    [InlineData("Torbjørn",          "Torbjorn")]          // ø → o
+    [InlineData("Jørgen",            "Jorgen")]            // ø → o
+    [InlineData("Møller",            "Moller")]            // ø → o
+    [InlineData("Bayındır",          "Bayindir")]          // ı → i (Turkish dotless i), ı again
+    [InlineData("Çakır",             "Cakir")]             // ç via FormD, ı → i
+    [InlineData("Kadıoğlu",          "Kadioglu")]          // ı → i, ğ via FormD
+    [InlineData("Yıldız",            "Yildiz")]            // ı → i
+    [InlineData("Groß",              "Gross")]             // ß → ss
+    [InlineData("Al-Arab",           "Al Arab")]           // hyphen → space
+    [InlineData("Al-Owais",          "Al Owais")]          // hyphen → space
+    [InlineData("O'Neill",           "ONeill")]            // apostrophe removed
+    [InlineData("Heung-min",         "Heung min")]         // Korean hyphen → space
+    [InlineData("Julián Quiñones",   "Julian Quinones")]   // full name
+    [InlineData("Leo Østigård",      "Leo Ostigard")]      // full name
+    [InlineData("Yazan Al-Arab",     "Yazan Al Arab")]     // full name with hyphen
+    public void NormalizeName_ReturnsExpectedAscii(string input, string expected)
+    {
+        Assert.Equal(expected, ResultIngestionJob.NormalizeName(input),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    // ── LastWord — last word after full normalisation (hyphens become spaces) ──
+
+    [Theory]
+    [InlineData("Julián Quiñones",    "Quinones")]  // diacritic stripped
+    [InlineData("J. Quinones",        "Quinones")]  // abbreviated, already ASCII
+    [InlineData("Leo Østigård",       "Ostigard")]  // Ø + å stripped
+    [InlineData("L. Ostigard",        "Ostigard")]  // abbreviated, no diacritics
+    [InlineData("Yazan Al-Arab",      "Arab")]      // hyphen → space → last word = Arab
+    [InlineData("Yazan Al Arab",      "Arab")]      // already space → last word = Arab
+    [InlineData("Y. Al Arab",         "Arab")]      // abbreviated, space → last word = Arab
+    [InlineData("Y. Al-Arab",         "Arab")]      // abbreviated, hyphen → last word = Arab
+    [InlineData("Son Heung-min",      "min")]       // Korean hyphen → space
+    [InlineData("Hassan Al-Tambakti", "Tambakti")] // hyphen inside Al- name
+    [InlineData("H. Al-Tambakti",     "Tambakti")] // abbreviated
+    [InlineData("Pascal Groß",        "Gross")]    // ß → ss
+    public void LastWord_ReturnsCorrectNormalizedLastWord(string input, string expected)
+    {
+        Assert.Equal(expected, ResultIngestionJob.LastWord(input),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    // ── ResolvePlayer — integration of NormalizeName + LastWord ──────────────
+
+    private static (Dictionary<string, Player> byFullName, ILookup<string, Player> byLastName)
+        BuildLookups(IEnumerable<Player> players)
+    {
+        var list = players.ToList();
+        var byFullName = list
+            .GroupBy(p => ResultIngestionJob.NormalizeName(p.Name), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        var byLastName = list
+            .ToLookup(p => ResultIngestionJob.LastWord(p.Name), StringComparer.OrdinalIgnoreCase);
+        return (byFullName, byLastName);
+    }
+
+    [Fact]
+    public void ResolvePlayer_AcuteAccentVsNone_MatchesByFullName()
+    {
+        // "Brian Gutiérrez" in DB, API returns "Brian Gutierrez" (no accent)
+        var player = new Player { Id = Guid.NewGuid(), Name = "Brian Gutiérrez", TeamId = "MEX" };
+        var (byFull, byLast) = BuildLookups([player]);
+
+        var result = ResultIngestionJob.ResolvePlayer("Brian Gutierrez", byFull, byLast);
+        Assert.Equal(player.Id, result?.Id);
+    }
+
+    [Fact]
+    public void ResolvePlayer_TildeVsNone_MatchesByLastName()
+    {
+        // "Julián Quiñones" in DB, API returns abbreviated "J. Quinones"
+        var player = new Player { Id = Guid.NewGuid(), Name = "Julián Quiñones", TeamId = "MEX" };
+        var (byFull, byLast) = BuildLookups([player]);
+
+        var result = ResultIngestionJob.ResolvePlayer("J. Quinones", byFull, byLast);
+        Assert.Equal(player.Id, result?.Id);
+    }
+
+    [Fact]
+    public void ResolvePlayer_NorwegianOStroke_MatchesByLastName()
+    {
+        // "Leo Østigård" in DB, API returns "L. Ostigard" (no Ø or å)
+        var player = new Player { Id = Guid.NewGuid(), Name = "Leo Østigård", TeamId = "NOR" };
+        var (byFull, byLast) = BuildLookups([player]);
+
+        var result = ResultIngestionJob.ResolvePlayer("L. Ostigard", byFull, byLast);
+        Assert.Equal(player.Id, result?.Id);
+    }
+
+    [Fact]
+    public void ResolvePlayer_NorwegianOStroke_FullName_MatchesByFullName()
+    {
+        // Full name "Ostigard" (no diacritics) matches DB "Østigård"
+        var player = new Player { Id = Guid.NewGuid(), Name = "Leo Østigård", TeamId = "NOR" };
+        var (byFull, byLast) = BuildLookups([player]);
+
+        var result = ResultIngestionJob.ResolvePlayer("Leo Ostigard", byFull, byLast);
+        Assert.Equal(player.Id, result?.Id);
+    }
+
+    [Fact]
+    public void ResolvePlayer_HyphenVsSpace_MatchesByFullName()
+    {
+        // "Yazan Al-Arab" in DB, API returns "Yazan Al Arab" (space instead of hyphen)
+        var player = new Player { Id = Guid.NewGuid(), Name = "Yazan Al-Arab", TeamId = "JOR" };
+        var (byFull, byLast) = BuildLookups([player]);
+
+        var result = ResultIngestionJob.ResolvePlayer("Yazan Al Arab", byFull, byLast);
+        Assert.Equal(player.Id, result?.Id);
+    }
+
+    [Fact]
+    public void ResolvePlayer_HyphenAbbreviatedAlPrefix_MatchesByLastName()
+    {
+        // "Hassan Al-Tambakti" in DB, API returns "H. Al-Tambakti" or "H. Al Tambakti"
+        var player = new Player { Id = Guid.NewGuid(), Name = "Hassan Al-Tambakti", TeamId = "KSA" };
+        var (byFull, byLast) = BuildLookups([player]);
+
+        // Hyphen form
+        Assert.Equal(player.Id, ResultIngestionJob.ResolvePlayer("H. Al-Tambakti", byFull, byLast)?.Id);
+        // Space form
+        Assert.Equal(player.Id, ResultIngestionJob.ResolvePlayer("H. Al Tambakti", byFull, byLast)?.Id);
+    }
+
+    [Fact]
+    public void ResolvePlayer_TurkishDotlessI_MatchesByLastName()
+    {
+        // "Ferdi Kadıoğlu" in DB, API returns "F. Kadioglu" (dotless i → i)
+        var player = new Player { Id = Guid.NewGuid(), Name = "Ferdi Kadıoğlu", TeamId = "TUR" };
+        var (byFull, byLast) = BuildLookups([player]);
+
+        var result = ResultIngestionJob.ResolvePlayer("F. Kadioglu", byFull, byLast);
+        Assert.Equal(player.Id, result?.Id);
+    }
+
+    [Fact]
+    public void ResolvePlayer_GermanSharpS_MatchesByLastName()
+    {
+        // "Pascal Groß" in DB, API returns "P. Gross" (ß → ss)
+        var player = new Player { Id = Guid.NewGuid(), Name = "Pascal Groß", TeamId = "GER" };
+        var (byFull, byLast) = BuildLookups([player]);
+
+        var result = ResultIngestionJob.ResolvePlayer("P. Gross", byFull, byLast);
+        Assert.Equal(player.Id, result?.Id);
+    }
+
+    [Fact]
+    public void ResolvePlayer_KoreanHyphen_MatchesByFullName()
+    {
+        // "Son Heung-min" in DB, API may return "Son Heung Min" (no hyphen)
+        var player = new Player { Id = Guid.NewGuid(), Name = "Son Heung-min", TeamId = "KOR" };
+        var (byFull, byLast) = BuildLookups([player]);
+
+        var result = ResultIngestionJob.ResolvePlayer("Son Heung Min", byFull, byLast);
+        Assert.Equal(player.Id, result?.Id);
+    }
 }

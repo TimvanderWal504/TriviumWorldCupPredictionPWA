@@ -3,9 +3,18 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '../auth/useAuth.ts';
 import { StatsPage } from './StatsPage.tsx';
 
+interface UnmatchedEvent {
+  fixtureId: string;
+  eventType: string;
+  playerName: string;
+  minute: number;
+  seenAt: string;
+}
+
 interface IngestionStatus {
   lastSuccessfulPoll: string | null; lastAttemptedPoll: string | null;
   lastError: string | null; totalPollCount: number; errorCount: number; pendingFixtureCount: number;
+  unmatchedEvents: UnmatchedEvent[];
 }
 interface OverrideRecord {
   id: string; adminDisplayName: string; overriddenAt: string;
@@ -587,6 +596,45 @@ export function AdminPage() {
               </div>
             )}
           </dl>
+        )}
+
+        {ingestion && ingestion.unmatchedEvents.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-[11px] font-display font-bold uppercase tracking-wider" style={{ color: 'var(--warning)' }}>
+              Unmatched player events ({ingestion.unmatchedEvents.length}) — not shown in results
+            </p>
+            <div className="overflow-x-auto rounded-input border border-border">
+              <table className="w-full text-xs text-left">
+                <thead>
+                  <tr className="text-fg-muted border-b border-border text-[10px] font-display font-bold uppercase tracking-wider bg-surface-2">
+                    <th className="py-2 px-3">Fixture</th>
+                    <th className="py-2 px-3">Type</th>
+                    <th className="py-2 px-3">Player name (API)</th>
+                    <th className="py-2 px-3">Min</th>
+                    <th className="py-2 px-3">First seen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ingestion.unmatchedEvents.map((e, i) => (
+                    <tr key={i} className="border-b border-border last:border-0">
+                      <td className="py-1.5 px-3 font-mono">{e.fixtureId}</td>
+                      <td className="py-1.5 px-3 capitalize">{e.eventType}</td>
+                      <td className="py-1.5 px-3 font-medium text-fg">{e.playerName}</td>
+                      <td className="py-1.5 px-3">{e.minute}'</td>
+                      <td className="py-1.5 px-3 text-fg-muted">{formatDate(e.seenAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-fg-muted">
+              Use the Goal/Card override sections below to add these events manually, or check the player roster.
+            </p>
+          </div>
+        )}
+
+        {ingestion && ingestion.unmatchedEvents.length === 0 && (
+          <p className="text-xs text-fg-muted">No unmatched player events.</p>
         )}
 
         <div className="pt-2 flex flex-wrap gap-3">

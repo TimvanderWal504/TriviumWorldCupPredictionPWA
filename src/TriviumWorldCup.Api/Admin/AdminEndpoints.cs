@@ -41,12 +41,20 @@ public static class AdminEndpoints
 
             return Results.Ok(new
             {
-                lastSuccessfulPoll = statusStore.LastSuccessfulPoll,
-                lastAttemptedPoll  = statusStore.LastAttemptedPoll,
-                lastError          = statusStore.LastError,
-                totalPollCount     = statusStore.TotalPollCount,
-                errorCount         = statusStore.ErrorCount,
+                lastSuccessfulPoll  = statusStore.LastSuccessfulPoll,
+                lastAttemptedPoll   = statusStore.LastAttemptedPoll,
+                lastError           = statusStore.LastError,
+                totalPollCount      = statusStore.TotalPollCount,
+                errorCount          = statusStore.ErrorCount,
                 pendingFixtureCount = pendingCount,
+                unmatchedEvents     = statusStore.UnmatchedEvents.Select(e => new
+                {
+                    e.FixtureId,
+                    e.EventType,
+                    e.PlayerName,
+                    e.Minute,
+                    e.SeenAt,
+                }),
             });
         })
         .WithName("GetIngestionStatus")

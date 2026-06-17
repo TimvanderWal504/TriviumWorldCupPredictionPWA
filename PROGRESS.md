@@ -61,7 +61,7 @@
   - Deleted: `Auth/Mock/` folder (all three files), `DevUserSwitcher.tsx`. `Auth:Provider` default changed to `"link"`. `ASPNETCORE_ENVIRONMENT` restored to `Production` (link auth has no production guard).
 - **Admin user seed** — `InviteUsersData.cs` and `UserProfilesData.cs` read `ADMIN_USER_ID` env var at seed time and create an `InviteUser` (role: admin) + `UserProfile` (Tim, NL) as part of `TournamentSeed`. `ADMIN_USER_ID` added to `docker-compose.yml` and `.env.example` with stable example value `fe3a4de8-3243-48b8-b68b-528d35dedeed`.
 - **App.tsx restructure** — Rules promoted to dedicated top-level tab (removed from Me sub-page). Admin remains accessible via Me → Admin. `IS_PROD` / `isMockAuth` removed; sign-in screen shows "Open your personal login link to sign in." `AuthContext` simplified: `isMockAuth` removed, `signOut` hardcoded to `/auth/link/logout`.
-- **Deployment** — App is running on AK12 at port 2026 via Docker Compose + Portainer. `Auth__Provider=link`, `ADMIN_USER_ID` set in Portainer env vars.
+- **Deployment** — App deployed to Azure Container Apps (staging env). `Auth__Provider=link`, `ADMIN_USER_ID` set in Azure Key Vault / env vars.
 
 ## ⚠️ Required before going live
 
@@ -78,7 +78,7 @@
 - **NuGet.config:** Repo-level override for unreachable `BluRedSelect` Azure DevOps feed.
 - **R32 bracket wiring (`SeedData.cs`):** Several slot source entries carry `// TODO: verify bracket wiring` comments. The resolver consumes these declarations faithfully — if any slot source is wrong the bracket will misfire. Verify all 32 slot source entries against the official FIFA 2026 bracket draw before the first knockout match (28 June).
 - **E2E harness updated for link auth:** `POST /e2e/seed/invite-user` endpoint added; `auth.ts` rewritten to navigate to `/auth/link/login?id=`; `AppPage.ts` nav methods updated for current tab structure. Area specs TWC-23–31 remain Backlog and have not been run yet.
-- **Existing DB admin seed:** `TournamentSeed` only runs on an empty database. If the AK12 DB was already seeded, the admin `InviteUser` and `UserProfile` records were NOT inserted automatically — create them via `POST /admin/users` (once logged in) or by clearing and re-seeding the DB.
+- **Existing DB admin seed:** `TournamentSeed` only runs on an empty database. If the DB was already seeded, the admin `InviteUser` and `UserProfile` records were NOT inserted automatically — create them via `POST /admin/users` (once logged in) or by clearing and re-seeding the DB.
 - **Invite user cookie revocation:** Removing a user from the admin page stops future logins but their existing `twc_link_session` cookie remains valid until it expires (30 days). No server-side revocation is currently implemented.
 
 ## Build commands
@@ -147,7 +147,7 @@ Staging environment fully provisioned on Azure (Visual Studio Enterprise subscri
 - Custom domain (optional)
 - Entra app registration for TWC-20 (not blocking Azure deployment)
 
-AK12 continues to run in parallel until staging is verified stable.
+Local Docker Compose can still be used for development; Azure staging is the primary deployment target.
 
 ## Unversioned work (staging branch, 7 June 2026)
 
@@ -200,5 +200,5 @@ AK12 continues to run in parallel until staging is verified stable.
 ## Next action
 1. **`git push origin staging`** — triggers first GitHub Actions build; after ~5 min the web app URL serves the real app.
 2. **Seed admin user on staging** — navigate to `https://twc-web.bravesea-4935fc14.germanywestcentral.azurecontainerapps.io/auth/link/login?id=c0c53bf2-8c04-4f08-86ee-10d25e895fee`
-3. **Seed admin user on AK12** — if the DB was already seeded before the admin user seed was added, create Tim manually: Admin page → Users → Create, or clear and re-seed the DB.
+3. **Seed admin user on staging** — if the DB was already seeded before the admin user seed was added, create Tim manually: Admin page → Users → Create, or clear and re-seed the DB.
 4. **Wave 9 (final)** — TWC-20 real Entra, once the app registration is provided. When ready: add `EntraIdentityProvider`, set `Auth:Provider=entra` in Azure env vars, leave link auth as-is for fallback.

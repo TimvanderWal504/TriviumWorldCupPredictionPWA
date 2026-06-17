@@ -1,14 +1,14 @@
 # Azure Migration Guide — Trivium World Cup 2026
 
-Moves the app from self-hosted Docker Compose on AK12 to Azure:
+Moves the app from self-hosted Docker Compose to Azure:
 
-| Component | AK12 (current) | Azure (target) |
+| Component | Docker Compose (local) | Azure (deployed) |
 |---|---|---|
 | Web | nginx container, port 2026 | Container App (external ingress, HTTPS) |
 | API | .NET container, internal | Container App (internal ingress) |
 | Database | postgres:16-alpine container | Azure DB for PostgreSQL Flexible Server |
 | Tunnel | Cloudflare Tunnel | Container Apps built-in HTTPS ingress |
-| Images | Built on AK12 | Built by GitHub Actions, stored in ACR |
+| Images | Built locally | Built by GitHub Actions, stored in ACR |
 
 Estimated cost (West Europe, MVP SKUs): ~€40–60/month
 (Standard_B1ms Postgres ~€15, two Container Apps at 1 replica each ~€20–30 depending on traffic)
@@ -78,10 +78,10 @@ Edit `.infra/main.parameters.local.json` and replace every `<PLACEHOLDER>` value
 | `postgresServerName` | Globally unique (e.g. `twc-db-2026`) |
 | `keyVaultName` | 3–24 chars, globally unique (e.g. `twc-kv-2026`) |
 | `postgresAdminPassword` | Strong password (≥8 chars, upper+lower+digit+symbol) |
-| `adminUserId` | Your GUID from AK12 (from Portainer env `ADMIN_USER_ID`) |
+| `adminUserId` | Your admin `ADMIN_USER_ID` GUID |
 | `footballApiKey` | Your API-Football key (or leave empty to disable ingestion) |
-| `vapidPublicKey` | Copy from AK12 Portainer env `PUSH__VAPIDPUBLICKEY` |
-| `vapidPrivateKey` | Copy from AK12 Portainer env `PUSH__VAPIDPRIVATEKEY` |
+| `vapidPublicKey` | Your `PUSH__VAPIDPUBLICKEY` value |
+| `vapidPrivateKey` | Your `PUSH__VAPIDPRIVATEKEY` value |
 | `vapidSubject` | `mailto:timvanderwal504@hotmail.com` |
 
 > The `postgresAdminPassword` in `main.parameters.json` shows a Key Vault reference pattern.

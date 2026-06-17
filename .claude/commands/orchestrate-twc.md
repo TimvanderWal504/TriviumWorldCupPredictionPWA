@@ -27,7 +27,7 @@ Drive the TWC backlog to "Done" in dependency order, MVP first, by launching foc
 - Canonical scoring/format: Confluence space TWCP → "Rules & Scoring (canonical)" (page 27820033).
 - Architecture reference: Confluence space TWCP → "Design & Architecture" (page 27852801).
 - Repo conventions, stack, and the always-on disciplines live in CLAUDE.md at the repo root. Read it first every run.
-- Stack: React + Tailwind PWA; .NET Minimal API (Wolverine, Marten/Npgsql); PostgreSQL; Quartz.NET ingestion; link auth (current, TWC-33); Entra ID single-tenant (planned, TWC-20); Docker Compose on an AWOW AK12 fronted by a Cloudflare Tunnel.
+- Stack: React + Tailwind PWA; .NET Minimal API (Wolverine, Marten/Npgsql); PostgreSQL; Quartz.NET ingestion; link auth (current, TWC-33); Entra ID single-tenant (planned, TWC-20); Docker Compose deployed to Azure Container Apps + PostgreSQL Flexible Server, fronted by a Cloudflare Tunnel.
 </project_context>
 
 <inputs>
@@ -113,7 +113,7 @@ Pause and request the human before any of these — they are out of scope for au
 - Cloudflare Tunnel setup, DNS, and the public hostname (TWC-2).
 - Provisioning the football data API key / paid tier (TWC-9).
 - Generating VAPID keys for push (TWC-18).
-- Any deploy to the AK12, and any destructive database operation.
+- Any deploy to Azure or other production/staging environments, and any destructive database operation.
 - Anything that posts to or changes external/shared systems.
 When blocked on one of these, mark the story BLOCKED in the plan with the exact artifact you need, and continue with unblocked stories.
 </human_approval_gates>

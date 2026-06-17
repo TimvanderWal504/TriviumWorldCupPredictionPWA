@@ -246,7 +246,7 @@ public class ResultIngestionJob(
             .ToListAsync(ct);
 
         var playerByName = allPlayers
-            .GroupBy(p => StripDiacritics(p.Name), StringComparer.OrdinalIgnoreCase)
+            .GroupBy(p => NormalizeName(p.Name), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
         var playersByLastName = allPlayers
@@ -334,6 +334,26 @@ public class ResultIngestionJob(
             var cardEvents = allEvents.Where(e => e.IsCard).ToList();
             var subEvents  = allEvents.Where(e => e.IsSub).ToList();
 
+            // HARD RESET OF EVENTS AFTER ITS COMPLETION.
+            // Purge events accumulated during live polling before writing the definitive FT set.
+            // Only on live→completed transition (not during backfill of already-completed fixtures)
+            // and only when the API fetch succeeded, to avoid clearing events with nothing to replace them.
+            if (!completedSet.Contains(dbFixture.Id) && !eventsIngestionFailed)
+            {
+                var staleGoals = await session.Query<GoalEvent>()
+                    .Where(g => g.FixtureId == dbFixture.Id).ToListAsync(ct);
+                var staleCards = await session.Query<CardEvent>()
+                    .Where(c => c.FixtureId == dbFixture.Id).ToListAsync(ct);
+                var staleSubs  = await session.Query<SubstitutionEvent>()
+                    .Where(s => s.FixtureId == dbFixture.Id).ToListAsync(ct);
+                var staleVars  = await session.Query<VarEvent>()
+                    .Where(v => v.FixtureId == dbFixture.Id).ToListAsync(ct);
+                foreach (var g in staleGoals) session.Delete(g);
+                foreach (var c in staleCards) session.Delete(c);
+                foreach (var s in staleSubs)  session.Delete(s);
+                foreach (var v in staleVars)  session.Delete(v);
+            }
+
             foreach (var evt in goalEvents)
             {
                 if (evt.Player?.Name is not { Length: > 0 } playerName)
@@ -345,6 +365,7 @@ public class ResultIngestionJob(
                     logger.LogDebug(
                         "ResultIngestionJob: player '{Name}' not found in roster — goal event skipped",
                         playerName);
+                    statusStore.RecordUnmatched(dbFixture.Id, "goal", playerName, evt.Time?.Elapsed ?? 0);
                     continue;
                 }
 
@@ -381,6 +402,7 @@ public class ResultIngestionJob(
                     logger.LogDebug(
                         "ResultIngestionJob: player '{Name}' not found in roster — card event skipped",
                         playerName);
+                    statusStore.RecordUnmatched(dbFixture.Id, "card", playerName, evt.Time?.Elapsed ?? 0);
                     continue;
                 }
 
@@ -508,7 +530,7 @@ public class ResultIngestionJob(
                     if (evt.Player?.Name is not { Length: > 0 } pName) continue;
                     var liveGoalMinute = evt.Time?.Elapsed ?? 0;
                     var player = ResolvePlayer(pName, playerByName, playersByLastName);
-                    if (player == null) continue;
+                    if (player == null) { statusStore.RecordUnmatched(liveDbFixture.Id, "goal", pName, liveGoalMinute); continue; }
                     var gt = evt.IsOwnGoal ? GoalType.OwnGoal : evt.IsPenalty ? GoalType.PenaltyInMatch : GoalType.OpenPlay;
                     session.Store(new GoalEvent
                     {
@@ -526,7 +548,7 @@ public class ResultIngestionJob(
                     if (evt.Player?.Name is not { Length: > 0 } pName) continue;
                     if (!evt.IsYellow && !evt.IsSecondYellow && !evt.IsRed) continue;
                     var player = ResolvePlayer(pName, playerByName, playersByLastName);
-                    if (player == null) continue;
+                    if (player == null) { statusStore.RecordUnmatched(liveDbFixture.Id, "card", pName, evt.Time?.Elapsed ?? 0); continue; }
                     var liveCt = evt.IsSecondYellow ? CardType.SecondYellow : evt.IsRed ? CardType.Red : CardType.Yellow;
                     var liveCardMinute = evt.Time?.Elapsed ?? 0;
                     session.Store(new CardEvent
@@ -903,8 +925,9 @@ public class ResultIngestionJob(
     {
         if (string.IsNullOrWhiteSpace(apiName)) return null;
 
-        // 1. Exact full-name match — normalized so "Brian Gutierrez" matches "Brian Gutiérrez"
-        if (byFullName.TryGetValue(StripDiacritics(apiName), out var exact)) return exact;
+        // 1. Exact full-name match — normalized so "Brian Gutierrez" matches "Brian Gutiérrez",
+        //    "Ostigard" matches "Østigård", "Al Arab" matches "Al-Arab", etc.
+        if (byFullName.TryGetValue(NormalizeName(apiName), out var exact)) return exact;
 
         // 2. Last-name match — compare last word of API name against last word of DB name
         var lastWord = LastWord(apiName);
@@ -930,9 +953,9 @@ public class ResultIngestionJob(
 
     internal static string LastWord(string name)
     {
-        var idx = name.LastIndexOf(' ');
-        var word = idx < 0 ? name : name[(idx + 1)..];
-        return StripDiacritics(word);
+        var normalized = NormalizeName(name);
+        var idx = normalized.LastIndexOf(' ');
+        return idx < 0 ? normalized : normalized[(idx + 1)..];
     }
 
     /// <summary>
@@ -955,6 +978,35 @@ public class ResultIngestionJob(
     }
 
     /// <summary>
+    /// Full normalisation for player-name matching. Handles characters that Unicode FormD
+    /// cannot decompose (Ø→O, ø→o, ß→ss, ı→i for Turkish dotless-i), collapses hyphens
+    /// to spaces (Al-Arab → Al Arab, Heung-min → Heung min) and removes apostrophes
+    /// (O'Neill → ONeill), then strips all remaining diacritical marks via
+    /// <see cref="StripDiacritics"/>. Both the DB-side lookup keys and the API-side query
+    /// strings must be processed through this method so comparisons are symmetric.
+    /// </summary>
+    internal static string NormalizeName(string text)
+    {
+        var sb = new System.Text.StringBuilder(text.Length + 4);
+        foreach (var c in text)
+        {
+            switch (c)
+            {
+                case 'Ø': sb.Append('O'); break;
+                case 'ø': sb.Append('o'); break;
+                case 'Æ': sb.Append("AE"); break;
+                case 'æ': sb.Append("ae"); break;
+                case 'ı': sb.Append('i'); break; // Turkish dotless i
+                case 'ß': sb.Append("ss"); break;
+                case '-': sb.Append(' '); break; // Al-Arab → Al Arab
+                case '\'': break;                // O'Neill → ONeill
+                default: sb.Append(c); break;
+            }
+        }
+        return StripDiacritics(sb.ToString());
+    }
+
+    /// <summary>
     /// Stable key for an event-ID hash: the resolved Player's Guid when known, otherwise a
     /// normalized form of the raw API name. API-Football's events feed doesn't always return
     /// the same name format for a given player across separate calls (abbreviated vs. full,
@@ -962,7 +1014,7 @@ public class ResultIngestionJob(
     /// GoalEvent/CardEvent/SubstitutionEvent for the same real-world event when that happens.
     /// </summary>
     internal static string PlayerKey(string rawName, Player? resolved) =>
-        resolved?.Id.ToString() ?? StripDiacritics(rawName).Trim().ToLowerInvariant();
+        resolved?.Id.ToString() ?? NormalizeName(rawName).Trim().ToLowerInvariant();
 
     /// <summary>
     /// Maps an API-Football goal event detail string to the app's <see cref="GoalType"/>.

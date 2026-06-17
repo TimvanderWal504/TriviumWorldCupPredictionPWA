@@ -13,7 +13,7 @@ Internal PWA prediction pool for the FIFA World Cup 2026. Org members sign in wi
 - Database: PostgreSQL.
 - Result ingestion: Quartz.NET worker polling a football data API.
 - Auth: behind a provider abstraction. Currently uses the **link auth provider** (admin-managed users, login via personal URL — TWC-33); real Entra ID (single-tenant, org members only) is added last (TWC-20) and swapped in via config. Feature code never imports MSAL/Entra directly.
-- Hosting: Docker Compose on an AWOW AK12, fronted by a Cloudflare Tunnel.
+- Hosting: Docker Compose; deployed to Azure Container Apps + PostgreSQL Flexible Server, fronted by a Cloudflare Tunnel (optional).
 
 ## Always-on rules
 - **Read before acting.** Open the actual files, stories, and canonical pages before claiming anything or writing code.

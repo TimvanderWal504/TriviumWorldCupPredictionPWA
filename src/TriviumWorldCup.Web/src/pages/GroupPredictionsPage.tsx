@@ -237,16 +237,26 @@ export function GroupPredictionsPage({ onAllGroupsComplete, viewMode }: GroupPre
             }
           }
 
-          // Start on the first group that still has unpredicted fixtures
+          // Next match to be played, used as the fallback once everything is predicted
+          const upcoming = [...fixtureList]
+            .filter(f => !isLocked(f.kickoffUtc))
+            .sort((a, b) => new Date(a.kickoffUtc).getTime() - new Date(b.kickoffUtc).getTime());
+          const nextFixture = upcoming[0] ?? [...fixtureList].sort(
+            (a, b) => new Date(b.kickoffUtc).getTime() - new Date(a.kickoffUtc).getTime(),
+          )[0];
+
+          // Start on the first group that still has unpredicted fixtures, otherwise the next group to play
           const firstIncomplete =
-            letters.find(l => !triggeredGroups.current.has(l)) ?? letters[letters.length - 1];
+            letters.find(l => !triggeredGroups.current.has(l)) ?? nextFixture?.groupLetter ?? letters[letters.length - 1];
           setActiveGroup(firstIncomplete);
 
-          // Set initial active date to the first date with unpredicted unlocked fixtures
+          // Set initial active date to the first date with unpredicted unlocked fixtures, otherwise today
           const dateKeys = [...new Set(fixtureList.map(f => getLocalDateKey(f.kickoffUtc)))].sort();
+          const todayKey = getLocalDateKey(new Date().toISOString());
+          const todayFallback = dateKeys.find(dk => dk >= todayKey) ?? dateKeys[dateKeys.length - 1];
           const firstDateIncomplete = dateKeys.find(dk =>
             fixtureList.some(f => getLocalDateKey(f.kickoffUtc) === dk && !isLocked(f.kickoffUtc) && !map.has(f.id))
-          ) ?? dateKeys[0];
+          ) ?? todayFallback;
           setActiveDate(firstDateIncomplete ?? '');
         }
 

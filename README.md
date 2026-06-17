@@ -118,7 +118,7 @@ Pick exactly 6 players as your top-scorer squad. Points are earned for every goa
 | **Database** | PostgreSQL 16 |
 | **Auth** | Link auth provider (magic link / form login, domain-whitelisted self-service sign-up); Entra ID provider ready but not yet active |
 | **Result ingestion** | Quartz.NET worker polling API-Football v3 every 30 seconds |
-| **Hosting (production)** | Docker Compose on an AWOW AK12 mini-PC, fronted by a Cloudflare Tunnel |
+| **Hosting (production)** | Azure Container Apps (Germany West Central), PostgreSQL Flexible Server, fronted by a Cloudflare Tunnel (optional) |
 | **Hosting (staging)** | Azure Container Apps (Germany West Central), PostgreSQL Flexible Server (North Europe), Azure Container Registry |
 | **CI/CD** | GitHub Actions with OIDC service principal; auto-deploys `staging` branch to the Azure staging environment |
 | **E2E tests** | Playwright |
