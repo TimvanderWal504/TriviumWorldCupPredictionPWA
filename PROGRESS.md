@@ -221,6 +221,17 @@ Root cause analysis of Azure 503 errors during live matches identified CPU credi
 
 - **`pages/LeaderboardPage.tsx`** — added `PodiumSection` component. The top 3 entries are separated from the flat list and rendered as a tri-level podium: 2nd place on the left (silver), 1st in the centre (tallest, gold), 3rd on the right (bronze). Each slot shows a circular country-flag avatar with a coloured ring, display name + points above the bar, and the rank number inside the bar. Ranks 4+ continue to render as list rows below a column header. Podium slots are fully clickable for drill-down when the user is authenticated.
 
+## Unversioned work (main, 18 June 2026)
+
+### Loading states — spinners and skeleton UI
+
+- **`src/components/ui/Spinner.tsx`** (new) — SVG-based spinner with three size variants: `sm` (16 px, single arc, inline beside button text), `md` (36 px, single arc, section loading), `lg` (64 px, dual-arc page-level: pitch-green outer arc rotating at 1.2 s + warning-orange inner arc counter-rotating at 1.8 s, with optional `label` prop rendered as uppercase caption). Matches the design mockup.
+- **`src/components/ui/Skeleton.tsx`** (new) — `SkeletonLeaderboard` export: pulsing 3-column podium placeholder (gold/silver/bronze heights) + 7 `SkeletonLeaderboardRow` instances mirroring the real leaderboard grid (`rank | name+flag | pts`). Uses `animate-pulse` + `bg-surface-2` from the design token system.
+- **All pages updated:** all 9 pages that previously showed plain text "Loading …" now render `<Spinner size="lg" label="…" />` instead.
+- **LeaderboardPage** — initial load shows `<SkeletonLeaderboard />` (keeps the card shell visible while data fetches); drill-down member details shows `<Spinner size="md" />`.
+- **GroupPredictionsPage** — save badge shows `<Spinner size="sm" />` + "Saving…" during the auto-save network round-trip.
+- **TournamentPredictionPage**, **KnockoutBracketPage**, **ProfilePage** — submit buttons show `<Spinner size="sm" />` + "Saving…" while in flight.
+
 ## Next action
 1. **Deploy B2ms Postgres upgrade** — re-run `az deployment group create` with updated `main.bicep` during a non-match window (Azure requires ~2 min downtime to resize Flexible Server).
 2. **`git push origin staging`** — triggers first GitHub Actions build; after ~5 min the web app URL serves the real app.
