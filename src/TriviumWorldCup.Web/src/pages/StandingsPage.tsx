@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Spinner } from '../components/ui/Spinner.tsx';
 
 interface GoldenSixPlayer {
   playerId: string;
@@ -38,7 +39,11 @@ export function StandingsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="p-8 text-fg-muted">Loading standings…</div>;
+  if (loading) return (
+    <div className="flex items-center justify-center py-20">
+      <Spinner size="lg" label="Loading standings" />
+    </div>
+  );
   if (error) return <div className="p-8 rounded-card mx-6 mt-6 text-[13px]" style={{ color: 'var(--loss)', background: 'var(--live-soft)' }}>{error}</div>;
   if (!standings) return <div className="p-8 text-fg-muted">Unable to load standings.</div>;
 

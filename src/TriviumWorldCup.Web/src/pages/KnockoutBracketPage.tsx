@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Clock } from 'lucide-react';
 import { flagUrl } from '../utils/flagUrl.ts';
+import { Spinner } from '../components/ui/Spinner.tsx';
 
 interface KnockoutSlotDto {
   slotKey: string; round: string; slotNumber: number;
@@ -199,7 +200,7 @@ function SlotCard({ slot, prediction, onSaved }: SlotCardProps) {
                 <button type="submit" disabled={saving}
                   className="px-4 py-1.5 rounded-input text-[13px] font-semibold transition-colors disabled:opacity-40"
                   style={{ background: 'var(--primary-fill)', color: 'var(--fg-onbrand)' }}>
-                  {saving ? 'Saving…' : prediction !== undefined ? 'Update' : 'Save'}
+                  {saving ? <span className="flex items-center gap-1.5"><Spinner size="sm" />Saving…</span> : prediction !== undefined ? 'Update' : 'Save'}
                 </button>
               </div>
             </form>
@@ -247,7 +248,11 @@ export function KnockoutBracketPage() {
   const presentRounds = ROUND_ORDER.filter(r => slots.some(s => s.round === r));
   const activeSlots = slots.filter(s => s.round === activeRound).sort((a, b) => a.slotNumber - b.slotNumber);
 
-  if (loading) return <div className="flex items-center justify-center py-20 text-fg-muted">Loading bracket…</div>;
+  if (loading) return (
+    <div className="flex items-center justify-center py-20">
+      <Spinner size="lg" label="Loading bracket" />
+    </div>
+  );
   if (loadError) return <div className="flex items-center justify-center py-20 text-[13px]" style={{ color: 'var(--loss)' }}>{loadError}</div>;
 
   return (

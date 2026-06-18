@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { flagUrl } from '../utils/flagUrl.ts';
+import { Spinner } from '../components/ui/Spinner.tsx';
 
 interface Team { id: string; name: string; fifaCode: string; countryCode: string; }
 interface Player { id: string; name: string; teamId: string; teamName: string; position: string; shirtNumber: number | null; }
@@ -277,7 +278,11 @@ export function TournamentPredictionPage() {
     }
   }
 
-  if (loading) return <div className="p-8 text-fg-muted">Loading tournament data…</div>;
+  if (loading) return (
+    <div className="flex items-center justify-center py-20">
+      <Spinner size="lg" label="Loading tournament data" />
+    </div>
+  );
 
   const championTeam = teams.find(t => t.id === championTeamId);
 
@@ -424,7 +429,7 @@ export function TournamentPredictionPage() {
           <button type="submit" disabled={saving}
             className="font-semibold rounded-input px-6 py-2.5 transition-colors disabled:opacity-50"
             style={{ background: 'var(--primary-fill)', color: 'var(--fg-onbrand)' }}>
-            {saving ? 'Saving…' : existingPrediction ? 'Update prediction' : 'Save prediction'}
+            {saving ? <span className="flex items-center gap-1.5"><Spinner size="sm" />Saving…</span> : existingPrediction ? 'Update prediction' : 'Save prediction'}
           </button>
         )}
       </form>

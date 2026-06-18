@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Clock } from 'lucide-react';
 import { flagUrl } from '../utils/flagUrl.ts';
+import { Spinner } from '../components/ui/Spinner.tsx';
 import {
   buildEventItems, buildRenderList, eventKey, formatMinute, MatchEventsList,
   type GoalEventDto, type CardEventDto, type SubstitutionEventDto, type VarEventDto,
@@ -169,7 +170,11 @@ export function LiveScoresPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (loading) return <div className="flex items-center justify-center py-20 text-fg-muted">Loading live scores…</div>;
+  if (loading) return (
+    <div className="flex items-center justify-center py-20">
+      <Spinner size="lg" label="Loading live scores" />
+    </div>
+  );
   if (loadError) return <div className="flex items-center justify-center py-20 text-[13px]" style={{ color: 'var(--loss)' }}>{loadError}</div>;
 
   const liveActive = data?.liveWindowActive === true;

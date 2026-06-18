@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { ChevronLeft, ChevronRight, Clock } from 'lucide-react';
 import { flagUrl } from '../utils/flagUrl.ts';
 import { GroupStandingsTable, type StandingsMatchInput } from '../components/GroupStandingsTable.tsx';
+import { Spinner } from '../components/ui/Spinner.tsx';
 
 interface FixtureDto {
   id: string;
@@ -153,7 +154,7 @@ function FixtureCard({ fixture, prediction, onSaved, showGroup }: FixtureCardPro
             : undefined
           }
         >
-          {saving ? 'Saving…' : saved ? 'Saved' : played ? 'Played' : locked ? 'Locked' : unpredicted ? 'Unpredicted' : 'Predicted'}
+          {saving ? <span className="flex items-center gap-1"><Spinner size="sm" />Saving…</span> : saved ? 'Saved' : played ? 'Played' : locked ? 'Locked' : unpredicted ? 'Unpredicted' : 'Predicted'}
         </span>
       </div>
 
@@ -331,7 +332,11 @@ export function GroupPredictionsPage({ onAllGroupsComplete, viewMode }: GroupPre
     .filter(f => getLocalDateKey(f.kickoffUtc) === activeDate)
     .sort((a, b) => new Date(a.kickoffUtc).getTime() - new Date(b.kickoffUtc).getTime());
 
-  if (loading) return <div className="flex items-center justify-center py-20 text-fg-muted">Loading fixtures…</div>;
+  if (loading) return (
+    <div className="flex items-center justify-center py-20">
+      <Spinner size="lg" label="Loading fixtures" />
+    </div>
+  );
   if (loadError) return <div className="flex items-center justify-center py-20 text-[13px]" style={{ color: 'var(--loss)' }}>{loadError}</div>;
 
   const btnBase = 'w-7 h-7 flex items-center justify-center rounded-input text-sm font-bold transition-opacity disabled:opacity-25';

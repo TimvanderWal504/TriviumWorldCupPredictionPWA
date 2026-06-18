@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { useAuth } from '../auth/useAuth.ts';
+import { Spinner } from '../components/ui/Spinner.tsx';
+import { SkeletonLeaderboard } from '../components/ui/Skeleton.tsx';
 
 interface LeaderboardEntry {
   rank: number;
@@ -289,7 +291,11 @@ export function LeaderboardPage() {
     }
   };
 
-  if (loading) return <div className="flex items-center justify-center py-20 text-fg-muted">Loading leaderboard…</div>;
+  if (loading) return (
+    <div className="max-w-3xl mx-auto px-4 py-4 space-y-3">
+      <SkeletonLeaderboard />
+    </div>
+  );
   if (error) return (
     <div className="max-w-2xl mx-auto px-4 py-6">
       <p className="text-[13px] px-4 py-3 rounded-card" style={{ color: 'var(--loss)', background: 'var(--live-soft)' }}>{error}</p>
@@ -319,7 +325,11 @@ export function LeaderboardPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-4 space-y-3">
-      {drillDownLoading && <p className="text-fg-muted text-sm">Loading member details…</p>}
+      {drillDownLoading && (
+        <div className="flex justify-center py-4">
+          <Spinner size="md" />
+        </div>
+      )}
       {drillDownError && (
         <p className="text-[13px] px-4 py-2 rounded-input" style={{ color: 'var(--loss)', background: 'var(--live-soft)' }}>
           {drillDownError}

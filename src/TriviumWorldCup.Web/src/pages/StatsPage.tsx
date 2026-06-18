@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { flagUrl } from '../utils/flagUrl.ts';
+import { Spinner } from '../components/ui/Spinner.tsx';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -123,7 +124,11 @@ export function StatsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <p className="text-fg-muted text-sm p-4">Loading statistics…</p>;
+  if (loading) return (
+    <div className="flex items-center justify-center py-20">
+      <Spinner size="lg" label="Loading statistics" />
+    </div>
+  );
   if (error)   return <p className="text-sm p-4" style={{ color: 'var(--loss)' }}>Failed to load: {error}</p>;
   if (!stats)  return null;
 

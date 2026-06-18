@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useAuth } from '../auth/useAuth.ts';
 import { COUNTRIES } from '../data/countries.ts';
 import type { UserProfile } from '../auth/types.ts';
+import { Spinner } from '../components/ui/Spinner.tsx';
 
 async function fetchProfile(): Promise<UserProfile | null> {
   const res = await fetch('/profile', { credentials: 'include' });
@@ -155,7 +156,11 @@ export function ProfilePage() {
     setPushLoading(false);
   };
 
-  if (loading) return <div className="p-8 text-fg-muted">Loading profile…</div>;
+  if (loading) return (
+    <div className="flex items-center justify-center py-20">
+      <Spinner size="lg" label="Loading profile" />
+    </div>
+  );
 
   const inputCls = 'w-full bg-surface-2 text-fg rounded-input px-4 py-2.5 border border-border placeholder:text-fg-muted';
   const labelCls = 'block text-sm font-medium text-fg-secondary mb-1';
@@ -206,7 +211,7 @@ export function ProfilePage() {
         <button type="submit" disabled={saving}
           className="font-semibold rounded-input px-6 py-2.5 transition-colors disabled:opacity-50"
           style={{ background: 'var(--primary-fill)', color: 'var(--fg-onbrand)' }}>
-          {saving ? 'Saving…' : 'Save changes'}
+          {saving ? <span className="flex items-center gap-1.5"><Spinner size="sm" />Saving…</span> : 'Save changes'}
         </button>
       </form>
 
