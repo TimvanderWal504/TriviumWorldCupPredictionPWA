@@ -76,7 +76,8 @@ public static class LeaderboardEndpoints
             return Results.Ok(result);
         })
         .WithName("GetLeaderboard")
-        .WithSummary("Returns all members ranked by total points and tiebreaker chain.");
+        .WithSummary("Returns all members ranked by total points and tiebreaker chain.")
+        .CacheOutput("leaderboard");
 
         // ── GET /leaderboard/{userId} ─────────────────────────────────────────
         // Auth required — viewer identity enforces the privacy rule server-side.

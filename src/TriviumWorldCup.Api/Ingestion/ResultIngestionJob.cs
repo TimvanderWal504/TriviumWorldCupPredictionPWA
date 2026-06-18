@@ -1,4 +1,5 @@
 using Marten;
+using Microsoft.AspNetCore.OutputCaching;
 using Quartz;
 using TriviumWorldCup.Api.Admin;
 using TriviumWorldCup.Api.Domain;
@@ -45,11 +46,19 @@ public class ResultIngestionJob(
     ScoringRecomputeService scoringService,
     KnockoutBracketResolver bracketResolver,
     IngestionStatusStore statusStore,
+    PlayerCache playerCache,
+    IOutputCacheStore outputCache,
     ILogger<ResultIngestionJob> logger) : IJob
 {
     // Version 5 UUID namespace for deterministic GoalEvent IDs.
     // Using a fixed, arbitrary namespace GUID registered for this purpose.
     private static readonly Guid GoalEventNamespace = new("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
+
+    // Minimum gap between consecutive RecomputeAllAsync calls. Guards against the
+    // simultaneous-group-match scenario: when two final-round fixtures complete within the
+    // same ~30-second window, the API may report them FT in successive poll cycles, which
+    // would otherwise trigger two back-to-back full recomputes.
+    private static readonly TimeSpan RecomputeMinInterval = TimeSpan.FromSeconds(20);
 
     public async Task Execute(IJobExecutionContext context)
     {
@@ -240,20 +249,14 @@ public class ResultIngestionJob(
                 affectedFixture.Id, homeCode, awayCode, newStatus, apiFixture.StatusShort);
         }
 
-        // ── 6. Pre-load all players for name-based matching ───────────────────
-        var allPlayers = await session
-            .Query<Player>()
-            .ToListAsync(ct);
-
-        var playerByName = allPlayers
-            .GroupBy(p => NormalizeName(p.Name), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-
-        var playersByLastName = allPlayers
-            .ToLookup(p => LastWord(p.Name), StringComparer.OrdinalIgnoreCase);
+        // ── 6. Player lookup — served from singleton cache (roster is static) ──
+        await playerCache.EnsureLoadedAsync(ct);
+        var playerByName    = playerCache.ByFullName;
+        var playersByLastName = playerCache.ByLastName;
 
         // ── 7. Process each newly-completed fixture ───────────────────────────
-        var ingestedCount = 0;
+        var ingestedCount      = 0;
+        var ingestedFixtureIds = new List<string>();
 
         foreach (var apiFixture in allApiFixtures.Where(f => f.IsFullTime))
         {
@@ -489,6 +492,7 @@ public class ResultIngestionJob(
                 dbFixture.EventsIngested = true;
             }
 
+            ingestedFixtureIds.Add(dbFixture.Id);
             ingestedCount++;
             logger.LogInformation(
                 "ResultIngestionJob: ingested fixture {Id} ({Home} {HomeScore}-{AwayScore} {Away}), {Goals} goal(s), {Subs} sub(s), events={EventsStatus}",
@@ -630,7 +634,8 @@ public class ResultIngestionJob(
                      && s.Status != MatchStatus.Postponed)
             .ToListAsync(ct);
 
-        var knockoutUpdated = 0;
+        var knockoutUpdated      = 0;
+        var completedSlotKeys    = new List<string>();
         if (knockoutSlots.Count > 0)
         {
             var knockoutByTeamPair = knockoutSlots
@@ -701,6 +706,7 @@ public class ResultIngestionJob(
                             slot.WinnerTeamId = slot.AwayTeamId;
                     }
 
+                    completedSlotKeys.Add(slot.SlotKey);
                     logger.LogInformation(
                         "ResultIngestionJob: knockout slot {SlotKey} completed — {Home} {HomeScore}-{AwayScore} {Away}, winner={Winner}",
                         slot.SlotKey, homeCode, slot.HomeScore, slot.AwayScore, awayCode,
@@ -715,6 +721,8 @@ public class ResultIngestionJob(
         if (ingestedCount > 0 || anyLive || knockoutUpdated > 0 || cancelledCount > 0)
         {
             await session.SaveChangesAsync(ct);
+            await outputCache.EvictByTagAsync("fixtures", ct);
+            await outputCache.EvictByTagAsync("knockout-slots", ct);
         }
 
         if (ingestedCount > 0 || knockoutUpdated > 0)
@@ -722,9 +730,28 @@ public class ResultIngestionJob(
             logger.LogInformation(
                 "ResultIngestionJob: {GroupCount} group fixture(s), {KnockoutCount} knockout slot(s) updated — triggering bracket resolution and score recompute",
                 ingestedCount, knockoutUpdated);
-            await bracketResolver.ResolveGroupStageAsync(ct);
-            await bracketResolver.PropagateAllKnockoutResultsAsync(ct);
-            await scoringService.RecomputeAllAsync(ct);
+
+            // Reuse the same session so bracket + scoring writes flush in a single
+            // SaveChangesAsync below instead of two extra round-trips. Ingestion data
+            // was already committed above, so the resolver's reads see the latest state.
+            await bracketResolver.ResolveGroupStageAsync(session, ct);
+            await bracketResolver.PropagateAllKnockoutResultsAsync(session, ct);
+
+            var timeSinceLastRecompute = now - statusStore.LastRecomputeUtc;
+            if (timeSinceLastRecompute < RecomputeMinInterval)
+            {
+                logger.LogDebug(
+                    "ResultIngestionJob: skipping RecomputeAllAsync — last run was {Elapsed:0.0}s ago (min interval {Min}s)",
+                    timeSinceLastRecompute?.TotalSeconds ?? 0, RecomputeMinInterval.TotalSeconds);
+            }
+            else
+            {
+                statusStore.LastRecomputeUtc = DateTimeOffset.UtcNow;
+                await scoringService.RecomputeForCompletedAsync(ingestedFixtureIds, completedSlotKeys, session, ct);
+            }
+
+            await session.SaveChangesAsync(ct);
+            await outputCache.EvictByTagAsync("leaderboard", ct);
         }
 
         // ── Record successful poll ────────────────────────────────────────────
@@ -819,7 +846,11 @@ public class ResultIngestionJob(
         }
 
         if (updated > 0)
+        {
             await session.SaveChangesAsync(ct);
+            await outputCache.EvictByTagAsync("fixtures", ct);
+            await outputCache.EvictByTagAsync("knockout-slots", ct);
+        }
     }
 
     /// <summary>
@@ -920,7 +951,7 @@ public class ResultIngestionJob(
     /// </summary>
     internal static Player? ResolvePlayer(
         string apiName,
-        Dictionary<string, Player> byFullName,
+        IReadOnlyDictionary<string, Player> byFullName,
         ILookup<string, Player> byLastName)
     {
         if (string.IsNullOrWhiteSpace(apiName)) return null;

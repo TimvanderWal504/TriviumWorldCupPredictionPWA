@@ -1,5 +1,4 @@
 {
-  "version": "2026-06-12",
-  "notes": "Goal scorers, cards, and substitutions are now fetched reliably after every match.\n\nPreviously, a single network hiccup during result ingestion could silently prevent match events from ever being saved. Completed matches are now retried until their events are confirmed — so if a match finished without any goal scorers showing up, it will back-fill automatically on the next poll.",
-  "reminder": "As there was some feedback regarding the Tournament predictions (champion + Golden Six), they are open again to be predicted, but ONLY today (12 June). You'll need to same them manually. Fill them in before midnight UTC if you haven't yet."
+  "version": "2026-06-18",
+  "notes": "The app is now more stable during live matches.\n\nWe identified the cause of the occasional server errors (503s) that some of you noticed while matches were being played. You should see a noticeably smoother experience during busy match evenings going forward.\n\nThe leaderboard now features a podium view for the top 3: gold, silver, and bronze bars with flag avatars — tap any podium slot to see their predictions."
 }

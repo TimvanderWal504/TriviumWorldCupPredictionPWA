@@ -197,8 +197,33 @@ Local Docker Compose can still be used for development; Azure staging is the pri
 - Existing `Fixture` documents default to `EventsIngested=false` and will backfill on the next poll — no migration required.
 - **337 tests pass.**
 
+## Unversioned work (main, 18 June 2026)
+
+### Performance hardening — live-match stability
+
+Root cause analysis of Azure 503 errors during live matches identified CPU credit exhaustion on the `Standard_B1ms` Postgres tier and several code-level inefficiencies as the primary contributors.
+
+**Infrastructure:**
+- **`.infra/main.bicep`** — PostgreSQL SKU upgraded `Standard_B1ms` → `Standard_B2ms` (2 vCores, 8 GiB RAM, 1920 IOPS); doubles CPU credit accrual rate and triples IOPS headroom.
+
+**Backend changes (all already present in codebase, verified 18 June 2026):**
+- **Output cache** — `GET /leaderboard`, `/fixtures`, `/knockout-slots` cached for 20 s; `/teams`, `/players` for 5 min. Cache entries tagged and evicted by `ResultIngestionJob` / `ScoringRecomputeService` after each write so users never see stale scores beyond one poll cycle. (`AddOutputCache` in `Program.cs`, `CacheOutput(...)` on endpoints, `EvictByTagAsync` in job + service.)
+- **Parallel reads in `ScoringRecomputeService`** — six independent `ToListAsync` queries (Fixtures, GroupPredictions, TournamentPredictions, KnockoutSlots, GoalEvents, KnockoutPredictions) run via `Task.WhenAll`; each gets its own lightweight session (Marten sessions are not thread-safe).
+- **Marten indexes** — added on all hot query paths: `Fixture.Status`, `KnockoutSlot.Status`, `GroupPrediction.UserId`, `KnockoutPrediction.UserId`, `GoalEvent.FixtureId`, `CardEvent.FixtureId`, `SubstitutionEvent.FixtureId`, `VarEvent.FixtureId`.
+- **Incremental scoring recompute** — `RecomputeForCompletedAsync` resolves only users who predicted the completed fixture/slot, then rescores only those users. `RecomputeAllAsync` retained as a full-sweep fallback.
+- **Separate liveness / readiness probes** — `/ping` (no DB) used for liveness; `/health` (NpgSql) used for readiness in `main.bicep`. DB slowness degrades readiness without restarting the container.
+- **Single shared session for post-completion pipeline** — `KnockoutBracketResolver` and `ScoringRecomputeService` both accept a caller-supplied `IDocumentSession`; `ResultIngestionJob` passes its own session through and calls `SaveChangesAsync` once after bracket + scoring writes.
+- **20-second recompute debounce** — `RecomputeMinInterval = 20s` guards against back-to-back recomputes when two simultaneous group-stage matches complete within the same poll window.
+- **`PlayerCache` singleton** — player roster loaded once on first use (tournament roster is static); eliminates the full `Player` table scan on every live-match poll cycle.
+- **Early exit in `PropagateAllKnockoutResultsAsync`** — loads only slots with a recorded result or derivable winner; exits immediately with no writes if none exist (no-op during the entire group stage).
+
+### Leaderboard podium (18 June 2026)
+
+- **`pages/LeaderboardPage.tsx`** — added `PodiumSection` component. The top 3 entries are separated from the flat list and rendered as a tri-level podium: 2nd place on the left (silver), 1st in the centre (tallest, gold), 3rd on the right (bronze). Each slot shows a circular country-flag avatar with a coloured ring, display name + points above the bar, and the rank number inside the bar. Ranks 4+ continue to render as list rows below a column header. Podium slots are fully clickable for drill-down when the user is authenticated.
+
 ## Next action
-1. **`git push origin staging`** — triggers first GitHub Actions build; after ~5 min the web app URL serves the real app.
-2. **Seed admin user on staging** — navigate to `https://twc-web.bravesea-4935fc14.germanywestcentral.azurecontainerapps.io/auth/link/login?id=c0c53bf2-8c04-4f08-86ee-10d25e895fee`
-3. **Seed admin user on staging** — if the DB was already seeded before the admin user seed was added, create Tim manually: Admin page → Users → Create, or clear and re-seed the DB.
-4. **Wave 9 (final)** — TWC-20 real Entra, once the app registration is provided. When ready: add `EntraIdentityProvider`, set `Auth:Provider=entra` in Azure env vars, leave link auth as-is for fallback.
+1. **Deploy B2ms Postgres upgrade** — re-run `az deployment group create` with updated `main.bicep` during a non-match window (Azure requires ~2 min downtime to resize Flexible Server).
+2. **`git push origin staging`** — triggers first GitHub Actions build; after ~5 min the web app URL serves the real app.
+3. **Seed admin user on staging** — navigate to `https://twc-web.bravesea-4935fc14.germanywestcentral.azurecontainerapps.io/auth/link/login?id=c0c53bf2-8c04-4f08-86ee-10d25e895fee`
+4. **Seed admin user on staging** — if the DB was already seeded before the admin user seed was added, create Tim manually: Admin page → Users → Create, or clear and re-seed the DB.
+5. **Wave 9 (final)** — TWC-20 real Entra, once the app registration is provided. When ready: add `EntraIdentityProvider`, set `Auth:Provider=entra` in Azure env vars, leave link auth as-is for fallback.

@@ -35,7 +35,7 @@ An internal Progressive Web App (PWA) prediction pool for the FIFA World Cup 202
 | **Knockout Bracket** | Full visual bracket from the Round of 32 through the Final. For each match, predict which team advances and, optionally, the 90-minute score. Bracket cards show **LIVE**, **ET** (extra time), and **PEN** (penalties) badges; penalty shootout scores appear in parentheses. The bracket is populated automatically from final group standings using the official FIFA criteria. Visible only once the first R32 slot has teams assigned. |
 | **Live Scores** | Real-time match view polling every 20 seconds. Shows all in-progress fixtures with live score, elapsed time (e.g. `LIVE 45+3'`), goal scorers, cards, and substitutions. The tab appears automatically when a live window is active and disappears when no matches are in progress. |
 | **Results** | Browse all completed matches with final scores and match events (goals, cards, substitutions). Visible only once at least one match has been completed. |
-| **Leaderboard (Ranks)** | Competition-wide ranking with tiebreaker resolution. Drill into any member's predictions to see how they scored on each match — but only for matches that have already kicked off (predictions are hidden until a match locks). |
+| **Leaderboard (Ranks)** | Competition-wide ranking with tiebreaker resolution. The top 3 members are displayed on a visual tri-level podium (gold / silver / bronze) with flag avatars and coloured bars; ranks 4+ appear as a flat list below. Drill into any member's predictions to see how they scored on each match — but only for matches that have already kicked off (predictions are hidden until a match locks). |
 | **My Standings (Me)** | Your personal score breakdown: total points, current rank, group match points, knockout points, champion prediction status, and a per-player Golden Six breakdown showing goals scored and points earned by each of your 6 picks. |
 | **Rules & Scoring** | In-app explainer of the full scoring system with worked examples and timetable. |
 | **Profile** | Set your display name and country (shown with a flag on the leaderboard and bracket). |
@@ -289,7 +289,7 @@ Each cycle:
 1. Fetches live and recently-completed fixtures from the API.
 2. For group-stage fixtures: stores 90-minute scores, match events (goals, cards, substitutions), and marks fixtures `Completed`.
 3. For knockout fixtures: maps to `KnockoutSlot` by team pair; stores 90-min score and penalty scores; sets `ExtraTime`, `PenaltyShootout`, or `Completed` status; determines the winner; propagates results through subsequent bracket rounds.
-4. Triggers a full `ScoringRecomputeService` pass to update every member's `MemberScore`.
+4. Triggers an incremental `ScoringRecomputeService` pass that rescores only the members who predicted the completed fixture or slot, rather than every member.
 5. **Events backfill:** `EventsIngested` is a separate flag from `Status=Completed`. If a fixture completes but events could not be fetched (e.g. a 429 quota error), the job retries events-only on subsequent polls. A 429 is surfaced in the admin ingestion health dashboard.
 
 Name-based team matching is the primary strategy; known API team IDs can be cached via `POST /admin/fixtures/sync-api-ids`.

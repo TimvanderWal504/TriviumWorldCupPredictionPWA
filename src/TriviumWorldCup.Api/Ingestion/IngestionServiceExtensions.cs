@@ -30,6 +30,8 @@ public static class IngestionServiceExtensions
             services.AddScoped<ScoringRecomputeService>();
         }
 
+        services.AddSingleton<PlayerCache>();
+
         // Typed HTTP client for API-Football v3.
         // Register against the interface so ResultIngestionJob can resolve IFootballApiClient.
         services.AddHttpClient<IFootballApiClient, FootballApiClient>(client =>

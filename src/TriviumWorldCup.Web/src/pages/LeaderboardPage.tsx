@@ -55,6 +55,75 @@ async function fetchDrillDown(userId: string): Promise<MemberDrillDown> {
   if (!res.ok) throw new Error(`Drill-down fetch failed: ${res.status}`);
   return res.json() as Promise<MemberDrillDown>;
 }
+interface PodiumSectionProps {
+  entries: LeaderboardEntry[];
+  currentUserId?: string;
+  onSelect: (entry: LeaderboardEntry) => void;
+  selectable: boolean;
+}
+
+function PodiumSection({ entries, currentUserId, onSelect, selectable }: PodiumSectionProps) {
+  const first  = entries.find(e => e.rank === 1);
+  const second = entries.find(e => e.rank === 2);
+  const third  = entries.find(e => e.rank === 3);
+  if (!first) return null;
+
+  type Slot = { entry: LeaderboardEntry; colorVar: string; barH: string; avatarSize: number };
+  const slots: Slot[] = [
+    second && { entry: second, colorVar: 'var(--color-podium-silver)', barH: 'h-14', avatarSize: 48 },
+    { entry: first,  colorVar: 'var(--color-podium-gold)',   barH: 'h-24', avatarSize: 56 },
+    third  && { entry: third,  colorVar: 'var(--color-podium-bronze)', barH: 'h-10', avatarSize: 44 },
+  ].filter(Boolean) as Slot[];
+
+  return (
+    <div className="flex items-end justify-center gap-0.5 px-2 pt-6">
+      {slots.map(({ entry, colorVar, barH, avatarSize }) => {
+        const isCurrentUser = currentUserId === entry.userId;
+        return (
+          <button
+            key={entry.userId}
+            onClick={selectable ? () => onSelect(entry) : undefined}
+            disabled={!selectable}
+            className={`flex flex-col items-center flex-1 min-w-0 ${selectable ? 'cursor-pointer group' : 'cursor-default'}`}
+          >
+            <span className={`text-[12px] font-semibold text-center truncate w-full px-1 ${isCurrentUser ? 'text-secondary' : 'text-fg'}`}>
+              {entry.displayName}
+              {isCurrentUser && <span className="text-secondary ml-1 text-[11px]">(you)</span>}
+            </span>
+            <span className="text-[13px] font-black tnum mb-2" style={{ color: colorVar }}>
+              {entry.totalPoints} pts
+            </span>
+            <div
+              className="rounded-full overflow-hidden bg-surface-2 mb-2 shrink-0"
+              style={{ width: avatarSize, height: avatarSize, border: `2.5px solid ${colorVar}` }}
+            >
+              {entry.countryCode ? (
+                <img
+                  src={`https://flagcdn.com/w80/${entry.countryCode.toLowerCase()}.png`}
+                  alt={entry.countryCode}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center font-display font-black text-fg-muted text-lg">
+                  {entry.displayName[0]}
+                </div>
+              )}
+            </div>
+            <div
+              className={`${barH} w-full rounded-t-md flex items-center justify-center transition-opacity group-hover:opacity-100`}
+              style={{ background: colorVar, opacity: 0.88 }}
+            >
+              <span className="font-display font-black text-[28px]" style={{ color: 'rgba(0,0,0,0.28)' }}>
+                {entry.rank}
+              </span>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function RankBadge({ rank }: { rank: number }) {
   const podiumStyles: Record<number, { color: string; size: string }> = {
     1: { color: 'var(--color-podium-gold)', size: 'text-[20px]' },
@@ -269,6 +338,9 @@ export function LeaderboardPage() {
     );
   }
 
+  const top3 = entries.filter(e => e.rank <= 3);
+  const rest  = entries.filter(e => e.rank > 3);
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-4 space-y-3">
       {drillDownLoading && <p className="text-fg-muted text-sm">Loading member details…</p>}
@@ -279,43 +351,58 @@ export function LeaderboardPage() {
       )}
 
       <div className="rounded-card bg-surface border border-border overflow-hidden">
-        <div className="grid grid-cols-[2.25rem_1fr_3.25rem] gap-2.5 px-4 py-2.5 bg-surface-2 text-[10px] font-display font-bold uppercase tracking-wider text-fg-muted">
-          <span className="text-center">#</span>
-          <span>Member</span>
-          <span className="text-right">Pts</span>
-        </div>
-        <div className="divide-y divide-border">
-          {entries.map(entry => {
-            const isCurrentUser = user?.userId === entry.userId;
-            return (
-              <button
-                key={entry.userId}
-                onClick={user ? () => void handleRowClick(entry) : undefined}
-                disabled={!user}
-                className={`w-full grid grid-cols-[2.25rem_1fr_3.25rem] gap-2.5 px-4 py-3.5 text-left transition-colors ${
-                  user ? 'hover:bg-surface-2 cursor-pointer' : 'cursor-default'
-                } ${isCurrentUser ? 'bg-blue-500/10' : ''}`}
-              >
-                <div className="flex justify-center"><RankBadge rank={entry.rank} /></div>
-                <div className="flex items-center gap-2 min-w-0">
-                  {entry.countryCode && (
-                    <img
-                      src={`https://flagcdn.com/w40/${entry.countryCode.toLowerCase()}.png`}
-                      alt={entry.countryCode}
-                      width={20} height={14}
-                      className="shrink-0 rounded-sm"
-                    />
-                  )}
-                  <span className={`font-semibold truncate ${isCurrentUser ? 'text-secondary' : 'text-fg'}`}>
-                    {entry.displayName}
-                  </span>
-                  {isCurrentUser && <span className="text-[11px] text-secondary shrink-0">(you)</span>}
-                </div>
-                <div className="font-display font-black text-[18px] tnum text-right">{entry.totalPoints}</div>
-              </button>
-            );
-          })}
-        </div>
+        {top3.length > 0 && (
+          <PodiumSection
+            entries={top3}
+            currentUserId={user?.userId}
+            onSelect={(entry) => void handleRowClick(entry)}
+            selectable={!!user}
+          />
+        )}
+
+        {rest.length > 0 && (
+          <>
+            <div className="grid grid-cols-[2.25rem_1fr_3.25rem] gap-2.5 px-4 py-2.5 mt-3 bg-surface-2 text-[10px] font-display font-bold uppercase tracking-wider text-fg-muted">
+              <span className="text-center">#</span>
+              <span>Member</span>
+              <span className="text-right">Pts</span>
+            </div>
+            <div className="divide-y divide-border">
+              {rest.map(entry => {
+                const isCurrentUser = user?.userId === entry.userId;
+                return (
+                  <button
+                    key={entry.userId}
+                    onClick={user ? () => void handleRowClick(entry) : undefined}
+                    disabled={!user}
+                    className={`w-full grid grid-cols-[2.25rem_1fr_3.25rem] gap-2.5 px-4 py-3.5 text-left transition-colors ${
+                      user ? 'hover:bg-surface-2 cursor-pointer' : 'cursor-default'
+                    } ${isCurrentUser ? 'bg-blue-500/10' : ''}`}
+                  >
+                    <div className="flex justify-center"><RankBadge rank={entry.rank} /></div>
+                    <div className="flex items-center gap-2 min-w-0">
+                      {entry.countryCode && (
+                        <img
+                          src={`https://flagcdn.com/w40/${entry.countryCode.toLowerCase()}.png`}
+                          alt={entry.countryCode}
+                          width={20} height={14}
+                          className="shrink-0 rounded-sm"
+                        />
+                      )}
+                      <span className={`font-semibold truncate ${isCurrentUser ? 'text-secondary' : 'text-fg'}`}>
+                        {entry.displayName}
+                      </span>
+                      {isCurrentUser && <span className="text-[11px] text-secondary shrink-0">(you)</span>}
+                    </div>
+                    <div className="font-display font-black text-[18px] tnum text-right">{entry.totalPoints}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+
       </div>
 
       {user && (

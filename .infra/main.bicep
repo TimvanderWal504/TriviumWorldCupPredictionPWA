@@ -47,8 +47,8 @@ param postgresAdminUser string = 'pgadmin'
 @secure()
 param postgresAdminPassword string
 
-@description('PostgreSQL SKU. Standard_B1ms = ~$15/month (dev). Standard_D2ds_v4 for prod.')
-param postgresSkuName string = 'Standard_B1ms'
+@description('PostgreSQL SKU. Standard_B2ms = ~$50/month (burstable, 2 vCores, 8 GiB, 1920 IOPS). Standard_D2ds_v4 for prod.')
+param postgresSkuName string = 'Standard_B2ms'
 
 @description('Key Vault name (globally unique, 3–24 chars).')
 param keyVaultName string
@@ -295,6 +295,32 @@ resource apiApp 'Microsoft.App/containerApps@2023-05-01' = {
           // Use placeholder on first deploy (no image in ACR yet). GitHub Actions updates this on first push.
           image: empty(apiImageTag) ? 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest' : '${acr.properties.loginServer}/twc-api:${apiImageTag}'
           resources: { cpu: json('0.5'), memory: '1.0Gi' } // 0.5Gi OOMKills on Marten startup schema warmup
+          probes: [
+            {
+              type: 'Liveness'
+              httpGet: {
+                path: '/ping'
+                port: 8080
+                scheme: 'HTTP'
+              }
+              initialDelaySeconds: 10
+              periodSeconds: 15
+              failureThreshold: 3
+              timeoutSeconds: 3
+            }
+            {
+              type: 'Readiness'
+              httpGet: {
+                path: '/health'
+                port: 8080
+                scheme: 'HTTP'
+              }
+              initialDelaySeconds: 15
+              periodSeconds: 20
+              failureThreshold: 3
+              timeoutSeconds: 10
+            }
+          ]
           env: [
             { name: 'ASPNETCORE_ENVIRONMENT', value: aspnetCoreEnvironment }
             { name: 'Auth__Provider', value: 'link' }

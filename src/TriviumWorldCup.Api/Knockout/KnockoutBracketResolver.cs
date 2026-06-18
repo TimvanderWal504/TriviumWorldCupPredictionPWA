@@ -50,7 +50,19 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
     public async Task ResolveGroupStageAsync(CancellationToken ct = default)
     {
         await using var session = store.LightweightSession();
+        if (await ResolveGroupStageCoreAsync(session, ct) > 0)
+            await session.SaveChangesAsync(ct);
+    }
 
+    /// <summary>
+    /// Shared-session overload — accumulates stores into <paramref name="session"/> without
+    /// calling SaveChangesAsync. Caller is responsible for flushing.
+    /// </summary>
+    public async Task ResolveGroupStageAsync(IDocumentSession session, CancellationToken ct = default)
+        => await ResolveGroupStageCoreAsync(session, ct);
+
+    private async Task<int> ResolveGroupStageCoreAsync(IDocumentSession session, CancellationToken ct)
+    {
         // Load all 72 group-stage fixtures.
         var fixtures = await session.Query<Fixture>().ToListAsync(ct);
 
@@ -60,7 +72,7 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
             logger.LogDebug(
                 "KnockoutBracketResolver: group stage not complete ({Done}/{Total} done) — skipping R32 resolution",
                 fixtures.Count(f => f.Status == MatchStatus.Completed), fixtures.Count);
-            return;
+            return 0;
         }
 
         logger.LogInformation("KnockoutBracketResolver: all group fixtures complete — resolving R32 bracket");
@@ -86,8 +98,6 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
             foreach (var slot in slotByKey.Values)
                 session.Store(slot);
 
-            await session.SaveChangesAsync(ct);
-
             logger.LogInformation(
                 "KnockoutBracketResolver: populated {Count} R32 slot team assignment(s)",
                 changed);
@@ -96,6 +106,8 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
         {
             logger.LogDebug("KnockoutBracketResolver: R32 slots already populated — no changes");
         }
+
+        return changed;
     }
 
     /// <summary>
@@ -111,10 +123,10 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
     {
         await using var session = store.LightweightSession();
 
-        var slots = await session.Query<KnockoutSlot>().ToListAsync(ct);
-        var slotByKey = slots.ToDictionary(s => s.SlotKey);
+        var completedSlot = await session.Query<KnockoutSlot>()
+            .FirstOrDefaultAsync(s => s.SlotKey == completedSlotKey, ct);
 
-        if (!slotByKey.TryGetValue(completedSlotKey, out var completedSlot))
+        if (completedSlot is null)
         {
             logger.LogWarning(
                 "KnockoutBracketResolver: slot '{Key}' not found — cannot propagate",
@@ -123,6 +135,7 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
         }
 
         // Ensure WinnerTeamId is set if we have enough information.
+        var hadWinner = completedSlot.WinnerTeamId is not null;
         EnsureWinnerSet(completedSlot);
 
         if (completedSlot.WinnerTeamId is null)
@@ -133,18 +146,31 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
             return;
         }
 
-        var changed = PropagateSlotResult(slotByKey, completedSlot);
+        // Load only incomplete targets — these are the only slots PropagateSlotResult can mutate.
+        var targetSlots = await session.Query<KnockoutSlot>()
+            .Where(s => s.HomeTeamId == null || s.AwayTeamId == null)
+            .ToListAsync(ct);
 
-        if (changed > 0)
+        var slotByKey = targetSlots.ToDictionary(s => s.SlotKey);
+        slotByKey.TryAdd(completedSlot.SlotKey, completedSlot);
+
+        var dirty = new HashSet<KnockoutSlot>();
+        if (!hadWinner)
+            dirty.Add(completedSlot);
+
+        var changed = PropagateSlotResult(slotByKey, completedSlot, dirty);
+
+        if (dirty.Count > 0)
         {
-            foreach (var slot in slotByKey.Values)
+            foreach (var slot in dirty)
                 session.Store(slot);
 
             await session.SaveChangesAsync(ct);
 
-            logger.LogInformation(
-                "KnockoutBracketResolver: propagated result of '{Key}' into {Count} downstream slot(s)",
-                completedSlotKey, changed);
+            if (changed > 0)
+                logger.LogInformation(
+                    "KnockoutBracketResolver: propagated result of '{Key}' into {Count} downstream slot(s)",
+                    completedSlotKey, changed);
         }
     }
 
@@ -155,10 +181,41 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
     public async Task PropagateAllKnockoutResultsAsync(CancellationToken ct = default)
     {
         await using var session = store.LightweightSession();
+        if (await PropagateAllKnockoutResultsCoreAsync(session, ct) > 0)
+            await session.SaveChangesAsync(ct);
+    }
 
-        var slots = await session.Query<KnockoutSlot>().ToListAsync(ct);
-        var slotByKey = slots.ToDictionary(s => s.SlotKey);
+    /// <summary>
+    /// Shared-session overload — accumulates stores into <paramref name="session"/> without
+    /// calling SaveChangesAsync. Caller is responsible for flushing.
+    /// </summary>
+    public async Task PropagateAllKnockoutResultsAsync(IDocumentSession session, CancellationToken ct = default)
+        => await PropagateAllKnockoutResultsCoreAsync(session, ct);
 
+    private async Task<int> PropagateAllKnockoutResultsCoreAsync(IDocumentSession session, CancellationToken ct)
+    {
+        // Load potential sources: slots with a recorded result or derivable winner.
+        var sourceSlots = await session.Query<KnockoutSlot>()
+            .Where(s => s.WinnerTeamId != null || s.HomeScore != null)
+            .ToListAsync(ct);
+
+        if (sourceSlots.Count == 0)
+        {
+            logger.LogDebug("KnockoutBracketResolver: no completed knockout slots — skipping propagation sweep");
+            return 0;
+        }
+
+        // Load potential targets: slots still missing at least one team assignment.
+        var targetSlots = await session.Query<KnockoutSlot>()
+            .Where(s => s.HomeTeamId == null || s.AwayTeamId == null)
+            .ToListAsync(ct);
+
+        // Merge into one dict; a slot can be both a source and a target.
+        var slotByKey = sourceSlots.ToDictionary(s => s.SlotKey);
+        foreach (var t in targetSlots)
+            slotByKey.TryAdd(t.SlotKey, t);
+
+        var dirty = new HashSet<KnockoutSlot>();
         var totalChanged = 0;
 
         // Process in round order so upstream results flow downstream in one sweep.
@@ -169,23 +226,27 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
 
         foreach (var slot in orderedSlots)
         {
+            var hadWinner = slot.WinnerTeamId is not null;
             EnsureWinnerSet(slot);
+            if (!hadWinner && slot.WinnerTeamId is not null)
+                dirty.Add(slot);
 
             if (slot.WinnerTeamId is not null)
-                totalChanged += PropagateSlotResult(slotByKey, slot);
+                totalChanged += PropagateSlotResult(slotByKey, slot, dirty);
         }
 
-        if (totalChanged > 0)
+        if (dirty.Count > 0)
         {
-            foreach (var slot in slotByKey.Values)
+            foreach (var slot in dirty)
                 session.Store(slot);
 
-            await session.SaveChangesAsync(ct);
-
-            logger.LogInformation(
-                "KnockoutBracketResolver: full propagation sweep changed {Count} slot team assignment(s)",
-                totalChanged);
+            if (totalChanged > 0)
+                logger.LogInformation(
+                    "KnockoutBracketResolver: full propagation sweep changed {Count} slot team assignment(s)",
+                    totalChanged);
         }
+
+        return totalChanged;
     }
 
     // -------------------------------------------------------------------------
@@ -447,7 +508,8 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
     /// </summary>
     private static int PropagateSlotResult(
         Dictionary<string, KnockoutSlot> slotByKey,
-        KnockoutSlot completed)
+        KnockoutSlot completed,
+        HashSet<KnockoutSlot>? dirty = null)
     {
         if (completed.WinnerTeamId is null || completed.HomeTeamId is null || completed.AwayTeamId is null)
             return 0;
@@ -467,6 +529,7 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
                 if (downstream.HomeTeamId != completed.WinnerTeamId)
                 {
                     downstream.HomeTeamId = completed.WinnerTeamId;
+                    dirty?.Add(downstream);
                     changed++;
                 }
             }
@@ -477,6 +540,7 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
                 if (downstream.HomeTeamId != loserTeamId)
                 {
                     downstream.HomeTeamId = loserTeamId;
+                    dirty?.Add(downstream);
                     changed++;
                 }
             }
@@ -488,6 +552,7 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
                 if (downstream.AwayTeamId != completed.WinnerTeamId)
                 {
                     downstream.AwayTeamId = completed.WinnerTeamId;
+                    dirty?.Add(downstream);
                     changed++;
                 }
             }
@@ -498,6 +563,7 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
                 if (downstream.AwayTeamId != loserTeamId)
                 {
                     downstream.AwayTeamId = loserTeamId;
+                    dirty?.Add(downstream);
                     changed++;
                 }
             }

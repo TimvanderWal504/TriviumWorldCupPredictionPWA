@@ -34,7 +34,8 @@ public static class PlayerEndpoints
         })
         .WithName("GetPlayers")
         .WithTags("players")
-        .WithSummary("Returns all players in the tournament with their team info.");
+        .WithSummary("Returns all players in the tournament with their team info.")
+        .CacheOutput("players");
 
         return routes;
     }

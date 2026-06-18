@@ -37,22 +37,26 @@ builder.Services.AddMarten(opts =>
     // Tournament documents — all use string identities (natural keys).
     opts.Schema.For<Team>().Identity(t => t.Id);
     opts.Schema.For<Group>().Identity(g => g.Id);
-    opts.Schema.For<Fixture>().Identity(f => f.Id);
-    opts.Schema.For<KnockoutSlot>().Identity(s => s.Id);
+    opts.Schema.For<Fixture>().Identity(f => f.Id).Index(f => f.Status);
+    opts.Schema.For<KnockoutSlot>().Identity(s => s.Id).Index(s => s.Status);
     // Player.Id is Guid — Marten picks this up by convention.
     opts.Schema.For<Player>().Identity(p => p.Id);
     // UserProfile — Id equals the auth UserId (string).
     opts.Schema.For<UserProfile>().Identity(p => p.Id);
     // GroupPrediction — Id is "{UserId}_{FixtureId}" composite key.
-    opts.Schema.For<GroupPrediction>().Identity(p => p.Id);
+    opts.Schema.For<GroupPrediction>().Identity(p => p.Id).Index(p => p.UserId);
     // KnockoutPrediction — Id is "{UserId}_{SlotKey}" composite key.
-    opts.Schema.For<KnockoutPrediction>().Identity(p => p.Id);
+    opts.Schema.For<KnockoutPrediction>().Identity(p => p.Id).Index(p => p.UserId);
     // TournamentPrediction — Id equals the auth UserId (one per member).
     opts.Schema.For<TournamentPrediction>().Identity(p => p.Id);
     // GoalEvent — Id is Guid (Marten picks this up by convention, but we register explicitly).
-    opts.Schema.For<GoalEvent>().Identity(e => e.Id);
+    opts.Schema.For<GoalEvent>().Identity(e => e.Id).Index(e => e.FixtureId);
     // CardEvent — disciplinary cards per fixture.
-    opts.Schema.For<CardEvent>().Identity(e => e.Id);
+    opts.Schema.For<CardEvent>().Identity(e => e.Id).Index(e => e.FixtureId);
+    // SubstitutionEvent — player substitutions per fixture.
+    opts.Schema.For<SubstitutionEvent>().Identity(e => e.Id).Index(e => e.FixtureId);
+    // VarEvent — VAR decisions per fixture.
+    opts.Schema.For<VarEvent>().Identity(e => e.Id).Index(e => e.FixtureId);
     // MemberScore — Id equals UserId (one document per member).
     opts.Schema.For<MemberScore>().Identity(s => s.Id);
     // ResultOverride — audit log for manual admin overrides (TWC-16).
@@ -81,6 +85,16 @@ builder.Services.AddIngestion(builder.Configuration);
 // If VAPID keys are absent, a warning is logged and the job is not registered.
 builder.Services.AddPushServices(builder.Configuration);
 
+// Output cache policies — tag-evictable entries get invalidated by the ingestion job / scoring service.
+builder.Services.AddOutputCache(options =>
+{
+    options.AddPolicy("leaderboard",    p => p.Expire(TimeSpan.FromSeconds(20)).Tag("leaderboard"));
+    options.AddPolicy("fixtures",       p => p.Expire(TimeSpan.FromSeconds(20)).Tag("fixtures"));
+    options.AddPolicy("knockout-slots", p => p.Expire(TimeSpan.FromSeconds(20)).Tag("knockout-slots"));
+    options.AddPolicy("teams",          p => p.Expire(TimeSpan.FromMinutes(5)));
+    options.AddPolicy("players",        p => p.Expire(TimeSpan.FromMinutes(5)));
+});
+
 // Health checks
 builder.Services.AddHealthChecks()
     .AddNpgSql(
@@ -102,6 +116,8 @@ var app = builder.Build();
 
 app.UseSwagger();
 app.UseSwaggerUI();
+
+app.UseOutputCache();
 
 // Auth middleware — resolves current user for all downstream handlers
 app.UseCurrentUser();

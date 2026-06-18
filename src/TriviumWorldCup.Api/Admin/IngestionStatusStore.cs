@@ -19,6 +19,14 @@ public class IngestionStatusStore
     /// </summary>
     public DateTimeOffset? LastPostponedRecheck { get; set; }
 
+    /// <summary>
+    /// Last time <see cref="TriviumWorldCup.Api.Scoring.ScoringRecomputeService.RecomputeAllAsync"/> was
+    /// actually invoked. Used by the job to enforce a minimum interval between recomputes so that
+    /// simultaneous group-stage completions (which produce two ingestion cycles within 30 seconds)
+    /// don't trigger back-to-back full recomputes unnecessarily.
+    /// </summary>
+    public DateTimeOffset? LastRecomputeUtc { get; set; }
+
     // ── Unmatched player events ───────────────────────────────────────────────
     // Tracks goal and card events skipped because the API player name could not be
     // resolved to a Player document. Deduplicated by (fixtureId, eventType, playerName)

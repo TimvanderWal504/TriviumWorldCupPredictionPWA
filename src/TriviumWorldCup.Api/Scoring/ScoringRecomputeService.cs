@@ -1,4 +1,5 @@
 using Marten;
+using Microsoft.AspNetCore.OutputCaching;
 using TriviumWorldCup.Api.Domain;
 
 namespace TriviumWorldCup.Api.Scoring;
@@ -14,32 +15,175 @@ namespace TriviumWorldCup.Api.Scoring;
 ///   3. Load all TournamentPredictions; compute champion + Golden Six points.
 ///   4. Upsert one MemberScore per member.
 /// </summary>
-public class ScoringRecomputeService(IDocumentStore store)
+public class ScoringRecomputeService(IDocumentStore store, IOutputCacheStore outputCache)
 {
-    public async Task RecomputeAllAsync(CancellationToken ct = default)
+    /// <summary>
+    /// Full recompute for every member. Prefer <see cref="RecomputeForCompletedAsync"/>
+    /// when only a specific fixture or slot just completed — it restricts the work to
+    /// the users who actually predicted that match.
+    /// </summary>
+    public Task RecomputeAllAsync(CancellationToken ct = default)
+        => RecomputeCoreAsync(restrictToUserIds: null, ct);
+
+    /// <summary>
+    /// Shared-session overload — accumulates MemberScore stores into
+    /// <paramref name="writeSession"/> without calling SaveChangesAsync.
+    /// Parallel reads still open their own short-lived sessions (Marten
+    /// lightweight sessions are not thread-safe). Caller is responsible for flushing.
+    /// </summary>
+    public Task RecomputeAllAsync(IDocumentSession writeSession, CancellationToken ct = default)
+        => RecomputeCoreAsync(restrictToUserIds: null, ct, writeSession);
+
+    /// <summary>
+    /// Targeted recompute: resolves which users predicted any of the supplied completed
+    /// fixtures / knockout slots, then rescores only those users. When the Final completes
+    /// ("FIN"), all users with a TournamentPrediction are also included because their
+    /// champion points change.
+    /// </summary>
+    public Task RecomputeForCompletedAsync(
+        IReadOnlyCollection<string> completedFixtureIds,
+        IReadOnlyCollection<string> completedSlotKeys,
+        CancellationToken ct = default)
+        => RecomputeForCompletedCoreAsync(completedFixtureIds, completedSlotKeys, null, ct);
+
+    /// <summary>
+    /// Shared-session overload — accumulates MemberScore stores into
+    /// <paramref name="writeSession"/> without calling SaveChangesAsync.
+    /// Caller is responsible for flushing.
+    /// </summary>
+    public Task RecomputeForCompletedAsync(
+        IReadOnlyCollection<string> completedFixtureIds,
+        IReadOnlyCollection<string> completedSlotKeys,
+        IDocumentSession writeSession,
+        CancellationToken ct = default)
+        => RecomputeForCompletedCoreAsync(completedFixtureIds, completedSlotKeys, writeSession, ct);
+
+    private async Task RecomputeForCompletedCoreAsync(
+        IReadOnlyCollection<string> completedFixtureIds,
+        IReadOnlyCollection<string> completedSlotKeys,
+        IDocumentSession? externalWriteSession,
+        CancellationToken ct)
     {
-        await using var session = store.LightweightSession();
+        async Task<T> QueryAsync<T>(Func<IQuerySession, Task<T>> query)
+        {
+            await using var s = store.LightweightSession();
+            return await query(s);
+        }
 
-        // ── Step 1: Accumulate group-match points ─────────────────────────────
+        // Resolve affected user IDs from group and knockout predictions in parallel.
+        var groupUserIdsTask = completedFixtureIds.Count > 0
+            ? QueryAsync(s => s.Query<GroupPrediction>()
+                .Where(p => p.FixtureId.IsOneOf(completedFixtureIds.ToList()))
+                .Select(p => p.UserId)
+                .ToListAsync(ct))
+            : Task.FromResult<IReadOnlyList<string>>([]);
 
-        // Load completed group-stage fixtures that have results.
-        var completedFixtures = await session
-            .Query<Fixture>()
+        var knockoutUserIdsTask = completedSlotKeys.Count > 0
+            ? QueryAsync(s => s.Query<KnockoutPrediction>()
+                .Where(p => p.SlotKey.IsOneOf(completedSlotKeys.ToList()))
+                .Select(p => p.UserId)
+                .ToListAsync(ct))
+            : Task.FromResult<IReadOnlyList<string>>([]);
+
+        await Task.WhenAll(groupUserIdsTask, knockoutUserIdsTask);
+
+        var affectedUserIds = new HashSet<string>(await groupUserIdsTask);
+        affectedUserIds.UnionWith(await knockoutUserIdsTask);
+
+        // The Final completing changes champion points for everyone with a TournamentPrediction.
+        if (completedSlotKeys.Contains("FIN"))
+        {
+            var tournamentUserIds = await QueryAsync(s => s.Query<TournamentPrediction>()
+                .Select(tp => tp.UserId)
+                .ToListAsync(ct));
+            affectedUserIds.UnionWith(tournamentUserIds);
+        }
+
+        if (affectedUserIds.Count == 0)
+            return;
+
+        await RecomputeCoreAsync(affectedUserIds, ct, externalWriteSession);
+    }
+
+    private async Task RecomputeCoreAsync(IReadOnlySet<string>? restrictToUserIds, CancellationToken ct, IDocumentSession? externalWriteSession = null)
+    {
+        // Marten lightweight sessions are not thread-safe, so each parallel
+        // query gets its own session.
+        async Task<T> QueryAsync<T>(Func<IQuerySession, Task<T>> query)
+        {
+            await using var s = store.LightweightSession();
+            return await query(s);
+        }
+
+        // ── Wave 1: all mutually-independent reads in parallel ────────────────
+
+        var fixturesTask = QueryAsync(s => s.Query<Fixture>()
             .Where(f => f.Status == MatchStatus.Completed
                         && f.HomeScore != null
                         && f.AwayScore != null)
-            .ToListAsync(ct);
+            .ToListAsync(ct));
+
+        var groupPredsTask = QueryAsync(s =>
+        {
+            var q = s.Query<GroupPrediction>();
+            return (restrictToUserIds != null
+                ? q.Where(p => p.UserId.IsOneOf(restrictToUserIds.ToList()))
+                : q).ToListAsync(ct);
+        });
+
+        var tournamentPredsTask = QueryAsync(s =>
+        {
+            var q = s.Query<TournamentPrediction>();
+            return (restrictToUserIds != null
+                ? q.Where(tp => tp.UserId.IsOneOf(restrictToUserIds.ToList()))
+                : q).ToListAsync(ct);
+        });
+
+        var goalsTask = QueryAsync(s => s.Query<GoalEvent>()
+            .Where(g => g.Type != GoalType.Shootout && g.Type != GoalType.OwnGoal)
+            .ToListAsync(ct));
+        // completedKnockoutSlots covers the Final too — no separate finalSlot query needed.
+        var knockoutSlotsTask = QueryAsync(s => s.Query<KnockoutSlot>()
+            .Where(k => k.Status == MatchStatus.Completed && k.WinnerTeamId != null)
+            .ToListAsync(ct));
+
+        var knockoutPredsTask = QueryAsync(s =>
+        {
+            var q = s.Query<KnockoutPrediction>();
+            return (restrictToUserIds != null
+                ? q.Where(p => p.UserId.IsOneOf(restrictToUserIds.ToList()))
+                : q).ToListAsync(ct);
+        });
+
+        await Task.WhenAll(fixturesTask, groupPredsTask, tournamentPredsTask,
+                           goalsTask, knockoutSlotsTask, knockoutPredsTask);
+
+        var completedFixtures      = await fixturesTask;
+        var allGroupPredictions    = await groupPredsTask;
+        var tournamentPredictions  = await tournamentPredsTask;
+        var countableGoals         = await goalsTask;
+        var completedKnockoutSlots = await knockoutSlotsTask;
+        var allKnockoutPredictions = await knockoutPredsTask;
+
+        // ── Wave 2: Players — depends on tournament predictions ───────────────
+
+        var allPickedPlayerIds = tournamentPredictions
+            .SelectMany(tp => tp.GoldenSixPlayerIds)
+            .Distinct()
+            .ToList();
+
+        IReadOnlyList<Player> playerDocs = allPickedPlayerIds.Count > 0
+            ? await QueryAsync(s => s.Query<Player>()
+                .Where(p => p.Id.IsOneOf(allPickedPlayerIds))
+                .ToListAsync(ct))
+            : Array.Empty<Player>();
+
+        // ── Step 1: Accumulate group-match points ─────────────────────────────
 
         var fixtureById = completedFixtures.ToDictionary(f => f.Id);
 
-        // All group predictions.
-        var allGroupPredictions = await session
-            .Query<GroupPrediction>()
-            .ToListAsync(ct);
-
-        // Per-member accumulators: keyed by UserId.
-        var groupMatchPoints   = new Dictionary<string, int>();
-        var exactCount         = new Dictionary<string, int>();
+        var groupMatchPoints    = new Dictionary<string, int>();
+        var exactCount          = new Dictionary<string, int>();
         var correctOutcomeCount = new Dictionary<string, int>();
 
         foreach (var pred in allGroupPredictions)
@@ -59,44 +203,17 @@ public class ScoringRecomputeService(IDocumentStore store)
 
         // ── Step 2: Tournament predictions — champion + Golden Six ────────────
 
-        var tournamentPredictions = await session
-            .Query<TournamentPrediction>()
-            .ToListAsync(ct);
-
-        // Find champion: the Final knockout slot with a winner.
-        var finalSlot = await session
-            .Query<KnockoutSlot>()
-            .Where(s => s.Round == Round.Final
-                        && s.Status == MatchStatus.Completed
-                        && s.WinnerTeamId != null)
-            .FirstOrDefaultAsync(ct);
-
-        var tournamentChampionTeamId = finalSlot?.WinnerTeamId;
-
-        // Compute per-player goal counts from GoalEvents (exclude Shootout + OwnGoal).
-        var countableGoals = await session
-            .Query<GoalEvent>()
-            .Where(g => g.Type != GoalType.Shootout && g.Type != GoalType.OwnGoal)
-            .ToListAsync(ct);
+        // Final slot is already in completedKnockoutSlots — no extra round trip.
+        var tournamentChampionTeamId = completedKnockoutSlots
+            .FirstOrDefault(s => s.Round == Round.Final)
+            ?.WinnerTeamId;
 
         var goalCountByPlayer = countableGoals
             .GroupBy(g => g.PlayerId)
             .ToDictionary(grp => grp.Key, grp => grp.Count());
 
-        // Resolve Player positions for every player referenced in any Golden Six pick.
-        var allPickedPlayerIds = tournamentPredictions
-            .SelectMany(tp => tp.GoldenSixPlayerIds)
-            .Distinct()
-            .ToList();
-
-        var playerDocs = await session
-            .Query<Player>()
-            .Where(p => p.Id.IsOneOf(allPickedPlayerIds))
-            .ToListAsync(ct);
-
         var positionById = playerDocs.ToDictionary(p => p.Id, p => p.Position);
 
-        // Build the playerStats dictionary for GoldenSixScorer.
         // Only include players that are picked AND have a known position.
         var playerStats = allPickedPlayerIds
             .Where(id => positionById.ContainsKey(id))
@@ -116,25 +233,13 @@ public class ScoringRecomputeService(IDocumentStore store)
                 : 0;
             championPointsByUser[tp.UserId] = champPts;
 
-            // Golden Six points.
             var gs6Pts = GoldenSixScorer.ComputeTotal(playerStats, tp.GoldenSixPlayerIds);
             goldenSixPointsByUser[tp.UserId] = gs6Pts;
         }
 
         // ── Step 3: Knockout match points ─────────────────────────────────────
 
-        // Load all completed knockout slots that have a determined winner.
-        var completedKnockoutSlots = await session
-            .Query<KnockoutSlot>()
-            .Where(s => s.Status == MatchStatus.Completed && s.WinnerTeamId != null)
-            .ToListAsync(ct);
-
         var slotByKey = completedKnockoutSlots.ToDictionary(s => s.SlotKey);
-
-        // All knockout predictions.
-        var allKnockoutPredictions = await session
-            .Query<KnockoutPrediction>()
-            .ToListAsync(ct);
 
         var knockoutPointsByUser = new Dictionary<string, int>();
 
@@ -163,24 +268,43 @@ public class ScoringRecomputeService(IDocumentStore store)
 
         var now = DateTimeOffset.UtcNow;
 
-        foreach (var userId in allUserIds)
+        // Use the caller-supplied session when batching with the ingestion job;
+        // otherwise open and flush our own.
+        IDocumentSession ownedSession = externalWriteSession is null
+            ? store.LightweightSession()
+            : null!;
+        var writeSession = externalWriteSession ?? ownedSession;
+
+        try
         {
-            var score = new MemberScore
+            foreach (var userId in allUserIds)
             {
-                Id                  = userId,
-                UserId              = userId,
-                GroupMatchPoints    = groupMatchPoints.GetValueOrDefault(userId),
-                ChampionPoints      = championPointsByUser.GetValueOrDefault(userId),
-                GoldenSixPoints     = goldenSixPointsByUser.GetValueOrDefault(userId),
-                KnockoutPoints      = knockoutPointsByUser.GetValueOrDefault(userId),
-                ExactScorelineCount = exactCount.GetValueOrDefault(userId),
-                CorrectOutcomeCount = correctOutcomeCount.GetValueOrDefault(userId),
-                LastComputedAt      = now,
-            };
+                var score = new MemberScore
+                {
+                    Id                  = userId,
+                    UserId              = userId,
+                    GroupMatchPoints    = groupMatchPoints.GetValueOrDefault(userId),
+                    ChampionPoints      = championPointsByUser.GetValueOrDefault(userId),
+                    GoldenSixPoints     = goldenSixPointsByUser.GetValueOrDefault(userId),
+                    KnockoutPoints      = knockoutPointsByUser.GetValueOrDefault(userId),
+                    ExactScorelineCount = exactCount.GetValueOrDefault(userId),
+                    CorrectOutcomeCount = correctOutcomeCount.GetValueOrDefault(userId),
+                    LastComputedAt      = now,
+                };
 
-            session.Store(score);
+                writeSession.Store(score);
+            }
+
+            if (externalWriteSession is null)
+            {
+                await writeSession.SaveChangesAsync(ct);
+                await outputCache.EvictByTagAsync("leaderboard", ct);
+            }
         }
-
-        await session.SaveChangesAsync(ct);
+        finally
+        {
+            if (ownedSession is not null)
+                await ownedSession.DisposeAsync();
+        }
     }
 }

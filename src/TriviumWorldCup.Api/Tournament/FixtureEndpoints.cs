@@ -304,7 +304,8 @@ public static class FixtureEndpoints
         })
         .WithName("GetFixtures")
         .WithTags("fixtures")
-        .WithSummary("Returns all group-stage fixtures with embedded team names.");
+        .WithSummary("Returns all group-stage fixtures with embedded team names.")
+        .CacheOutput("fixtures");
 
         // GET /teams — all 48 teams.
         routes.MapGet("/teams", async (IDocumentSession session, CancellationToken ct) =>
@@ -325,7 +326,8 @@ public static class FixtureEndpoints
         })
         .WithName("GetTeams")
         .WithTags("fixtures")
-        .WithSummary("Returns all 48 teams.");
+        .WithSummary("Returns all 48 teams.")
+        .CacheOutput("teams");
 
         return routes;
     }

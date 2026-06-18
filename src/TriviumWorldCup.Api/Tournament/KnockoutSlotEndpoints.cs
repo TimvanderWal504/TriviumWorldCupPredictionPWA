@@ -40,7 +40,8 @@ public static class KnockoutSlotEndpoints
         })
         .WithName("GetKnockoutSlots")
         .WithTags("knockout")
-        .WithSummary("Returns all 32 knockout bracket slots with current team assignments and results.");
+        .WithSummary("Returns all 32 knockout bracket slots with current team assignments and results.")
+        .CacheOutput("knockout-slots");
 
         return routes;
     }
