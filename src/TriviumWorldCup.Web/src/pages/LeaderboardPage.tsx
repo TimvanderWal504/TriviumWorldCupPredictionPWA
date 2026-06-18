@@ -68,15 +68,18 @@ function PodiumSection({ entries, currentUserId, onSelect, selectable }: PodiumS
   const third  = entries.find(e => e.rank === 3);
   if (!first) return null;
 
+  const nameSize: Record<number, string> = { 1: 'text-[20px]', 2: 'text-[18px]', 3: 'text-[16px]' };
+  const ptsSize:  Record<number, string> = { 1: 'text-[19px]', 2: 'text-[17px]', 3: 'text-[15px]' };
+
   type Slot = { entry: LeaderboardEntry; colorVar: string; barH: string; avatarSize: number };
   const slots: Slot[] = [
-    second && { entry: second, colorVar: 'var(--color-podium-silver)', barH: 'h-14', avatarSize: 48 },
+    second && { entry: second, colorVar: 'var(--color-podium-silver)', barH: 'h-18', avatarSize: 50 },
     { entry: first,  colorVar: 'var(--color-podium-gold)',   barH: 'h-24', avatarSize: 56 },
-    third  && { entry: third,  colorVar: 'var(--color-podium-bronze)', barH: 'h-10', avatarSize: 44 },
+    third  && { entry: third,  colorVar: 'var(--color-podium-bronze)', barH: 'h-14', avatarSize: 44 },
   ].filter(Boolean) as Slot[];
 
   return (
-    <div className="flex items-end justify-center gap-0.5 px-2 pt-6">
+    <div className="flex items-end justify-center gap-0.5 pt-6 px-1">
       {slots.map(({ entry, colorVar, barH, avatarSize }) => {
         const isCurrentUser = currentUserId === entry.userId;
         return (
@@ -86,11 +89,11 @@ function PodiumSection({ entries, currentUserId, onSelect, selectable }: PodiumS
             disabled={!selectable}
             className={`flex flex-col items-center flex-1 min-w-0 ${selectable ? 'cursor-pointer group' : 'cursor-default'}`}
           >
-            <span className={`text-[12px] font-semibold text-center truncate w-full px-1 ${isCurrentUser ? 'text-secondary' : 'text-fg'}`}>
+            <span className={`${nameSize[entry.rank]} font-bold text-center truncate w-full px-1 ${isCurrentUser ? 'text-secondary' : 'text-fg'}`}>
               {entry.displayName}
               {isCurrentUser && <span className="text-secondary ml-1 text-[11px]">(you)</span>}
             </span>
-            <span className="text-[13px] font-black tnum mb-2" style={{ color: colorVar }}>
+            <span className={`${ptsSize[entry.rank]} font-black tnum mb-2`} style={{ color: colorVar }}>
               {entry.totalPoints} pts
             </span>
             <div
@@ -121,33 +124,6 @@ function PodiumSection({ entries, currentUserId, onSelect, selectable }: PodiumS
         );
       })}
     </div>
-  );
-}
-
-function RankBadge({ rank }: { rank: number }) {
-  const podiumStyles: Record<number, { color: string; size: string }> = {
-    1: { color: 'var(--color-podium-gold)', size: 'text-[20px]' },
-    2: { color: 'var(--color-podium-silver)', size: 'text-[18px]' },
-    3: { color: 'var(--color-podium-bronze)', size: 'text-[16px]' },
-  };
-
-  const style = podiumStyles[rank];
-
-  if (style) {
-    return (
-      <span 
-        className={`font-display font-black grid place-items-center w-7 h-7 tnum ${style.size}`}
-        style={{ color: style.color }}
-      >
-        {rank}
-      </span>
-    );
-  }
-
-  return (
-    <span className="font-display font-black text-fg-muted text-[14px] grid place-items-center w-7 h-7 tnum">
-      {rank}
-    </span>
   );
 }
 
@@ -362,7 +338,7 @@ export function LeaderboardPage() {
 
         {rest.length > 0 && (
           <>
-            <div className="grid grid-cols-[2.25rem_1fr_3.25rem] gap-2.5 px-4 py-2.5 mt-3 bg-surface-2 text-[10px] font-display font-bold uppercase tracking-wider text-fg-muted">
+            <div className="grid grid-cols-[2.25rem_1fr_3.25rem] gap-2.5 px-4 py-2.5 bg-surface-2 text-[10px] font-display font-bold uppercase tracking-wider text-fg-muted">
               <span className="text-center">#</span>
               <span>Member</span>
               <span className="text-right">Pts</span>
@@ -379,7 +355,11 @@ export function LeaderboardPage() {
                       user ? 'hover:bg-surface-2 cursor-pointer' : 'cursor-default'
                     } ${isCurrentUser ? 'bg-blue-500/10' : ''}`}
                   >
-                    <div className="flex justify-center"><RankBadge rank={entry.rank} /></div>
+                    <div className="flex justify-center">
+                      <span className="font-display font-black text-fg-muted text-[14px] grid place-items-center w-7 h-7 tnum">
+                        {entry.rank}
+                      </span>
+                    </div>
                     <div className="flex items-center gap-2 min-w-0">
                       {entry.countryCode && (
                         <img
