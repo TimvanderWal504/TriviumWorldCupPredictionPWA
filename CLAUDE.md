@@ -3,7 +3,7 @@
 Internal PWA prediction pool for the FIFA World Cup 2026. Org members sign in with Entra ID, predict matches and tournament outcomes, earn points, and compete on a leaderboard.
 
 ## Canonical sources (read before acting)
-- **Backlog:** Jira project `TWC`, epic `TWC-1`. Every story carries its own acceptance criteria — implement against those.
+- **Backlog:** Jira project `TWC`, epic `TWC-1` (World Cup MVP) and epic `TWC-34` (platform generalization — multi-sport/league refactor, stories `TWC-35`–`TWC-50`; design in `.docs/PLATFORM_GENERALIZATION_AUDIT.md`). Every story carries its own acceptance criteria — implement against those.
 - **Scoring & format:** Confluence "Rules & Scoring (canonical)" is the single source of truth. Do not duplicate or hard-code scoring values that contradict it.
 - **Architecture:** Confluence "Design & Architecture".
 

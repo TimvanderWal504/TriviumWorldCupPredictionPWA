@@ -6,10 +6,36 @@
 - MVP ✅ delivered. Post-MVP done: TWC-14 (knockout bracket), TWC-15 (knockout scoring), TWC-16 (admin), TWC-17 (live updates), TWC-18 (push notifications), TWC-19 (backups). TWC-22 E2E foundation done. TWC-32 ✅ knockout resolver delivered (Wave 7) — bracket now populates from final group standings.
 - **E2E:** TWC-22 foundation ✅ (16/16 smoke tests). Harness updated for link auth (TWC-33 follow-up). Area specs TWC-23–TWC-31 remain Backlog.
 - TWC-20 (Entra) remains BLOCKED.
+- **Platform generalization** epic **TWC-34** created (Backlog) — 16 stories TWC-35–TWC-50 to make TWC multi-sport/multi-league. Design + audit in `.docs/PLATFORM_GENERALIZATION_AUDIT.md`. Not yet started.
 
 ## Planned waves
 - **Wave 8** — E2E suite (epic TWC-21): TWC-22 foundation ✅, area specs TWC-23–TWC-30 in parallel; TWC-31 (knockout E2E) unblocked by TWC-32 ✅.
 - **Wave 9 — final** — TWC-20 real Entra integration (human-gated on the Entra app registration).
+
+## Platform generalization — epic TWC-34 (Backlog)
+
+Goal: remove FIFA-World-Cup-2026 hardcoding so new sports/leagues can be added via config + a provider plugin, with zero change to existing WC behavior. Full audit, analysis, story specs, effort (~80 pts / ~4 sprints) and verification checklist live in `.docs/PLATFORM_GENERALIZATION_AUDIT.md`. Stories are dependency-linked in Jira ("Blocks").
+
+| Story | Key | Effort | Depends on |
+|---|---|---|---|
+| GEN-1 Tournament aggregate + tournamentId scoping | TWC-35 | L | — (root) |
+| GEN-2 Data-driven structure | TWC-36 | M | GEN-1 |
+| GEN-3 Generic outcome model | TWC-37 | L | GEN-1 |
+| GEN-4 Competitor generalization | TWC-38 | M | GEN-1 |
+| GEN-5 Configurable special predictions | TWC-39 | M | GEN-1, GEN-3 |
+| GEN-6 Scoring config | TWC-40 | M | GEN-2, GEN-5 |
+| GEN-7 Lock policy + grace removal | TWC-41 | S–M | GEN-1 |
+| GEN-8 Pluggable result provider | TWC-42 | L | GEN-1, GEN-3 |
+| GEN-9 Sport-pluggable events/status | TWC-43 | M | GEN-8 |
+| GEN-10 Config-driven scheduling | TWC-44 | S | GEN-1 (opt) |
+| GEN-11 Tournament provisioning | TWC-45 | M | GEN-1, GEN-2 |
+| GEN-12 Branding/PWA | TWC-46 | S | — |
+| GEN-13 Outcome-driven prediction UI | TWC-47 | M | GEN-3 |
+| GEN-14 Generic standings/rules | TWC-48 | S | GEN-6 |
+| GEN-15 Generic competitor UI | TWC-49 | S | GEN-4 |
+| GEN-16 Resolver parameterization | TWC-50 | M | GEN-2, GEN-3 |
+
+Rollout waves: **A** TWC-35/46/44 → **B** TWC-36/37/38/41 → **C** TWC-39/40/50 → **D** TWC-42/43 → **E** TWC-47/48/49 → **F** TWC-45 (capstone). De-risk first slice: TWC-35 → TWC-37 → TWC-40 behind golden-master tests.
 
 ## Accepted (Done)
 
