@@ -22,6 +22,11 @@ import { useAppUpdate } from './hooks/useAppUpdate.ts';
 import { UpdateModal } from './components/UpdateModal.tsx';
 
 
+// Branding — sourced from build-time env vars; defaults reproduce the WC 2026 build.
+// VITE_APP_NAV_LABEL uses a pipe (|) to separate the two display lines shown in
+// the nav header and the login screen (e.g. "World Cup|2026").
+const [NAV_LINE1, NAV_LINE2] = (import.meta.env.VITE_APP_NAV_LABEL ?? 'World Cup|2026').split('|');
+
 type Tab = 'live' | 'predict' | 'results' | 'bracket' | 'ranks' | 'rules' | 'me';
 // 'tournament' is a sub-page within the 'predict' tab, not a top-level subPage
 type SubPage = 'profile' | 'admin' | null;
@@ -63,9 +68,9 @@ function AuthGateway() {
       className="flex flex-col items-center justify-center min-h-screen py-20 px-4"
     >
       <img src={triviumLogomark} alt="Trivium" className="w-32 h-32" />
-      <p className="font-mono text-[32px] tracking-[0.15em] text-fg-muted uppercase mb-1">World Cup</p>
+      <p className="font-mono text-[32px] tracking-[0.15em] text-fg-muted uppercase mb-1">{NAV_LINE1}</p>
       <h1 className="font-display font-black text-5xl tracking-tight mb-8 text-center text-fg">
-        2026
+        {NAV_LINE2}
       </h1>
       {view === 'login'
         ? <LoginPage onLoggedIn={reload} onSwitchToSignUp={() => setView('signup')} />
@@ -163,7 +168,7 @@ function AppShell() {
           {/* Logo */}
           <div className="flex items-center shrink-0 cursor-pointer select-none" onClick={() => goTab('predict')}>
             <img src={triviumLogomark} alt="Trivium" className="h-12 w-12" />
-            <span className="font-mono text-[11px] leading-tight text-fg-muted tracking-[0.15em] uppercase">World Cup<br />2026</span>
+            <span className="font-mono text-[11px] leading-tight text-fg-muted tracking-[0.15em] uppercase">{NAV_LINE1}<br />{NAV_LINE2}</span>
           </div>
 
           {/* Page title (centered) */}

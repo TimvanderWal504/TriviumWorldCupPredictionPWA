@@ -9,6 +9,11 @@ const apiTarget = process.env['services__api__http__0'] ?? 'http://localhost:500
 // Aspire injects PORT via .WithHttpEndpoint(env: "PORT"); fall back to 64505 for standalone use.
 const devPort = parseInt(process.env['PORT'] ?? '64505');
 
+// Branding — sourced from environment variables so the app can be rebranded
+// for any tournament without code changes. Defaults reproduce the WC 2026 build.
+const appTitle      = process.env['VITE_APP_TITLE']       ?? 'Trivium World Cup 2026';
+const appShortTitle = process.env['VITE_APP_SHORT_TITLE'] ?? 'TWC 2026';
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
@@ -19,8 +24,8 @@ export default defineConfig({
       // Register the SW in dev so push notifications can be tested locally.
       devOptions: { enabled: true },
       manifest: {
-        name: 'Trivium World Cup 2026',
-        short_name: 'TWC 2026',
+        name: appTitle,
+        short_name: appShortTitle,
         theme_color: '#003e78',
         background_color: '#003e78',
         display: 'standalone',
