@@ -20,9 +20,9 @@ public static class TournamentPredictionEndpoints
 
         // GET /predictions/tournament/lock — returns whether predictions are locked.
         // Public (no auth required) so the frontend can render the lock banner before a user submits.
-        group.MapGet("/lock", async (IDocumentSession session, CancellationToken ct) =>
+        group.MapGet("/lock", async (IDocumentSession session, ITournamentContext tournament, CancellationToken ct) =>
         {
-            var firstKickoff = await GetFirstKickoffAsync(session, ct);
+            var firstKickoff = await GetFirstKickoffAsync(session, tournament.TournamentId, ct);
             var locked = TournamentPredictionValidator.IsLocked(firstKickoff, DateTimeOffset.UtcNow);
             return Results.Ok(new { locked });
         })
@@ -50,6 +50,7 @@ public static class TournamentPredictionEndpoints
             HttpContext context,
             [FromBody] TournamentPredictionRequest request,
             IDocumentSession session,
+            ITournamentContext tournament,
             CancellationToken ct) =>
         {
             var user = context.GetAppUser();
@@ -57,7 +58,7 @@ public static class TournamentPredictionEndpoints
                 return Results.Unauthorized();
 
             // Lock check — server-side, query the earliest kickoff from Marten.
-            var firstKickoff = await GetFirstKickoffAsync(session, ct);
+            var firstKickoff = await GetFirstKickoffAsync(session, tournament.TournamentId, ct);
             var isGraceDay = DateOnly.FromDateTime(DateTimeOffset.UtcNow.DateTime) == GraceDate;
             if (!isGraceDay && TournamentPredictionValidator.IsLocked(firstKickoff, DateTimeOffset.UtcNow))
                 return Results.Json(new { error = "Predictions are locked. The tournament has started." }, statusCode: 403);
@@ -74,11 +75,12 @@ public static class TournamentPredictionEndpoints
 
             var prediction = new TournamentPrediction
             {
-                Id                = user.UserId,
-                UserId            = user.UserId,
-                ChampionTeamId    = request.ChampionTeamId,
+                Id                 = user.UserId,
+                TournamentId       = tournament.TournamentId,   // GEN-1 (TWC-35)
+                UserId             = user.UserId,
+                ChampionTeamId     = request.ChampionTeamId,
                 GoldenSixPlayerIds = request.GoldenSixPlayerIds,
-                SubmittedAt       = DateTimeOffset.UtcNow,
+                SubmittedAt        = DateTimeOffset.UtcNow,
             };
 
             session.Store(prediction);
@@ -94,6 +96,7 @@ public static class TournamentPredictionEndpoints
             HttpContext context,
             [FromBody] TournamentPredictionRequest request,
             IDocumentSession session,
+            ITournamentContext tournament,
             CancellationToken ct) =>
         {
             var user = context.GetAppUser();
@@ -101,7 +104,7 @@ public static class TournamentPredictionEndpoints
                 return Results.Unauthorized();
 
             // Lock check — server-side
-            var firstKickoff = await GetFirstKickoffAsync(session, ct);
+            var firstKickoff = await GetFirstKickoffAsync(session, tournament.TournamentId, ct);
             var isGraceDay = DateOnly.FromDateTime(DateTimeOffset.UtcNow.DateTime) == GraceDate;
             if (!isGraceDay && TournamentPredictionValidator.IsLocked(firstKickoff, DateTimeOffset.UtcNow))
                 return Results.Json(new { error = "Predictions are locked. The tournament has started." }, statusCode: 403);
@@ -137,15 +140,20 @@ public static class TournamentPredictionEndpoints
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Queries Marten for the effective lock time.
+    /// Queries Marten for the effective lock time, scoped to the active tournament (GEN-1).
     /// Returns DateTimeOffset.MinValue (always locked) if any fixture is already completed —
     /// this ensures admin-overridden results also lock predictions, not just scheduled kickoff time.
     /// Returns DateTimeOffset.MaxValue (always unlocked) when no fixtures exist.
     /// Otherwise returns the earliest scheduled kickoff.
     /// </summary>
-    private static async Task<DateTimeOffset> GetFirstKickoffAsync(IDocumentSession session, CancellationToken ct)
+    private static async Task<DateTimeOffset> GetFirstKickoffAsync(
+        IDocumentSession session,
+        string tournamentId,
+        CancellationToken ct)
     {
-        var fixtures = await session.Query<Fixture>().ToListAsync(ct);
+        var fixtures = await session.Query<Fixture>()
+            .Where(f => f.TournamentId == tournamentId)
+            .ToListAsync(ct);
         if (fixtures.Count == 0)
             return DateTimeOffset.MaxValue;
         if (fixtures.Any(f => f.Status == MatchStatus.Completed))

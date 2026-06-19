@@ -9,6 +9,9 @@ public class Player
     /// <summary>Marten document id.</summary>
     public Guid Id { get; set; }
 
+    /// <summary>Slug of the tournament this player belongs to (e.g. "world-cup-2026").</summary>
+    public string TournamentId { get; set; } = SingleTournamentContext.DefaultTournamentId;
+
     public string Name { get; set; } = default!;
 
     /// <summary>FIFA code of the player's national team.</summary>

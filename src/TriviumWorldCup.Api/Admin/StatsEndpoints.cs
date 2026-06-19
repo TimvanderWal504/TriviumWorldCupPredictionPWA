@@ -12,6 +12,7 @@ public static class StatsEndpoints
             .MapGet("/stats", async (
                 HttpContext context,
                 IDocumentStore store,
+                ITournamentContext tournament,
                 CancellationToken ct) =>
             {
                 var user = context.GetAppUser();
@@ -19,16 +20,17 @@ public static class StatsEndpoints
                     return Results.StatusCode(StatusCodes.Status403Forbidden);
 
                 await using var session = store.LightweightSession();
+                var tid = tournament.TournamentId;
 
                 var profiles        = await session.Query<UserProfile>().ToListAsync(ct);
-                var tournamentPreds = await session.Query<TournamentPrediction>().ToListAsync(ct);
-                var groupPreds      = await session.Query<GroupPrediction>().ToListAsync(ct);
-                var knockoutPreds   = await session.Query<KnockoutPrediction>().ToListAsync(ct);
-                var memberScores    = await session.Query<MemberScore>().ToListAsync(ct);
-                var fixtures        = await session.Query<Fixture>().OrderBy(f => f.KickoffUtc).ToListAsync(ct);
-                var players         = await session.Query<Player>().ToListAsync(ct);
-                var teams           = await session.Query<Team>().ToListAsync(ct);
-                var knockoutSlots   = await session.Query<KnockoutSlot>().ToListAsync(ct);
+                var tournamentPreds = await session.Query<TournamentPrediction>().Where(p => p.TournamentId == tid).ToListAsync(ct);
+                var groupPreds      = await session.Query<GroupPrediction>().Where(p => p.TournamentId == tid).ToListAsync(ct);
+                var knockoutPreds   = await session.Query<KnockoutPrediction>().Where(p => p.TournamentId == tid).ToListAsync(ct);
+                var memberScores    = await session.Query<MemberScore>().Where(s => s.TournamentId == tid).ToListAsync(ct);
+                var fixtures        = await session.Query<Fixture>().Where(f => f.TournamentId == tid).OrderBy(f => f.KickoffUtc).ToListAsync(ct);
+                var players         = await session.Query<Player>().Where(p => p.TournamentId == tid).ToListAsync(ct);
+                var teams           = await session.Query<Team>().Where(t => t.TournamentId == tid).ToListAsync(ct);
+                var knockoutSlots   = await session.Query<KnockoutSlot>().Where(s => s.TournamentId == tid).ToListAsync(ct);
 
                 var teamById   = teams.ToDictionary(t => t.Id);
                 var playerById = players.ToDictionary(p => p.Id);

@@ -11,14 +11,17 @@ public static class PlayerEndpoints
     public static IEndpointRouteBuilder MapPlayerEndpoints(this IEndpointRouteBuilder routes)
     {
         // GET /players — all players with embedded team name, sorted by team then name.
-        routes.MapGet("/players", async (IDocumentSession session, CancellationToken ct) =>
+        routes.MapGet("/players", async (IDocumentSession session, ITournamentContext tournament, CancellationToken ct) =>
         {
             var players = await session.Query<Player>()
+                .Where(p => p.TournamentId == tournament.TournamentId)
                 .OrderBy(p => p.TeamId)
                 .ThenBy(p => p.Name)
                 .ToListAsync(ct);
 
-            var teams = await session.Query<Team>().ToListAsync(ct);
+            var teams = await session.Query<Team>()
+                .Where(t => t.TournamentId == tournament.TournamentId)
+                .ToListAsync(ct);
             var teamMap = teams.ToDictionary(t => t.Id, t => t.Name);
 
             var dtos = players.Select(p => new PlayerDto(

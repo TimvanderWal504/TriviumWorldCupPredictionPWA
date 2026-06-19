@@ -20,10 +20,11 @@ public static class LeaderboardEndpoints
         // Public — no auth required.
         // Returns all members ranked by the tiebreaker chain.
         // Members with no MemberScore appear at the bottom with 0 points.
-        group.MapGet("/", async (IDocumentSession session, CancellationToken ct) =>
+        group.MapGet("/", async (IDocumentSession session, ITournamentContext tournament, CancellationToken ct) =>
         {
             var allScores = await session
                 .Query<MemberScore>()
+                .Where(s => s.TournamentId == tournament.TournamentId)
                 .ToListAsync(ct);
 
             var allProfiles = await session
@@ -85,6 +86,7 @@ public static class LeaderboardEndpoints
             string userId,
             HttpContext context,
             IDocumentSession session,
+            ITournamentContext tournament,
             CancellationToken ct) =>
         {
             var viewer = context.GetAppUser();
@@ -104,10 +106,10 @@ public static class LeaderboardEndpoints
             // Load tournament prediction.
             var tournamentPrediction = await session.LoadAsync<TournamentPrediction>(targetUserId, ct);
 
-            // Load all group predictions for the target user.
+            // Load all group predictions for the target user — scoped to the active tournament.
             var allPredictions = await session
                 .Query<GroupPrediction>()
-                .Where(p => p.UserId == targetUserId)
+                .Where(p => p.TournamentId == tournament.TournamentId && p.UserId == targetUserId)
                 .ToListAsync(ct);
 
             // Privacy filter — if the viewer is NOT the target, only show locked fixtures.
@@ -176,15 +178,16 @@ public static class LeaderboardEndpoints
                 {
                     var players = await session
                         .Query<Player>()
-                        .Where(p => p.Id.IsOneOf(playerIds))
+                        .Where(p => p.TournamentId == tournament.TournamentId && p.Id.IsOneOf(playerIds))
                         .ToListAsync(ct);
 
                     var playerById = players.ToDictionary(p => p.Id);
 
-                    // Count countable goals per picked player.
+                    // Count countable goals per picked player — scoped to the active tournament.
                     var goalEvents = await session
                         .Query<GoalEvent>()
-                        .Where(g => g.Type != GoalType.Shootout
+                        .Where(g => g.TournamentId == tournament.TournamentId
+                                 && g.Type != GoalType.Shootout
                                  && g.Type != GoalType.OwnGoal
                                  && g.PlayerId.IsOneOf(playerIds))
                         .ToListAsync(ct);

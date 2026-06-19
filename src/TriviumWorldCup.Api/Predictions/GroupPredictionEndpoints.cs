@@ -5,6 +5,8 @@ using TriviumWorldCup.Api.Domain;
 
 namespace TriviumWorldCup.Api.Predictions;
 
+// ITournamentContext is resolved from DI for multi-tournament scoping (GEN-1 / TWC-35).
+
 /// <summary>
 /// Group-stage prediction endpoints.
 /// All endpoints require authentication; ownership and lock rules are enforced server-side.
@@ -16,14 +18,14 @@ public static class GroupPredictionEndpoints
         var group = routes.MapGroup("/predictions/group").WithTags("predictions");
 
         // GET /predictions/group — all predictions for the current user.
-        group.MapGet("/", async (HttpContext context, IDocumentSession session, CancellationToken ct) =>
+        group.MapGet("/", async (HttpContext context, IDocumentSession session, ITournamentContext tournament, CancellationToken ct) =>
         {
             var user = context.GetAppUser();
             if (!user.IsAuthenticated)
                 return Results.Unauthorized();
 
             var predictions = await session.Query<GroupPrediction>()
-                .Where(p => p.UserId == user.UserId)
+                .Where(p => p.TournamentId == tournament.TournamentId && p.UserId == user.UserId)
                 .ToListAsync(ct);
 
             var dtos = predictions.Select(p => new GroupPredictionDto(
@@ -44,6 +46,7 @@ public static class GroupPredictionEndpoints
             HttpContext context,
             [FromBody] PredictionRequest request,
             IDocumentSession session,
+            ITournamentContext tournament,
             CancellationToken ct) =>
         {
             var user = context.GetAppUser();
@@ -61,19 +64,20 @@ public static class GroupPredictionEndpoints
             if (IsLocked(fixture))
                 return Results.Forbid();
 
-            var predictionId = BuildId(user.UserId, fixtureId);
+            var predictionId = BuildId(tournament.TournamentId, user.UserId, fixtureId);
             var existing = await session.LoadAsync<GroupPrediction>(predictionId, ct);
             if (existing is not null)
                 return Results.Conflict(new { error = "Prediction already exists for this fixture. Use PUT to update." });
 
             var prediction = new GroupPrediction
             {
-                Id          = predictionId,
-                UserId      = user.UserId,
-                FixtureId   = fixtureId,
-                HomeScore   = request.HomeScore,
-                AwayScore   = request.AwayScore,
-                SubmittedAt = DateTimeOffset.UtcNow,
+                Id           = predictionId,
+                TournamentId = tournament.TournamentId,
+                UserId       = user.UserId,
+                FixtureId    = fixtureId,
+                HomeScore    = request.HomeScore,
+                AwayScore    = request.AwayScore,
+                SubmittedAt  = DateTimeOffset.UtcNow,
             };
 
             session.Store(prediction);
@@ -92,6 +96,7 @@ public static class GroupPredictionEndpoints
             [FromBody] List<InjectPredictionItem> items,
             HttpContext context,
             IDocumentSession session,
+            ITournamentContext tournament,
             CancellationToken ct) =>
         {
             var user = context.GetAppUser();
@@ -103,6 +108,7 @@ public static class GroupPredictionEndpoints
 
             var fixtureIds = items.Select(i => i.FixtureId).Distinct().ToList();
             var existingIds = (await session.Query<Fixture>()
+                .Where(f => f.TournamentId == tournament.TournamentId)
                 .Select(f => f.Id)
                 .ToListAsync(ct))
                 .ToHashSet();
@@ -116,12 +122,13 @@ public static class GroupPredictionEndpoints
             {
                 session.Store(new GroupPrediction
                 {
-                    Id          = BuildId(user.UserId, item.FixtureId),
-                    UserId      = user.UserId,
-                    FixtureId   = item.FixtureId,
-                    HomeScore   = item.Home,
-                    AwayScore   = item.Away,
-                    SubmittedAt = now,
+                    Id           = BuildId(tournament.TournamentId, user.UserId, item.FixtureId),
+                    TournamentId = tournament.TournamentId,
+                    UserId       = user.UserId,
+                    FixtureId    = item.FixtureId,
+                    HomeScore    = item.Home,
+                    AwayScore    = item.Away,
+                    SubmittedAt  = now,
                 });
             }
 
@@ -138,6 +145,7 @@ public static class GroupPredictionEndpoints
             HttpContext context,
             [FromBody] PredictionRequest request,
             IDocumentSession session,
+            ITournamentContext tournament,
             CancellationToken ct) =>
         {
             var user = context.GetAppUser();
@@ -155,7 +163,7 @@ public static class GroupPredictionEndpoints
             if (IsLocked(fixture))
                 return Results.Forbid();
 
-            var predictionId = BuildId(user.UserId, fixtureId);
+            var predictionId = BuildId(tournament.TournamentId, user.UserId, fixtureId);
             var prediction = await session.LoadAsync<GroupPrediction>(predictionId, ct);
             if (prediction is null)
                 return Results.NotFound(new { error = "Prediction not found. Use POST to create one." });
@@ -189,9 +197,9 @@ public static class GroupPredictionEndpoints
     public static bool IsLocked(Fixture fixture) =>
         fixture.KickoffUtc <= DateTimeOffset.UtcNow;
 
-    /// <summary>Builds the composite document ID from user and fixture identifiers.</summary>
-    public static string BuildId(string userId, string fixtureId) =>
-        $"{userId}_{fixtureId}";
+    /// <summary>Builds the composite document ID from tournament, user, and fixture identifiers (GEN-1).</summary>
+    public static string BuildId(string tournamentId, string userId, string fixtureId) =>
+        $"{tournamentId}_{userId}_{fixtureId}";
 
     /// <summary>Returns an error message if the request is invalid, otherwise null.</summary>
     public static string? ValidateRequest(PredictionRequest request)

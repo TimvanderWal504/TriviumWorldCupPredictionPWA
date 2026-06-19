@@ -10,6 +10,9 @@ public class MemberScore
     /// <summary>Marten document id — same as UserId.</summary>
     public string Id { get; set; } = default!;
 
+    /// <summary>Slug of the tournament these scores belong to (e.g. "world-cup-2026").</summary>
+    public string TournamentId { get; set; } = SingleTournamentContext.DefaultTournamentId;
+
     public string UserId { get; set; } = default!;
 
     /// <summary>Points accumulated from group-stage match predictions.</summary>

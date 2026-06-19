@@ -6,8 +6,11 @@ namespace TriviumWorldCup.Api.Domain;
 /// </summary>
 public class GroupPrediction
 {
-    /// <summary>Composite key: "{UserId}_{FixtureId}".</summary>
+    /// <summary>Composite key: "{TournamentId}_{UserId}_{FixtureId}".</summary>
     public string Id { get; set; } = default!;
+
+    /// <summary>Slug of the tournament this prediction belongs to (e.g. "world-cup-2026").</summary>
+    public string TournamentId { get; set; } = SingleTournamentContext.DefaultTournamentId;
 
     /// <summary>The user who submitted this prediction.</summary>
     public string UserId { get; set; } = default!;

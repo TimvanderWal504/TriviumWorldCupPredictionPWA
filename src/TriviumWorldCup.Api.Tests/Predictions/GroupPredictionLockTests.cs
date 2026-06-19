@@ -73,10 +73,11 @@ public class GroupPredictionLockTests
     // ── Composite ID helper ───────────────────────────────────────────────────
 
     [Fact]
-    public void BuildId_CombinesUserIdAndFixtureId()
+    public void BuildId_CombinesTournamentUserIdAndFixtureId()
     {
-        var id = GroupPredictionEndpoints.BuildId("user-42", "7");
-        Assert.Equal("user-42_7", id);
+        // GEN-1 (TWC-35): composite key now includes TournamentId prefix.
+        var id = GroupPredictionEndpoints.BuildId("world-cup-2026", "user-42", "7");
+        Assert.Equal("world-cup-2026_user-42_7", id);
     }
 
     // ── Request validation ────────────────────────────────────────────────────

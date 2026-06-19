@@ -9,6 +9,9 @@ public class Fixture
     /// <summary>Marten document id — same as MatchNumber (as string).</summary>
     public string Id { get; set; } = default!;
 
+    /// <summary>Slug of the tournament this fixture belongs to (e.g. "world-cup-2026").</summary>
+    public string TournamentId { get; set; } = SingleTournamentContext.DefaultTournamentId;
+
     /// <summary>Sequential match number within the tournament (1–72 for group stage).</summary>
     public int MatchNumber { get; set; }
 
