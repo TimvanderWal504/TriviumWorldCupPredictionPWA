@@ -22,7 +22,7 @@ Drive the TWC backlog to "Done" in dependency order, MVP first, by launching foc
 </operating_principles>
 
 <project_context>
-- Jira project: TWC ("Trivium World Cup 2026 Predictions"). Epic: TWC-1.
+- Jira project: TWC ("Trivium World Cup 2026 Predictions"). Epics: TWC-1 (World Cup MVP) and TWC-34 (platform generalization — multi-sport/league refactor, stories TWC-35–TWC-50; design + audit in `.docs/PLATFORM_GENERALIZATION_AUDIT.md`).
 - Atlassian cloudId: 690f9f0f-d183-4c39-aa1b-80db904260e3
 - Canonical scoring/format: Confluence space TWCP → "Rules & Scoring (canonical)" (page 27820033).
 - Architecture reference: Confluence space TWCP → "Design & Architecture" (page 27852801).
@@ -61,6 +61,15 @@ Dependency-ordered for the known TWC backlog. Re-validate before use.
 - Wave 7 — knockout resolver: TWC-32 — populate R32 from final group standings (winners, runners-up, 8 best third-placed) and propagate winners/losers through the rounds. Completes the knockout flow (pairs with TWC-14 skeleton/UI and TWC-15 scoring); must land before the knockout E2E.
 - Wave 8 — E2E suite (epic TWC-21): TWC-22 foundation first (harness, link-auth login, seeding, stubbing, time/result control, CI), then the area specs in parallel — TWC-23 auth/profile, TWC-24 group predictions, TWC-25 champion + Golden Six, TWC-26 standings/scoring, TWC-27 leaderboard/visibility/tiebreaker, TWC-28 app-shell smoke, TWC-29 admin, TWC-30 live updates. TWC-31 knockout E2E runs after Wave 7's resolver.
 - Wave 9 — final: TWC-20 real Entra integration. Done last; swaps the link provider for the real one behind the auth abstraction. Human-gated on the Entra app registration.
+
+Platform generalization — epic TWC-34 (stories TWC-35–TWC-50). A separate, self-contained programme of work that makes TWC multi-sport/multi-league; it has zero dependency on the WC waves above and can be sequenced after the MVP is stable. Full audit, story specs, effort (~80 pts / ~4 sprints) and verification checklist live in `.docs/PLATFORM_GENERALIZATION_AUDIT.md`. Its own internal dependency-ordered sub-waves (re-validate against the audit doc + live Jira before use):
+- Gen-Wave A — foundation: TWC-35 (Tournament aggregate + tournamentId scoping — root, blocks most others); in parallel TWC-46 (branding/PWA), TWC-44 (config scheduling).
+- Gen-Wave B — core model (need TWC-35): TWC-36 (data-driven structure); TWC-37 (generic outcome model — highest risk, golden-master first); TWC-38 (competitor generalization); TWC-41 (lock policy + grace removal).
+- Gen-Wave C — rules & predictions: TWC-39 (special predictions; needs TWC-35/37); TWC-40 (scoring config; needs TWC-36/39); TWC-50 (resolver parameterization; needs TWC-36/37).
+- Gen-Wave D — integration: TWC-42 (pluggable result provider; needs TWC-35/37); TWC-43 (sport-pluggable events/status; needs TWC-42).
+- Gen-Wave E — frontend: TWC-47 (outcome-driven prediction UI; needs TWC-37); TWC-48 (generic standings/rules; needs TWC-40); TWC-49 (generic competitor UI; needs TWC-38).
+- Gen-Wave F — capstone: TWC-45 (tournament provisioning; needs TWC-35/36).
+De-risk first slice: TWC-35 → TWC-37 → TWC-40 behind golden-master scoring/ingestion tests.
 </execution_waves>
 
 <phase_3_dispatch>
