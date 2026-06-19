@@ -1,4 +1,6 @@
+using Microsoft.Extensions.Options;
 using Quartz;
+using TriviumWorldCup.Api.Scheduling;
 using WebPush;
 
 namespace TriviumWorldCup.Api.Push;
@@ -14,8 +16,11 @@ public static class PushServiceExtensions
 {
     public static IServiceCollection AddPushServices(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        TriviumSchedulingOptions? scheduling = null)
     {
+        scheduling ??= configuration.GetSection("Scheduling").Get<TriviumSchedulingOptions>()
+            ?? new TriviumSchedulingOptions();
         // WebPushClient creates an HttpClient internally.
         // The library is not thread-safe for concurrent calls per instance,
         // but each Quartz job execution is [DisallowConcurrentExecution] so
@@ -44,7 +49,7 @@ public static class PushServiceExtensions
                 .ForJob(jobKey)
                 .WithIdentity("PushReminderTrigger", "Push")
                 .WithSimpleSchedule(s => s
-                    .WithIntervalInMinutes(30)
+                    .WithIntervalInMinutes(scheduling.PushReminderIntervalMinutes)
                     .RepeatForever())
                 // Start 30 seconds after app startup to let the DB initialise
                 .StartAt(DateBuilder.FutureDate(30, IntervalUnit.Second)));
