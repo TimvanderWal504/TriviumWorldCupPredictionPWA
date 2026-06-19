@@ -1,6 +1,7 @@
 using Marten;
 using Microsoft.AspNetCore.OutputCaching;
 using TriviumWorldCup.Api.Domain;
+using TournamentAggregate = TriviumWorldCup.Api.Domain.Tournament;
 
 namespace TriviumWorldCup.Api.Scoring;
 
@@ -15,7 +16,7 @@ namespace TriviumWorldCup.Api.Scoring;
 ///   3. Load all TournamentPredictions; compute champion + Golden Six points.
 ///   4. Upsert one MemberScore per member.
 /// </summary>
-public class ScoringRecomputeService(IDocumentStore store, IOutputCacheStore outputCache)
+public class ScoringRecomputeService(IDocumentStore store, IOutputCacheStore outputCache, ITournamentContext tournamentContext)
 {
     /// <summary>
     /// Full recompute for every member. Prefer <see cref="RecomputeForCompletedAsync"/>
@@ -71,16 +72,19 @@ public class ScoringRecomputeService(IDocumentStore store, IOutputCacheStore out
         }
 
         // Resolve affected user IDs from group and knockout predictions in parallel.
+        // GEN-1 (TWC-35): scoped to the active tournament.
+        var tid = tournamentContext.TournamentId;
+
         var groupUserIdsTask = completedFixtureIds.Count > 0
             ? QueryAsync(s => s.Query<GroupPrediction>()
-                .Where(p => p.FixtureId.IsOneOf(completedFixtureIds.ToList()))
+                .Where(p => p.TournamentId == tid && p.FixtureId.IsOneOf(completedFixtureIds.ToList()))
                 .Select(p => p.UserId)
                 .ToListAsync(ct))
             : Task.FromResult<IReadOnlyList<string>>([]);
 
         var knockoutUserIdsTask = completedSlotKeys.Count > 0
             ? QueryAsync(s => s.Query<KnockoutPrediction>()
-                .Where(p => p.SlotKey.IsOneOf(completedSlotKeys.ToList()))
+                .Where(p => p.TournamentId == tid && p.SlotKey.IsOneOf(completedSlotKeys.ToList()))
                 .Select(p => p.UserId)
                 .ToListAsync(ct))
             : Task.FromResult<IReadOnlyList<string>>([]);
@@ -94,6 +98,7 @@ public class ScoringRecomputeService(IDocumentStore store, IOutputCacheStore out
         if (completedSlotKeys.Contains("FIN"))
         {
             var tournamentUserIds = await QueryAsync(s => s.Query<TournamentPrediction>()
+                .Where(tp => tp.TournamentId == tid)
                 .Select(tp => tp.UserId)
                 .ToListAsync(ct));
             affectedUserIds.UnionWith(tournamentUserIds);
@@ -116,16 +121,19 @@ public class ScoringRecomputeService(IDocumentStore store, IOutputCacheStore out
         }
 
         // ── Wave 1: all mutually-independent reads in parallel ────────────────
+        // GEN-1 (TWC-35): all queries scoped to the active tournament.
+        var tid = tournamentContext.TournamentId;
 
         var fixturesTask = QueryAsync(s => s.Query<Fixture>()
-            .Where(f => f.Status == MatchStatus.Completed
+            .Where(f => f.TournamentId == tid
+                        && f.Status == MatchStatus.Completed
                         && f.HomeScore != null
                         && f.AwayScore != null)
             .ToListAsync(ct));
 
         var groupPredsTask = QueryAsync(s =>
         {
-            var q = s.Query<GroupPrediction>();
+            var q = s.Query<GroupPrediction>().Where(p => p.TournamentId == tid);
             return (restrictToUserIds != null
                 ? q.Where(p => p.UserId.IsOneOf(restrictToUserIds.ToList()))
                 : q).ToListAsync(ct);
@@ -133,23 +141,27 @@ public class ScoringRecomputeService(IDocumentStore store, IOutputCacheStore out
 
         var tournamentPredsTask = QueryAsync(s =>
         {
-            var q = s.Query<TournamentPrediction>();
+            var q = s.Query<TournamentPrediction>().Where(tp => tp.TournamentId == tid);
             return (restrictToUserIds != null
                 ? q.Where(tp => tp.UserId.IsOneOf(restrictToUserIds.ToList()))
                 : q).ToListAsync(ct);
         });
 
         var goalsTask = QueryAsync(s => s.Query<GoalEvent>()
-            .Where(g => g.Type != GoalType.Shootout && g.Type != GoalType.OwnGoal)
+            .Where(g => g.TournamentId == tid
+                        && g.Type != GoalType.Shootout
+                        && g.Type != GoalType.OwnGoal)
             .ToListAsync(ct));
         // completedKnockoutSlots covers the Final too — no separate finalSlot query needed.
         var knockoutSlotsTask = QueryAsync(s => s.Query<KnockoutSlot>()
-            .Where(k => k.Status == MatchStatus.Completed && k.WinnerTeamId != null)
+            .Where(k => k.TournamentId == tid
+                        && k.Status == MatchStatus.Completed
+                        && k.WinnerTeamId != null)
             .ToListAsync(ct));
 
         var knockoutPredsTask = QueryAsync(s =>
         {
-            var q = s.Query<KnockoutPrediction>();
+            var q = s.Query<KnockoutPrediction>().Where(p => p.TournamentId == tid);
             return (restrictToUserIds != null
                 ? q.Where(p => p.UserId.IsOneOf(restrictToUserIds.ToList()))
                 : q).ToListAsync(ct);
@@ -283,6 +295,7 @@ public class ScoringRecomputeService(IDocumentStore store, IOutputCacheStore out
                 {
                     Id                  = userId,
                     UserId              = userId,
+                    TournamentId        = tid,   // GEN-1 (TWC-35)
                     GroupMatchPoints    = groupMatchPoints.GetValueOrDefault(userId),
                     ChampionPoints      = championPointsByUser.GetValueOrDefault(userId),
                     GoldenSixPoints     = goldenSixPointsByUser.GetValueOrDefault(userId),

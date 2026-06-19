@@ -1,7 +1,10 @@
 using Marten;
+using Microsoft.Extensions.Options;
 using Quartz;
-using WebPush;
 using TriviumWorldCup.Api.Domain;
+using TriviumWorldCup.Api.Predictions;
+using TriviumWorldCup.Api.Scheduling;
+using WebPush;
 
 namespace TriviumWorldCup.Api.Push;
 
@@ -18,6 +21,8 @@ public class PushReminderJob(
     IDocumentStore store,
     WebPushClient webPushClient,
     IConfiguration config,
+    IOptions<TriviumSchedulingOptions> schedulingOptions,
+    ITournamentContext tournamentContext,
     ILogger<PushReminderJob> logger) : IJob
 {
     public async Task Execute(IJobExecutionContext context)
@@ -39,24 +44,28 @@ public class PushReminderJob(
         var vapidDetails = new VapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
 
         var now       = DateTimeOffset.UtcNow;
-        var windowEnd = now.AddHours(2);
+        var windowEnd = now.AddHours(schedulingOptions.Value.PushReminderLookaheadHours);
 
         await using var session = store.LightweightSession();
 
-        // ── 1. Find upcoming scheduled fixtures (kickoff in the next 2 hours) ──
+        var lookaheadHours = schedulingOptions.Value.PushReminderLookaheadHours;
+
+        // ── 1. Find upcoming scheduled fixtures (kickoff in the next lookahead window) ──
+        var tid = tournamentContext.TournamentId;
         var upcomingFixtures = await session.Query<Fixture>()
-            .Where(f => f.Status == MatchStatus.Scheduled
+            .Where(f => f.TournamentId == tid
+                     && f.Status == MatchStatus.Scheduled
                      && f.KickoffUtc > now
                      && f.KickoffUtc <= windowEnd)
             .ToListAsync(ct);
 
         if (upcomingFixtures.Count == 0)
         {
-            logger.LogDebug("PushReminderJob: no upcoming fixtures in the next 2 hours — skipping");
+            logger.LogDebug("PushReminderJob: no upcoming fixtures in the next {Hours}h — skipping", lookaheadHours);
             return;
         }
 
-        logger.LogDebug("PushReminderJob: {Count} fixture(s) upcoming in next 2 hours", upcomingFixtures.Count);
+        logger.LogDebug("PushReminderJob: {Count} fixture(s) upcoming in next {Hours}h", upcomingFixtures.Count, lookaheadHours);
 
         // ── 2. Load all active push subscriptions ─────────────────────────────
         var allSubscriptions = await session.Query<Domain.PushSubscription>()
@@ -84,8 +93,9 @@ public class PushReminderJob(
 
             foreach (var (userId, subs) in subscriptionsByUser)
             {
-                // Check if this user has already predicted this fixture
-                var predictionId = $"{userId}_{fixture.Id}";
+                // Check if this user has already predicted this fixture.
+                // ID format after GEN-1 (TWC-35): {tournamentId}_{userId}_{fixtureId}
+                var predictionId = GroupPredictionEndpoints.BuildId(tid, userId, fixture.Id);
                 var hasPrediction = await session.LoadAsync<GroupPrediction>(predictionId, ct) is not null;
 
                 if (hasPrediction)

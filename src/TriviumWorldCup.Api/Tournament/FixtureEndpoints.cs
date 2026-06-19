@@ -18,19 +18,22 @@ public static class FixtureEndpoints
         // events and the current user's prediction + computed points per fixture. Cancelled
         // fixtures never score points.
         // Must be registered before /fixtures to avoid route ambiguity.
-        routes.MapGet("/fixtures/results", async (HttpContext context, IDocumentSession session, CancellationToken ct) =>
+        routes.MapGet("/fixtures/results", async (HttpContext context, IDocumentSession session, ITournamentContext tournament, CancellationToken ct) =>
         {
             var user = context.GetAppUser();
             if (!user.IsAuthenticated)
                 return Results.Unauthorized();
 
             var fixtures = await session.Query<Fixture>()
-                .Where(f => f.Status == MatchStatus.Completed || f.Status == MatchStatus.Cancelled)
+                .Where(f => f.TournamentId == tournament.TournamentId
+                         && (f.Status == MatchStatus.Completed || f.Status == MatchStatus.Cancelled))
                 .OrderByDescending(f => f.KickoffUtc)
                 .ThenByDescending(f => f.MatchNumber)
                 .ToListAsync(ct);
 
-            var teams = await session.Query<Team>().ToListAsync(ct);
+            var teams = await session.Query<Team>()
+                .Where(t => t.TournamentId == tournament.TournamentId)
+                .ToListAsync(ct);
             var teamMap = teams.ToDictionary(t => t.Id);
 
             var fixtureDtos = fixtures.Select(f => new FixtureDto(
@@ -60,16 +63,16 @@ public static class FixtureEndpoints
             if (fixtureIds.Count > 0)
             {
                 var goals = await session.Query<GoalEvent>()
-                    .Where(g => g.FixtureId.IsOneOf(fixtureIds))
+                    .Where(g => g.TournamentId == tournament.TournamentId && g.FixtureId.IsOneOf(fixtureIds))
                     .ToListAsync(ct);
                 var cards = await session.Query<CardEvent>()
-                    .Where(c => c.FixtureId.IsOneOf(fixtureIds))
+                    .Where(c => c.TournamentId == tournament.TournamentId && c.FixtureId.IsOneOf(fixtureIds))
                     .ToListAsync(ct);
                 var subs = await session.Query<SubstitutionEvent>()
-                    .Where(s => s.FixtureId.IsOneOf(fixtureIds))
+                    .Where(s => s.TournamentId == tournament.TournamentId && s.FixtureId.IsOneOf(fixtureIds))
                     .ToListAsync(ct);
                 var vars = await session.Query<VarEvent>()
-                    .Where(v => v.FixtureId.IsOneOf(fixtureIds))
+                    .Where(v => v.TournamentId == tournament.TournamentId && v.FixtureId.IsOneOf(fixtureIds))
                     .ToListAsync(ct);
 
                 // Resolve all player names in one query.
@@ -77,7 +80,9 @@ public static class FixtureEndpoints
                     .Concat(cards.Select(c => c.PlayerId))
                     .Distinct().ToList();
                 var playerMap = allPlayerIds.Count > 0
-                    ? (await session.Query<Player>().Where(p => p.Id.IsOneOf(allPlayerIds)).ToListAsync(ct))
+                    ? (await session.Query<Player>()
+                        .Where(p => p.TournamentId == tournament.TournamentId && p.Id.IsOneOf(allPlayerIds))
+                        .ToListAsync(ct))
                         .ToDictionary(p => p.Id)
                     : new Dictionary<Guid, Player>();
 
@@ -118,7 +123,9 @@ public static class FixtureEndpoints
             if (fixtureIds.Count > 0)
             {
                 var predictions = await session.Query<GroupPrediction>()
-                    .Where(p => p.UserId == user.UserId && p.FixtureId.IsOneOf(fixtureIds))
+                    .Where(p => p.TournamentId == tournament.TournamentId
+                             && p.UserId == user.UserId
+                             && p.FixtureId.IsOneOf(fixtureIds))
                     .ToListAsync(ct);
 
                 var fixtureById = fixtures.ToDictionary(f => f.Id);
@@ -145,24 +152,27 @@ public static class FixtureEndpoints
 
         // GET /fixtures/live — fixtures in the live window (InProgress, recent, or imminent).
         // Must be registered before /fixtures to avoid route ambiguity.
-        routes.MapGet("/fixtures/live", async (IDocumentSession session, CancellationToken ct) =>
+        routes.MapGet("/fixtures/live", async (IDocumentSession session, ITournamentContext tournament, CancellationToken ct) =>
         {
             var now = DateTimeOffset.UtcNow;
             var recentCutoff  = now.AddHours(-3);   // catch recently completed matches
             var imminentCutoff = now.AddMinutes(30); // upcoming kickoffs within 30 min
 
             // Load fixtures that are InProgress, OR had kickoff in the last 3 hours,
-            // OR have kickoff in the next 30 minutes.
+            // OR have kickoff in the next 30 minutes — scoped to the active tournament.
             var fixtures = await session.Query<Fixture>()
                 .Where(f =>
+                    f.TournamentId == tournament.TournamentId && (
                     f.Status == MatchStatus.InProgress ||
                     (f.KickoffUtc >= recentCutoff && f.KickoffUtc <= now) ||
-                    (f.KickoffUtc > now && f.KickoffUtc <= imminentCutoff))
+                    (f.KickoffUtc > now && f.KickoffUtc <= imminentCutoff)))
                 .OrderBy(f => f.KickoffUtc)
                 .ThenBy(f => f.MatchNumber)
                 .ToListAsync(ct);
 
-            var teams = await session.Query<Team>().ToListAsync(ct);
+            var teams = await session.Query<Team>()
+                .Where(t => t.TournamentId == tournament.TournamentId)
+                .ToListAsync(ct);
             var teamMap = teams.ToDictionary(t => t.Id);
 
             var fixtureDtos = fixtures.Select(f => new FixtureDto(
@@ -192,23 +202,25 @@ public static class FixtureEndpoints
             if (fixtureIds.Count > 0)
             {
                 var goals = await session.Query<GoalEvent>()
-                    .Where(g => g.FixtureId.IsOneOf(fixtureIds))
+                    .Where(g => g.TournamentId == tournament.TournamentId && g.FixtureId.IsOneOf(fixtureIds))
                     .ToListAsync(ct);
                 var cards = await session.Query<CardEvent>()
-                    .Where(c => c.FixtureId.IsOneOf(fixtureIds))
+                    .Where(c => c.TournamentId == tournament.TournamentId && c.FixtureId.IsOneOf(fixtureIds))
                     .ToListAsync(ct);
                 var subs = await session.Query<SubstitutionEvent>()
-                    .Where(s => s.FixtureId.IsOneOf(fixtureIds))
+                    .Where(s => s.TournamentId == tournament.TournamentId && s.FixtureId.IsOneOf(fixtureIds))
                     .ToListAsync(ct);
                 var vars = await session.Query<VarEvent>()
-                    .Where(v => v.FixtureId.IsOneOf(fixtureIds))
+                    .Where(v => v.TournamentId == tournament.TournamentId && v.FixtureId.IsOneOf(fixtureIds))
                     .ToListAsync(ct);
 
                 var allPlayerIds = goals.Select(g => g.PlayerId)
                     .Concat(cards.Select(c => c.PlayerId))
                     .Distinct().ToList();
                 var playerMap = allPlayerIds.Count > 0
-                    ? (await session.Query<Player>().Where(p => p.Id.IsOneOf(allPlayerIds)).ToListAsync(ct))
+                    ? (await session.Query<Player>()
+                        .Where(p => p.TournamentId == tournament.TournamentId && p.Id.IsOneOf(allPlayerIds))
+                        .ToListAsync(ct))
                         .ToDictionary(p => p.Id)
                     : new Dictionary<Guid, Player>();
 
@@ -272,14 +284,17 @@ public static class FixtureEndpoints
         .WithSummary("Returns fixtures currently live, recently completed (within 3 h), or kicking off within 30 min, with goal events.");
 
         // GET /fixtures — all 72 group-stage fixtures with embedded team names.
-        routes.MapGet("/fixtures", async (IDocumentSession session, CancellationToken ct) =>
+        routes.MapGet("/fixtures", async (IDocumentSession session, ITournamentContext tournament, CancellationToken ct) =>
         {
             var fixtures = await session.Query<Fixture>()
+                .Where(f => f.TournamentId == tournament.TournamentId)
                 .OrderBy(f => f.KickoffUtc)
                 .ThenBy(f => f.MatchNumber)
                 .ToListAsync(ct);
 
-            var teams = await session.Query<Team>().ToListAsync(ct);
+            var teams = await session.Query<Team>()
+                .Where(t => t.TournamentId == tournament.TournamentId)
+                .ToListAsync(ct);
             var teamMap = teams.ToDictionary(t => t.Id);
 
             var dtos = fixtures.Select(f => new FixtureDto(
@@ -308,9 +323,10 @@ public static class FixtureEndpoints
         .CacheOutput("fixtures");
 
         // GET /teams — all 48 teams.
-        routes.MapGet("/teams", async (IDocumentSession session, CancellationToken ct) =>
+        routes.MapGet("/teams", async (IDocumentSession session, ITournamentContext tournament, CancellationToken ct) =>
         {
             var teams = await session.Query<Team>()
+                .Where(t => t.TournamentId == tournament.TournamentId)
                 .OrderBy(t => t.GroupLetter)
                 .ThenBy(t => t.Name)
                 .ToListAsync(ct);

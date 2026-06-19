@@ -9,6 +9,9 @@ public class TournamentPrediction
     /// <summary>Marten document id — same as UserId.</summary>
     public string Id { get; set; } = default!;
 
+    /// <summary>Slug of the tournament this prediction belongs to (e.g. "world-cup-2026").</summary>
+    public string TournamentId { get; set; } = SingleTournamentContext.DefaultTournamentId;
+
     /// <summary>The auth UserId who owns this prediction.</summary>
     public string UserId { get; set; } = default!;
 

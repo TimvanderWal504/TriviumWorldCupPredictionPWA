@@ -36,7 +36,7 @@ namespace TriviumWorldCup.Api.Knockout;
 ///   all 12 group letters, and the 8 qualifying groups are always a subset that
 ///   maps bijectively onto those slot references at tournament time.
 /// </summary>
-public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBracketResolver> logger)
+public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBracketResolver> logger, ITournamentContext tournamentContext)
 {
     // -------------------------------------------------------------------------
     // Public entry points
@@ -63,8 +63,11 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
 
     private async Task<int> ResolveGroupStageCoreAsync(IDocumentSession session, CancellationToken ct)
     {
-        // Load all 72 group-stage fixtures.
-        var fixtures = await session.Query<Fixture>().ToListAsync(ct);
+        var tid = tournamentContext.TournamentId;
+        // Load all 72 group-stage fixtures for this tournament.
+        var fixtures = await session.Query<Fixture>()
+            .Where(f => f.TournamentId == tid)
+            .ToListAsync(ct);
 
         // Only proceed when every fixture is completed.
         if (fixtures.Count < 72 || fixtures.Any(f => f.Status != MatchStatus.Completed))
@@ -78,7 +81,9 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
         logger.LogInformation("KnockoutBracketResolver: all group fixtures complete — resolving R32 bracket");
 
         // Load groups to know which teams are in each group.
-        var groups = await session.Query<Group>().ToListAsync(ct);
+        var groups = await session.Query<Group>()
+            .Where(g => g.TournamentId == tid)
+            .ToListAsync(ct);
 
         // Rank each group.
         var rankings = RankAllGroups(groups, fixtures);
@@ -86,8 +91,10 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
         // Determine the 8 best third-placed teams.
         var bestThirds = SelectBestThirdPlaced(rankings, fixtures);
 
-        // Load all knockout slots.
-        var slots = await session.Query<KnockoutSlot>().ToListAsync(ct);
+        // Load all knockout slots for this tournament.
+        var slots = await session.Query<KnockoutSlot>()
+            .Where(s => s.TournamentId == tid)
+            .ToListAsync(ct);
         var slotByKey = slots.ToDictionary(s => s.SlotKey);
 
         // Populate R32 slots from group standings.
@@ -123,8 +130,9 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
     {
         await using var session = store.LightweightSession();
 
+        var tid = tournamentContext.TournamentId;
         var completedSlot = await session.Query<KnockoutSlot>()
-            .FirstOrDefaultAsync(s => s.SlotKey == completedSlotKey, ct);
+            .FirstOrDefaultAsync(s => s.TournamentId == tid && s.SlotKey == completedSlotKey, ct);
 
         if (completedSlot is null)
         {
@@ -148,7 +156,7 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
 
         // Load only incomplete targets — these are the only slots PropagateSlotResult can mutate.
         var targetSlots = await session.Query<KnockoutSlot>()
-            .Where(s => s.HomeTeamId == null || s.AwayTeamId == null)
+            .Where(s => s.TournamentId == tid && (s.HomeTeamId == null || s.AwayTeamId == null))
             .ToListAsync(ct);
 
         var slotByKey = targetSlots.ToDictionary(s => s.SlotKey);
@@ -194,9 +202,10 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
 
     private async Task<int> PropagateAllKnockoutResultsCoreAsync(IDocumentSession session, CancellationToken ct)
     {
+        var tid = tournamentContext.TournamentId;
         // Load potential sources: slots with a recorded result or derivable winner.
         var sourceSlots = await session.Query<KnockoutSlot>()
-            .Where(s => s.WinnerTeamId != null || s.HomeScore != null)
+            .Where(s => s.TournamentId == tid && (s.WinnerTeamId != null || s.HomeScore != null))
             .ToListAsync(ct);
 
         if (sourceSlots.Count == 0)
@@ -207,7 +216,7 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
 
         // Load potential targets: slots still missing at least one team assignment.
         var targetSlots = await session.Query<KnockoutSlot>()
-            .Where(s => s.HomeTeamId == null || s.AwayTeamId == null)
+            .Where(s => s.TournamentId == tid && (s.HomeTeamId == null || s.AwayTeamId == null))
             .ToListAsync(ct);
 
         // Merge into one dict; a slot can be both a source and a target.

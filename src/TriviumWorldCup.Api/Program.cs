@@ -13,9 +13,11 @@ using TriviumWorldCup.Api.Leaderboard;
 using TriviumWorldCup.Api.Predictions;
 using TriviumWorldCup.Api.Profiles;
 using TriviumWorldCup.Api.Push;
+using TriviumWorldCup.Api.Scheduling;
 using TriviumWorldCup.Api.Scoring;
 using TriviumWorldCup.Api.Standings;
 using TriviumWorldCup.Api.Tournament;
+using Tournament = TriviumWorldCup.Api.Domain.Tournament;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -34,31 +36,34 @@ builder.Services.AddMarten(opts =>
     opts.Connection(connectionString);
     opts.DatabaseSchemaName = "twc";
 
+    // GEN-1 (TWC-35): Tournament aggregate — slug is the document ID.
+    opts.Schema.For<Tournament>().Identity(t => t.Id);
+
     // Tournament documents — all use string identities (natural keys).
-    opts.Schema.For<Team>().Identity(t => t.Id);
-    opts.Schema.For<Group>().Identity(g => g.Id);
-    opts.Schema.For<Fixture>().Identity(f => f.Id).Index(f => f.Status);
-    opts.Schema.For<KnockoutSlot>().Identity(s => s.Id).Index(s => s.Status);
+    opts.Schema.For<Team>().Identity(t => t.Id).Index(t => t.TournamentId);
+    opts.Schema.For<Group>().Identity(g => g.Id).Index(g => g.TournamentId);
+    opts.Schema.For<Fixture>().Identity(f => f.Id).Index(f => f.Status).Index(f => f.TournamentId);
+    opts.Schema.For<KnockoutSlot>().Identity(s => s.Id).Index(s => s.Status).Index(s => s.TournamentId);
     // Player.Id is Guid — Marten picks this up by convention.
-    opts.Schema.For<Player>().Identity(p => p.Id);
+    opts.Schema.For<Player>().Identity(p => p.Id).Index(p => p.TournamentId);
     // UserProfile — Id equals the auth UserId (string).
     opts.Schema.For<UserProfile>().Identity(p => p.Id);
-    // GroupPrediction — Id is "{UserId}_{FixtureId}" composite key.
-    opts.Schema.For<GroupPrediction>().Identity(p => p.Id).Index(p => p.UserId);
-    // KnockoutPrediction — Id is "{UserId}_{SlotKey}" composite key.
-    opts.Schema.For<KnockoutPrediction>().Identity(p => p.Id).Index(p => p.UserId);
+    // GroupPrediction — Id is "{TournamentId}_{UserId}_{FixtureId}" composite key.
+    opts.Schema.For<GroupPrediction>().Identity(p => p.Id).Index(p => p.UserId).Index(p => p.TournamentId);
+    // KnockoutPrediction — Id is "{TournamentId}_{UserId}_{SlotKey}" composite key.
+    opts.Schema.For<KnockoutPrediction>().Identity(p => p.Id).Index(p => p.UserId).Index(p => p.TournamentId);
     // TournamentPrediction — Id equals the auth UserId (one per member).
-    opts.Schema.For<TournamentPrediction>().Identity(p => p.Id);
+    opts.Schema.For<TournamentPrediction>().Identity(p => p.Id).Index(p => p.TournamentId);
     // GoalEvent — Id is Guid (Marten picks this up by convention, but we register explicitly).
-    opts.Schema.For<GoalEvent>().Identity(e => e.Id).Index(e => e.FixtureId);
+    opts.Schema.For<GoalEvent>().Identity(e => e.Id).Index(e => e.FixtureId).Index(e => e.TournamentId);
     // CardEvent — disciplinary cards per fixture.
-    opts.Schema.For<CardEvent>().Identity(e => e.Id).Index(e => e.FixtureId);
+    opts.Schema.For<CardEvent>().Identity(e => e.Id).Index(e => e.FixtureId).Index(e => e.TournamentId);
     // SubstitutionEvent — player substitutions per fixture.
-    opts.Schema.For<SubstitutionEvent>().Identity(e => e.Id).Index(e => e.FixtureId);
+    opts.Schema.For<SubstitutionEvent>().Identity(e => e.Id).Index(e => e.FixtureId).Index(e => e.TournamentId);
     // VarEvent — VAR decisions per fixture.
-    opts.Schema.For<VarEvent>().Identity(e => e.Id).Index(e => e.FixtureId);
+    opts.Schema.For<VarEvent>().Identity(e => e.Id).Index(e => e.FixtureId).Index(e => e.TournamentId);
     // MemberScore — Id equals UserId (one document per member).
-    opts.Schema.For<MemberScore>().Identity(s => s.Id);
+    opts.Schema.For<MemberScore>().Identity(s => s.Id).Index(s => s.TournamentId);
     // ResultOverride — audit log for manual admin overrides (TWC-16).
     opts.Schema.For<ResultOverride>().Identity(o => o.Id);
     // PushSubscription — Web Push device subscription (TWC-18).
@@ -67,6 +72,12 @@ builder.Services.AddMarten(opts =>
     opts.Schema.For<InviteUser>().Identity(u => u.Id).Index(u => u.Email!);
 }).UseLightweightSessions()
   .ApplyAllDatabaseChangesOnStartup(); // Warm up all collection schemas on startup instead of lazily per-request
+
+// GEN-1 (TWC-35): Tournament context — resolves active tournament ID for all requests/jobs.
+builder.Services.AddScoped<ITournamentContext, SingleTournamentContext>();
+
+// GEN-10 (TWC-44): Scheduling options — live window width and push-reminder lookahead.
+builder.Services.AddOptions<TriviumSchedulingOptions>().BindConfiguration("Scheduling");
 
 // Scoring recompute service — TWC-8
 builder.Services.AddScoped<ScoringRecomputeService>();
@@ -190,6 +201,10 @@ if (app.Environment.IsDevelopment())
 // Idempotent: exits immediately if data is already present.
 var documentStore = app.Services.GetRequiredService<IDocumentStore>();
 await TournamentSeed.SeedAsync(documentStore);
+
+// GEN-1 (TWC-35): Backfill TournamentId and widen composite IDs for existing data.
+// Idempotent — safe to run on every startup.
+await TournamentIdMigration.RunAsync(documentStore);
 
 app.Run();
 

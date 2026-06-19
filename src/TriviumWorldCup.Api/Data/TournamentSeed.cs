@@ -1,6 +1,7 @@
 using Marten;
 using TriviumWorldCup.Api.Data.SeedData;
 using TriviumWorldCup.Api.Domain;
+using TournamentAggregate = TriviumWorldCup.Api.Domain.Tournament;
 
 namespace TriviumWorldCup.Api.Data;
 
@@ -21,6 +22,22 @@ namespace TriviumWorldCup.Api.Data;
 /// </summary>
 public static class TournamentSeed
 {
+    /// <summary>
+    /// The default world-cup-2026 Tournament document.
+    /// Exposed as a property so migration and unit tests can reference it.
+    /// </summary>
+    public static TournamentAggregate WorldCup2026 => new()
+    {
+        Id          = SingleTournamentContext.DefaultTournamentId,
+        Slug        = SingleTournamentContext.DefaultTournamentId,
+        DisplayName = "FIFA World Cup 2026",
+        SportKey    = "football",
+        Status      = TournamentStatus.Active,
+        StartUtc    = new DateTimeOffset(2026, 6, 11, 0, 0, 0, TimeSpan.Zero),
+        EndUtc      = new DateTimeOffset(2026, 7, 19, 23, 59, 59, TimeSpan.Zero),
+        CreatedAt   = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
+    };
+
     public static async Task SeedAsync(IDocumentStore store, CancellationToken cancellationToken = default)
     {
         await using var session = store.LightweightSession();
@@ -29,6 +46,9 @@ public static class TournamentSeed
         var anyTeam = await session.Query<Team>().AnyAsync(cancellationToken);
         if (anyTeam)
             return;
+
+        // GEN-1 (TWC-35): Ensure the Tournament aggregate exists before seeding child documents.
+        session.Store(WorldCup2026);
 
         // Store teams
         foreach (var team in TeamsData.All)

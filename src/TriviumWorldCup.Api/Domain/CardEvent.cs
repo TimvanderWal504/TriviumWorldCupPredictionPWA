@@ -9,6 +9,9 @@ public class CardEvent
 {
     public Guid Id { get; set; }
 
+    /// <summary>Slug of the tournament this event belongs to (e.g. "world-cup-2026").</summary>
+    public string TournamentId { get; set; } = SingleTournamentContext.DefaultTournamentId;
+
     /// <summary>Matches Fixture.Id (the group-stage fixture's string id).</summary>
     public string FixtureId { get; set; } = default!;
 

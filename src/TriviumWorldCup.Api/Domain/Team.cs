@@ -9,6 +9,9 @@ public class Team
     /// <summary>Marten document id — same as FifaCode for ease of lookup.</summary>
     public string Id { get; set; } = default!;
 
+    /// <summary>Slug of the tournament this team belongs to (e.g. "world-cup-2026").</summary>
+    public string TournamentId { get; set; } = SingleTournamentContext.DefaultTournamentId;
+
     /// <summary>3-letter FIFA country code, e.g. "BRA", "USA".</summary>
     public string FifaCode { get; set; } = default!;
 

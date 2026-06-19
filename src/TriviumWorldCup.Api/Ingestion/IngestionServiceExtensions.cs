@@ -1,4 +1,6 @@
+using Microsoft.Extensions.Options;
 using Quartz;
+using TriviumWorldCup.Api.Scheduling;
 using TriviumWorldCup.Api.Scoring;
 
 namespace TriviumWorldCup.Api.Ingestion;
@@ -11,8 +13,11 @@ public static class IngestionServiceExtensions
 {
     public static IServiceCollection AddIngestion(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        TriviumSchedulingOptions? scheduling = null)
     {
+        scheduling ??= configuration.GetSection("Scheduling").Get<TriviumSchedulingOptions>()
+            ?? new TriviumSchedulingOptions();
         var apiKey = configuration["Football:ApiKey"];
         if (string.IsNullOrWhiteSpace(apiKey))
         {
@@ -61,7 +66,7 @@ public static class IngestionServiceExtensions
                 .ForJob(jobKey)
                 .WithIdentity("ResultIngestionTrigger", "Ingestion")
                 .WithSimpleSchedule(s => s
-                    .WithIntervalInSeconds(30)
+                    .WithIntervalInSeconds(scheduling.PollIntervalSeconds)
                     .RepeatForever())
                 // Start 10 seconds after app startup to allow the DB to initialise
                 .StartAt(DateBuilder.FutureDate(10, IntervalUnit.Second)));

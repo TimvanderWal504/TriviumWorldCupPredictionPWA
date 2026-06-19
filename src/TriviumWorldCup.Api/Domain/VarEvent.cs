@@ -10,6 +10,10 @@ namespace TriviumWorldCup.Api.Domain;
 public class VarEvent
 {
     public Guid Id { get; set; }
+
+    /// <summary>Slug of the tournament this event belongs to (e.g. "world-cup-2026").</summary>
+    public string TournamentId { get; set; } = SingleTournamentContext.DefaultTournamentId;
+
     public string FixtureId { get; set; } = default!;
     public VarDecisionType Type { get; set; }
 

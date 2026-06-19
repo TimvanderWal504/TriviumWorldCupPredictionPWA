@@ -5,6 +5,7 @@ using TriviumWorldCup.Api.Auth.Link;
 using TriviumWorldCup.Api.Domain;
 using TriviumWorldCup.Api.Ingestion;
 using TriviumWorldCup.Api.Knockout;
+using TriviumWorldCup.Api.Predictions;
 using TriviumWorldCup.Api.Scoring;
 using WebPush;
 
@@ -25,6 +26,7 @@ public static class AdminEndpoints
             HttpContext context,
             IngestionStatusStore statusStore,
             IDocumentStore store,
+            ITournamentContext tournament,
             CancellationToken ct) =>
         {
             var user = context.GetAppUser();
@@ -36,7 +38,9 @@ public static class AdminEndpoints
             var now = DateTimeOffset.UtcNow;
             var pendingCount = await session
                 .Query<Fixture>()
-                .Where(f => f.Status != MatchStatus.Completed && f.KickoffUtc < now)
+                .Where(f => f.TournamentId == tournament.TournamentId
+                         && f.Status != MatchStatus.Completed
+                         && f.KickoffUtc < now)
                 .CountAsync(ct);
 
             return Results.Ok(new
@@ -678,6 +682,7 @@ public static class AdminEndpoints
             [FromBody] List<InjectPredictionItem> items,
             HttpContext context,
             IDocumentSession session,
+            ITournamentContext tournament,
             CancellationToken ct) =>
         {
             var caller = context.GetAppUser();
@@ -690,6 +695,7 @@ public static class AdminEndpoints
             // Validate all referenced fixture IDs exist
             var fixtureIds = items.Select(i => i.FixtureId).Distinct().ToList();
             var existingIds = (await session.Query<Fixture>()
+                .Where(f => f.TournamentId == tournament.TournamentId)
                 .Select(f => f.Id)
                 .ToListAsync(ct))
                 .ToHashSet();
@@ -703,12 +709,13 @@ public static class AdminEndpoints
             {
                 session.Store(new GroupPrediction
                 {
-                    Id          = $"{userId}_{item.FixtureId}",
-                    UserId      = userId,
-                    FixtureId   = item.FixtureId,
-                    HomeScore   = item.Home,
-                    AwayScore   = item.Away,
-                    SubmittedAt = now,
+                    Id           = GroupPredictionEndpoints.BuildId(tournament.TournamentId, userId, item.FixtureId),
+                    TournamentId = tournament.TournamentId,
+                    UserId       = userId,
+                    FixtureId    = item.FixtureId,
+                    HomeScore    = item.Home,
+                    AwayScore    = item.Away,
+                    SubmittedAt  = now,
                 });
             }
 
@@ -808,6 +815,7 @@ public static class AdminEndpoints
             HttpContext context,
             IFootballApiClient apiClient,
             IDocumentStore store,
+            ITournamentContext tournament,
             CancellationToken ct) =>
         {
             var user = context.GetAppUser();
@@ -825,7 +833,9 @@ public static class AdminEndpoints
             }
 
             await using var session = store.LightweightSession();
-            var allFixtures = await session.Query<Fixture>().ToListAsync(ct);
+            var allFixtures = await session.Query<Fixture>()
+                .Where(f => f.TournamentId == tournament.TournamentId)
+                .ToListAsync(ct);
             var fixtureByTeamPair = allFixtures.ToDictionary(f => (f.HomeTeamId, f.AwayTeamId));
 
             var matched = new List<object>();
@@ -876,6 +886,7 @@ public static class AdminEndpoints
             IFootballApiClient apiClient,
             IDocumentStore store,
             ScoringRecomputeService scoringService,
+            ITournamentContext tournament,
             CancellationToken ct) =>
         {
             var user = context.GetAppUser();
@@ -904,7 +915,9 @@ public static class AdminEndpoints
                 return Results.Problem($"Football API call failed: {ex.Message}", statusCode: 502);
             }
 
-            var allPlayers = await session.Query<Player>().ToListAsync(ct);
+            var allPlayers = await session.Query<Player>()
+                .Where(p => p.TournamentId == tournament.TournamentId)
+                .ToListAsync(ct);
             var playerByName = allPlayers
                 .GroupBy(p => ResultIngestionJob.StripDiacritics(p.Name), StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
@@ -1052,6 +1065,7 @@ public static class AdminEndpoints
             IFootballApiClient apiClient,
             IDocumentStore store,
             ScoringRecomputeService scoringService,
+            ITournamentContext tournament,
             CancellationToken ct) =>
         {
             var user = context.GetAppUser();
@@ -1071,13 +1085,13 @@ public static class AdminEndpoints
                 });
 
             var existingGoals = await session.Query<GoalEvent>()
-                .Where(g => g.FixtureId == fixtureId).ToListAsync(ct);
+                .Where(g => g.TournamentId == tournament.TournamentId && g.FixtureId == fixtureId).ToListAsync(ct);
             var existingCards = await session.Query<CardEvent>()
-                .Where(c => c.FixtureId == fixtureId).ToListAsync(ct);
+                .Where(c => c.TournamentId == tournament.TournamentId && c.FixtureId == fixtureId).ToListAsync(ct);
             var existingSubs = await session.Query<SubstitutionEvent>()
-                .Where(s => s.FixtureId == fixtureId).ToListAsync(ct);
+                .Where(s => s.TournamentId == tournament.TournamentId && s.FixtureId == fixtureId).ToListAsync(ct);
             var existingVars = await session.Query<VarEvent>()
-                .Where(v => v.FixtureId == fixtureId).ToListAsync(ct);
+                .Where(v => v.TournamentId == tournament.TournamentId && v.FixtureId == fixtureId).ToListAsync(ct);
 
             foreach (var g in existingGoals) session.Delete(g);
             foreach (var c in existingCards) session.Delete(c);
@@ -1100,7 +1114,9 @@ public static class AdminEndpoints
                     statusCode: 502);
             }
 
-            var allPlayers = await session.Query<Player>().ToListAsync(ct);
+            var allPlayers = await session.Query<Player>()
+                .Where(p => p.TournamentId == tournament.TournamentId)
+                .ToListAsync(ct);
             var playerByName = allPlayers
                 .GroupBy(p => ResultIngestionJob.StripDiacritics(p.Name), StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
@@ -1253,6 +1269,7 @@ public static class AdminEndpoints
             IFootballApiClient apiClient,
             IDocumentStore store,
             ScoringRecomputeService scoringService,
+            ITournamentContext tournament,
             CancellationToken ct) =>
         {
             var user = context.GetAppUser();
@@ -1263,7 +1280,9 @@ public static class AdminEndpoints
 
             var allCompleted = await session
                 .Query<Fixture>()
-                .Where(f => f.Status == MatchStatus.Completed && f.FootballApiFixtureId != null)
+                .Where(f => f.TournamentId == tournament.TournamentId
+                         && f.Status == MatchStatus.Completed
+                         && f.FootballApiFixtureId != null)
                 .ToListAsync(ct);
 
             var toProcess = onlyMissing
@@ -1279,7 +1298,9 @@ public static class AdminEndpoints
                     quotaExhausted = false,
                 });
 
-            var allPlayers = await session.Query<Player>().ToListAsync(ct);
+            var allPlayers = await session.Query<Player>()
+                .Where(p => p.TournamentId == tournament.TournamentId)
+                .ToListAsync(ct);
             var playerByName = allPlayers
                 .GroupBy(p => ResultIngestionJob.StripDiacritics(p.Name), StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);

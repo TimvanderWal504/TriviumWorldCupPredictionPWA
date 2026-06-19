@@ -162,24 +162,25 @@ public class KnockoutPredictionTests
     // ── BuildId: composite key format ─────────────────────────────────────────
 
     [Fact]
-    public void BuildId_CombinesUserIdAndSlotKey()
+    public void BuildId_CombinesTournamentUserIdAndSlotKey()
     {
-        var id = KnockoutPredictionEndpoints.BuildId("user-42", "QF-1");
-        Assert.Equal("user-42_QF-1", id);
+        // GEN-1 (TWC-35): composite key now includes TournamentId prefix.
+        var id = KnockoutPredictionEndpoints.BuildId("world-cup-2026", "user-42", "QF-1");
+        Assert.Equal("world-cup-2026_user-42_QF-1", id);
     }
 
     [Fact]
     public void BuildId_SlotWithSpecialKey()
     {
-        var id = KnockoutPredictionEndpoints.BuildId("user-1", "FIN");
-        Assert.Equal("user-1_FIN", id);
+        var id = KnockoutPredictionEndpoints.BuildId("world-cup-2026", "user-1", "FIN");
+        Assert.Equal("world-cup-2026_user-1_FIN", id);
     }
 
     [Fact]
     public void BuildId_ThirdPlaceSlot()
     {
-        var id = KnockoutPredictionEndpoints.BuildId("user-99", "3RD");
-        Assert.Equal("user-99_3RD", id);
+        var id = KnockoutPredictionEndpoints.BuildId("world-cup-2026", "user-99", "3RD");
+        Assert.Equal("world-cup-2026_user-99_3RD", id);
     }
 
     // ── Slot with null teams — prediction rejected (422-equivalent guard) ──────
