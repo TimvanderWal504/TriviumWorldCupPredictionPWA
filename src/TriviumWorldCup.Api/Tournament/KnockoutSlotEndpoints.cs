@@ -12,9 +12,10 @@ public static class KnockoutSlotEndpoints
     public static IEndpointRouteBuilder MapKnockoutSlotEndpoints(this IEndpointRouteBuilder routes)
     {
         // GET /knockout/slots — all 32 bracket slots with current status.
-        routes.MapGet("/knockout/slots", async (IDocumentSession session, CancellationToken ct) =>
+        routes.MapGet("/knockout/slots", async (IDocumentSession session, ITournamentContext tournament, CancellationToken ct) =>
         {
             var slots = await session.Query<KnockoutSlot>()
+                .Where(s => s.TournamentId == tournament.TournamentId)
                 .OrderBy(s => s.Round)
                 .ThenBy(s => s.SlotNumber)
                 .ToListAsync(ct);

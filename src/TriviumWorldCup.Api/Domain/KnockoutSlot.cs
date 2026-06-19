@@ -10,6 +10,9 @@ public class KnockoutSlot
     /// <summary>Marten document id — same as SlotKey.</summary>
     public string Id { get; set; } = default!;
 
+    /// <summary>Slug of the tournament this slot belongs to (e.g. "world-cup-2026").</summary>
+    public string TournamentId { get; set; } = SingleTournamentContext.DefaultTournamentId;
+
     /// <summary>Unique key, e.g. "R32-1", "R16-4", "QF-2", "SF-1", "3RD", "FIN".</summary>
     public string SlotKey { get; set; } = default!;
 

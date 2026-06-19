@@ -17,7 +17,7 @@ public static class StandingsEndpoints
         var group = routes.MapGroup("/scores").WithTags("standings");
 
         // GET /scores/me — returns the calling user's full standings.
-        group.MapGet("/me", async (HttpContext context, IDocumentSession session, CancellationToken ct) =>
+        group.MapGet("/me", async (HttpContext context, IDocumentSession session, ITournamentContext tournament, CancellationToken ct) =>
         {
             var user = context.GetAppUser();
             if (!user.IsAuthenticated)
@@ -26,8 +26,10 @@ public static class StandingsEndpoints
             // Load the user's MemberScore (may not exist if no predictions have been scored yet).
             var myScore = await session.LoadAsync<MemberScore>(user.UserId, ct);
 
-            // Load all MemberScore documents to determine rank.
-            var allScores = await session.Query<MemberScore>().ToListAsync(ct);
+            // Load all MemberScore documents to determine rank — scoped to the active tournament.
+            var allScores = await session.Query<MemberScore>()
+                .Where(s => s.TournamentId == tournament.TournamentId)
+                .ToListAsync(ct);
 
             var myTotalPoints = myScore?.TotalPoints ?? 0;
 
@@ -45,18 +47,19 @@ public static class StandingsEndpoints
             {
                 var playerIds = tournamentPrediction.GoldenSixPlayerIds;
 
-                // Load all 6 player documents.
+                // Load all 6 player documents — scoped to the active tournament.
                 var players = await session
                     .Query<Player>()
-                    .Where(p => p.Id.IsOneOf(playerIds))
+                    .Where(p => p.TournamentId == tournament.TournamentId && p.Id.IsOneOf(playerIds))
                     .ToListAsync(ct);
 
                 var playerById = players.ToDictionary(p => p.Id);
 
-                // Count countable goals per player (exclude Shootout and OwnGoal).
+                // Count countable goals per player (exclude Shootout and OwnGoal) — scoped to the active tournament.
                 var goalEvents = await session
                     .Query<GoalEvent>()
-                    .Where(g => g.Type != GoalType.Shootout
+                    .Where(g => g.TournamentId == tournament.TournamentId
+                             && g.Type != GoalType.Shootout
                              && g.Type != GoalType.OwnGoal
                              && g.PlayerId.IsOneOf(playerIds))
                     .ToListAsync(ct);

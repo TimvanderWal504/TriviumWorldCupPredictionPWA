@@ -1,9 +1,11 @@
 using Marten;
 using Microsoft.AspNetCore.OutputCaching;
+using Microsoft.Extensions.Options;
 using Quartz;
 using TriviumWorldCup.Api.Admin;
 using TriviumWorldCup.Api.Domain;
 using TriviumWorldCup.Api.Knockout;
+using TriviumWorldCup.Api.Scheduling;
 using TriviumWorldCup.Api.Scoring;
 
 namespace TriviumWorldCup.Api.Ingestion;
@@ -48,6 +50,8 @@ public class ResultIngestionJob(
     IngestionStatusStore statusStore,
     PlayerCache playerCache,
     IOutputCacheStore outputCache,
+    IOptions<TriviumSchedulingOptions> schedulingOptions,
+    ITournamentContext tournamentContext,
     ILogger<ResultIngestionJob> logger) : IJob
 {
     // Version 5 UUID namespace for deterministic GoalEvent IDs.
@@ -74,8 +78,9 @@ public class ResultIngestionJob(
         // The fixture seed data has all kickoff times, so we can determine the live
         // window entirely from our own DB without spending a Football API request.
         var now = DateTimeOffset.UtcNow;
-        var liveWindowStart = now.AddMinutes(-30);
-        var liveWindowEnd   = now.AddMinutes(30);
+        var liveWindowMinutes = schedulingOptions.Value.LiveWindowMinutes;
+        var liveWindowStart = now.AddMinutes(-liveWindowMinutes);
+        var liveWindowEnd   = now.AddMinutes(liveWindowMinutes);
 
         // The ±30min window only gates fixtures that haven't kicked off yet (Scheduled) —
         // it catches an upcoming kickoff cheaply. Once a fixture/slot is confirmed
@@ -84,12 +89,14 @@ public class ResultIngestionJob(
         // (stoppage time, extra time, penalty shootouts) and we must not stop tracking
         // a match that's actually still being played.
         await using var checkSession = store.LightweightSession();
+        var tid = tournamentContext.TournamentId;  // GEN-1 (TWC-35): scope all queries to active tournament
         var anyLiveInDb = await checkSession
             .Query<Fixture>()
-            .Where(f => f.Status == MatchStatus.InProgress
-                     || (f.Status == MatchStatus.Scheduled
-                         && f.KickoffUtc >= liveWindowStart
-                         && f.KickoffUtc <= liveWindowEnd))
+            .Where(f => f.TournamentId == tid
+                     && (f.Status == MatchStatus.InProgress
+                         || (f.Status == MatchStatus.Scheduled
+                             && f.KickoffUtc >= liveWindowStart
+                             && f.KickoffUtc <= liveWindowEnd)))
             .AnyAsync(ct);
 
         // Also check knockout slots — during the knockout phase all group Fixtures are
@@ -98,13 +105,14 @@ public class ResultIngestionJob(
         {
             anyLiveInDb = await checkSession
                 .Query<KnockoutSlot>()
-                .Where(s => s.Status == MatchStatus.InProgress
-                         || s.Status == MatchStatus.ExtraTime
-                         || s.Status == MatchStatus.PenaltyShootout
-                         || (s.Status == MatchStatus.Scheduled
-                             && s.KickoffUtc != null
-                             && s.KickoffUtc >= liveWindowStart
-                             && s.KickoffUtc <= liveWindowEnd))
+                .Where(s => s.TournamentId == tid
+                         && (s.Status == MatchStatus.InProgress
+                             || s.Status == MatchStatus.ExtraTime
+                             || s.Status == MatchStatus.PenaltyShootout
+                             || (s.Status == MatchStatus.Scheduled
+                                 && s.KickoffUtc != null
+                                 && s.KickoffUtc >= liveWindowStart
+                                 && s.KickoffUtc <= liveWindowEnd)))
                 .AnyAsync(ct);
         }
 
@@ -119,13 +127,13 @@ public class ResultIngestionJob(
             || now - statusStore.LastPostponedRecheck >= TimeSpan.FromMinutes(1))
         {
             shouldRecheckPostponed = await checkSession.Query<Fixture>()
-                .Where(f => f.Status == MatchStatus.Postponed)
+                .Where(f => f.TournamentId == tid && f.Status == MatchStatus.Postponed)
                 .AnyAsync(ct);
 
             if (!shouldRecheckPostponed)
             {
                 shouldRecheckPostponed = await checkSession.Query<KnockoutSlot>()
-                    .Where(s => s.Status == MatchStatus.Postponed)
+                    .Where(s => s.TournamentId == tid && s.Status == MatchStatus.Postponed)
                     .AnyAsync(ct);
             }
         }
@@ -185,7 +193,7 @@ public class ResultIngestionJob(
 
         var completedInDb = await session
             .Query<Fixture>()
-            .Where(f => f.Status == MatchStatus.Completed)
+            .Where(f => f.TournamentId == tid && f.Status == MatchStatus.Completed)
             .Select(f => f.Id)
             .ToListAsync(ct);
 
@@ -217,6 +225,7 @@ public class ResultIngestionJob(
         // ── 5. Load all group fixtures from Marten for matching ───────────────
         var allDbFixtures = await session
             .Query<Fixture>()
+            .Where(f => f.TournamentId == tid)
             .ToListAsync(ct);
 
         // Index Marten fixtures by team pair for O(1) lookup
@@ -344,13 +353,13 @@ public class ResultIngestionJob(
             if (!completedSet.Contains(dbFixture.Id) && !eventsIngestionFailed)
             {
                 var staleGoals = await session.Query<GoalEvent>()
-                    .Where(g => g.FixtureId == dbFixture.Id).ToListAsync(ct);
+                    .Where(g => g.TournamentId == tid && g.FixtureId == dbFixture.Id).ToListAsync(ct);
                 var staleCards = await session.Query<CardEvent>()
-                    .Where(c => c.FixtureId == dbFixture.Id).ToListAsync(ct);
+                    .Where(c => c.TournamentId == tid && c.FixtureId == dbFixture.Id).ToListAsync(ct);
                 var staleSubs  = await session.Query<SubstitutionEvent>()
-                    .Where(s => s.FixtureId == dbFixture.Id).ToListAsync(ct);
+                    .Where(s => s.TournamentId == tid && s.FixtureId == dbFixture.Id).ToListAsync(ct);
                 var staleVars  = await session.Query<VarEvent>()
-                    .Where(v => v.FixtureId == dbFixture.Id).ToListAsync(ct);
+                    .Where(v => v.TournamentId == tid && v.FixtureId == dbFixture.Id).ToListAsync(ct);
                 foreach (var g in staleGoals) session.Delete(g);
                 foreach (var c in staleCards) session.Delete(c);
                 foreach (var s in staleSubs)  session.Delete(s);
@@ -627,7 +636,8 @@ public class ResultIngestionJob(
         // documents by team pair and update scores / status in real-time.
         var knockoutSlots = await session
             .Query<KnockoutSlot>()
-            .Where(s => s.HomeTeamId != null
+            .Where(s => s.TournamentId == tid
+                     && s.HomeTeamId != null
                      && s.AwayTeamId != null
                      && s.Status != MatchStatus.Completed
                      && s.Status != MatchStatus.Cancelled
@@ -782,14 +792,15 @@ public class ResultIngestionJob(
     {
         await using var session = store.LightweightSession();
 
+        var tid = tournamentContext.TournamentId;
         var postponedFixtures = await session
             .Query<Fixture>()
-            .Where(f => f.Status == MatchStatus.Postponed)
+            .Where(f => f.TournamentId == tid && f.Status == MatchStatus.Postponed)
             .ToListAsync(ct);
 
         var postponedSlots = await session
             .Query<KnockoutSlot>()
-            .Where(s => s.Status == MatchStatus.Postponed)
+            .Where(s => s.TournamentId == tid && s.Status == MatchStatus.Postponed)
             .ToListAsync(ct);
 
         if (postponedFixtures.Count == 0 && postponedSlots.Count == 0)

@@ -7,7 +7,7 @@ namespace TriviumWorldCup.Api.Ingestion;
 /// Singleton cache of the player roster. Loaded once on first use since the roster
 /// is static for the duration of the tournament. Thread-safe double-checked init.
 /// </summary>
-public sealed class PlayerCache(IDocumentStore store, ILogger<PlayerCache> logger)
+public sealed class PlayerCache(IDocumentStore store, ITournamentContext tournamentContext, ILogger<PlayerCache> logger)
 {
     private IReadOnlyDictionary<string, Player>? _byFullName;
     private ILookup<string, Player>? _byLastName;
@@ -29,7 +29,9 @@ public sealed class PlayerCache(IDocumentStore store, ILogger<PlayerCache> logge
             if (_byFullName is not null) return;
 
             await using var session = store.LightweightSession();
-            var players = await session.Query<Player>().ToListAsync(ct);
+            var players = await session.Query<Player>()
+                .Where(p => p.TournamentId == tournamentContext.TournamentId)
+                .ToListAsync(ct);
 
             _byFullName = players
                 .GroupBy(p => ResultIngestionJob.NormalizeName(p.Name), StringComparer.OrdinalIgnoreCase)

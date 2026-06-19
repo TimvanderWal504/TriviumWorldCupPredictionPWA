@@ -16,14 +16,14 @@ public static class KnockoutPredictionEndpoints
         var group = routes.MapGroup("/predictions/knockout").WithTags("predictions");
 
         // GET /predictions/knockout — all knockout predictions for the current user.
-        group.MapGet("/", async (HttpContext context, IDocumentSession session, CancellationToken ct) =>
+        group.MapGet("/", async (HttpContext context, IDocumentSession session, ITournamentContext tournament, CancellationToken ct) =>
         {
             var user = context.GetAppUser();
             if (!user.IsAuthenticated)
                 return Results.Unauthorized();
 
             var predictions = await session.Query<KnockoutPrediction>()
-                .Where(p => p.UserId == user.UserId)
+                .Where(p => p.TournamentId == tournament.TournamentId && p.UserId == user.UserId)
                 .ToListAsync(ct);
 
             var dtos = predictions.Select(MapToDto);
@@ -38,6 +38,7 @@ public static class KnockoutPredictionEndpoints
             HttpContext context,
             [FromBody] KnockoutPredictionRequest request,
             IDocumentSession session,
+            ITournamentContext tournament,
             CancellationToken ct) =>
         {
             var user = context.GetAppUser();
@@ -60,7 +61,7 @@ public static class KnockoutPredictionEndpoints
                 return Results.Forbid();
 
             // 409: prediction already exists — caller should PUT
-            var predictionId = BuildId(user.UserId, slotKey);
+            var predictionId = BuildId(tournament.TournamentId, user.UserId, slotKey);
             var existing = await session.LoadAsync<KnockoutPrediction>(predictionId, ct);
             if (existing is not null)
                 return Results.Conflict(new { error = "Prediction already exists for this slot. Use PUT to update." });
@@ -72,13 +73,14 @@ public static class KnockoutPredictionEndpoints
 
             var prediction = new KnockoutPrediction
             {
-                Id                   = predictionId,
-                UserId               = user.UserId,
-                SlotKey              = slotKey,
+                Id                    = predictionId,
+                TournamentId          = tournament.TournamentId,
+                UserId                = user.UserId,
+                SlotKey               = slotKey,
                 PredictedWinnerTeamId = request.PredictedWinnerTeamId,
-                PredictedHomeScore   = request.PredictedHomeScore,
-                PredictedAwayScore   = request.PredictedAwayScore,
-                SubmittedAt          = DateTimeOffset.UtcNow,
+                PredictedHomeScore    = request.PredictedHomeScore,
+                PredictedAwayScore    = request.PredictedAwayScore,
+                SubmittedAt           = DateTimeOffset.UtcNow,
             };
 
             session.Store(prediction);
@@ -95,6 +97,7 @@ public static class KnockoutPredictionEndpoints
             HttpContext context,
             [FromBody] KnockoutPredictionRequest request,
             IDocumentSession session,
+            ITournamentContext tournament,
             CancellationToken ct) =>
         {
             var user = context.GetAppUser();
@@ -116,7 +119,7 @@ public static class KnockoutPredictionEndpoints
             if (IsLocked(slot))
                 return Results.Forbid();
 
-            var predictionId = BuildId(user.UserId, slotKey);
+            var predictionId = BuildId(tournament.TournamentId, user.UserId, slotKey);
             var prediction = await session.LoadAsync<KnockoutPrediction>(predictionId, ct);
             if (prediction is null)
                 return Results.NotFound(new { error = "Prediction not found. Use POST to create one." });
@@ -156,9 +159,9 @@ public static class KnockoutPredictionEndpoints
     public static bool IsLocked(KnockoutSlot slot) =>
         slot.KickoffUtc is null || slot.KickoffUtc <= DateTimeOffset.UtcNow;
 
-    /// <summary>Builds the composite document ID from user and slot identifiers.</summary>
-    public static string BuildId(string userId, string slotKey) =>
-        $"{userId}_{slotKey}";
+    /// <summary>Builds the composite document ID from tournament, user, and slot identifiers (GEN-1).</summary>
+    public static string BuildId(string tournamentId, string userId, string slotKey) =>
+        $"{tournamentId}_{userId}_{slotKey}";
 
     /// <summary>
     /// Returns an error message if the predicted winner is not one of the two slot participants,
