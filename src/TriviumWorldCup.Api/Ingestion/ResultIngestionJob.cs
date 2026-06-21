@@ -529,6 +529,16 @@ public class ResultIngestionJob(
             {
                 var liveVarCancels    = liveEvents.Where(e => e.IsVar && e.IsGoalCancelled);
                 var liveFilteredGoals = FilterCancelledGoals(liveEvents.Where(e => e.IsGoal), liveVarCancels);
+
+                // Delete all existing goal events for this fixture before re-storing from the
+                // current API response. The API may initially return a goal with elapsed=null
+                // (stored as minute=0), then correct it on the next poll — producing a different
+                // deterministic ID and leaving the old minute=0 row as a phantom duplicate.
+                // Wiping and re-writing the full set each cycle keeps the DB in sync with the API.
+                var existingGoals = await session.Query<GoalEvent>()
+                    .Where(g => g.FixtureId == liveDbFixture.Id).ToListAsync(ct);
+                foreach (var g in existingGoals) session.Delete(g);
+
                 foreach (var evt in liveFilteredGoals)
                 {
                     if (evt.Player?.Name is not { Length: > 0 } pName) continue;
