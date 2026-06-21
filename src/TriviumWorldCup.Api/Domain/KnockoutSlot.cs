@@ -57,4 +57,12 @@ public class KnockoutSlot
     /// Used by ScoringRecomputeService to determine the tournament champion from the Final slot.
     /// </summary>
     public string? WinnerTeamId { get; set; }
+
+    /// <summary>
+    /// Integer fixture ID from the API-Football v3 API (fixtures.fixture.id).
+    /// Null until the slot's teams are resolved and the ingestion job matches it by team pair.
+    /// Once populated, subsequent ingestion cycles match by this ID instead of the team pair,
+    /// which is more reliable if team-name resolution is ambiguous.
+    /// </summary>
+    public int? FootballApiFixtureId { get; set; }
 }

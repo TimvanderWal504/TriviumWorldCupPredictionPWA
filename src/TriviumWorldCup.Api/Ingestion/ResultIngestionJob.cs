@@ -648,15 +648,28 @@ public class ResultIngestionJob(
         var completedSlotKeys    = new List<string>();
         if (knockoutSlots.Count > 0)
         {
+            var knockoutByApiId = knockoutSlots
+                .Where(s => s.FootballApiFixtureId.HasValue)
+                .ToDictionary(s => s.FootballApiFixtureId!.Value);
+
             var knockoutByTeamPair = knockoutSlots
                 .ToDictionary(s => (s.HomeTeamId!, s.AwayTeamId!));
 
             foreach (var apiFixture in allApiFixtures.Where(f => f.IsLive || f.IsFullTime || f.IsCancelledOrPostponed))
             {
-                var homeCode = FootballApiTeamMap.Resolve(apiFixture.HomeTeamId, apiFixture.HomeTeamName);
-                var awayCode = FootballApiTeamMap.Resolve(apiFixture.AwayTeamId, apiFixture.AwayTeamName);
-                if (homeCode == null || awayCode == null) continue;
-                if (!knockoutByTeamPair.TryGetValue((homeCode, awayCode), out var slot)) continue;
+                // Prefer ID-based match (fast, unambiguous); fall back to team-pair on first contact.
+                KnockoutSlot? slot;
+                if (!knockoutByApiId.TryGetValue(apiFixture.FixtureId, out slot))
+                {
+                    var homeCode = FootballApiTeamMap.Resolve(apiFixture.HomeTeamId, apiFixture.HomeTeamName);
+                    var awayCode = FootballApiTeamMap.Resolve(apiFixture.AwayTeamId, apiFixture.AwayTeamName);
+                    if (homeCode == null || awayCode == null) continue;
+                    if (!knockoutByTeamPair.TryGetValue((homeCode, awayCode), out slot)) continue;
+
+                    // Store the API fixture ID so future polls use the faster ID-based path.
+                    slot.FootballApiFixtureId = apiFixture.FixtureId;
+                }
+                // slot is guaranteed non-null here (both branches above either continue or set it).
 
                 if (apiFixture.IsCancelledOrPostponed)
                 {
@@ -666,7 +679,7 @@ public class ResultIngestionJob(
                     cancelledCount++;
                     logger.LogInformation(
                         "ResultIngestionJob: knockout slot {SlotKey} ({Home} vs {Away}) marked {NewStatus} — API status {Status}",
-                        slot.SlotKey, homeCode, awayCode, newSlotStatus, apiFixture.StatusShort);
+                        slot.SlotKey, slot.HomeTeamId, slot.AwayTeamId, newSlotStatus, apiFixture.StatusShort);
                     continue;
                 }
 
@@ -719,7 +732,7 @@ public class ResultIngestionJob(
                     completedSlotKeys.Add(slot.SlotKey);
                     logger.LogInformation(
                         "ResultIngestionJob: knockout slot {SlotKey} completed — {Home} {HomeScore}-{AwayScore} {Away}, winner={Winner}",
-                        slot.SlotKey, homeCode, slot.HomeScore, slot.AwayScore, awayCode,
+                        slot.SlotKey, slot.HomeTeamId, slot.HomeScore, slot.AwayScore, slot.AwayTeamId,
                         slot.WinnerTeamId ?? "TBD");
                 }
 
