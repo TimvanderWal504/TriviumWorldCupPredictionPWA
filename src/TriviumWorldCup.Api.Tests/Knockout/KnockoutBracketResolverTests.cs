@@ -773,31 +773,29 @@ public class KnockoutBracketResolverTests
 
         var slotByKey = slots.ToDictionary(s => s.SlotKey);
 
-        // Set up R32-1: BRA vs ARG, BRA wins
-        slotByKey["R32-1"].HomeTeamId   = "BRA";
-        slotByKey["R32-1"].AwayTeamId   = "ARG";
-        slotByKey["R32-1"].WinnerTeamId = "BRA";
-        slotByKey["R32-1"].HomeScore    = 2;
-        slotByKey["R32-1"].AwayScore    = 1;
-        slotByKey["R32-1"].Status       = MatchStatus.Completed;
+        // Set up R32-3: BRA vs ARG, BRA wins
+        slotByKey["R32-3"].HomeTeamId   = "BRA";
+        slotByKey["R32-3"].AwayTeamId   = "ARG";
+        slotByKey["R32-3"].WinnerTeamId = "BRA";
+        slotByKey["R32-3"].HomeScore    = 2;
+        slotByKey["R32-3"].AwayScore    = 1;
+        slotByKey["R32-3"].Status       = MatchStatus.Completed;
 
-        // Set up R32-2: FRA vs ENG, ENG wins
-        slotByKey["R32-2"].HomeTeamId   = "FRA";
-        slotByKey["R32-2"].AwayTeamId   = "ENG";
-        slotByKey["R32-2"].WinnerTeamId = "ENG";
-        slotByKey["R32-2"].HomeScore    = 0;
-        slotByKey["R32-2"].AwayScore    = 1;
-        slotByKey["R32-2"].Status       = MatchStatus.Completed;
+        // Set up R32-6: FRA vs ENG, ENG wins
+        slotByKey["R32-6"].HomeTeamId   = "FRA";
+        slotByKey["R32-6"].AwayTeamId   = "ENG";
+        slotByKey["R32-6"].WinnerTeamId = "ENG";
+        slotByKey["R32-6"].HomeScore    = 0;
+        slotByKey["R32-6"].AwayScore    = 1;
+        slotByKey["R32-6"].Status       = MatchStatus.Completed;
 
-        // Manually invoke propagation logic using the same pattern as PropagateSlotResult.
-        // Since it's private, we call PopulateR32Slots (which only handles group sources).
-        // For MatchWinner propagation we test via the internal state:
-        // The test verifies the SlotSource wiring in SeedData is correct for R16-1.
+        // Verify the SlotSource wiring in SeedData is correct for R16-1.
+        // R16-1 is fed by the winners of R32-3 and R32-6.
         var r16 = slotByKey["R16-1"];
         Assert.Equal(SlotSourceType.MatchWinner, r16.HomeSlotSource.Type);
-        Assert.Equal("R32-1", r16.HomeSlotSource.Reference);
+        Assert.Equal("R32-3", r16.HomeSlotSource.Reference);
         Assert.Equal(SlotSourceType.MatchWinner, r16.AwaySlotSource.Type);
-        Assert.Equal("R32-2", r16.AwaySlotSource.Reference);
+        Assert.Equal("R32-6", r16.AwaySlotSource.Reference);
     }
 
     // -------------------------------------------------------------------------
@@ -1029,7 +1027,7 @@ public class KnockoutBracketResolverTests
     // -------------------------------------------------------------------------
 
     [Fact]
-    public void SeedSlots_BestThirdPlaceReferences_CoverAll8CombinationsOf3Groups()
+    public void SeedSlots_BestThirdPlaceReferences_EachSlotHas5EligibleGroups()
     {
         // There are exactly 8 BestThirdPlace slot sources in R32.
         var r32Slots = KnockoutSlotsData.All.Where(s => s.Round == Round.R32).ToList();
@@ -1045,19 +1043,18 @@ public class KnockoutBracketResolverTests
 
         Assert.Equal(8, btp.Count);
 
-        // Each reference should contain exactly 3 group letters.
+        // FIFA 2026: each BestThirdPlace reference covers exactly 5 eligible groups.
         foreach (var reference in btp)
         {
             var letters = reference!.Split('/');
-            Assert.Equal(3, letters.Length);
+            Assert.Equal(5, letters.Length);
         }
     }
 
     [Fact]
     public void SeedSlots_BestThirdPlaceReferences_TotalGroupLettersCover12Groups()
     {
-        // The 8 BestThirdPlace references cover groups A-L (8 × 3 = 24 group-letter slots).
-        // Each of the 12 group letters appears in exactly 2 of the 8 references.
+        // The 8 BestThirdPlace references cover groups A-L (8 × 5 = 40 group-letter slots).
         var r32Slots = KnockoutSlotsData.All.Where(s => s.Round == Round.R32).ToList();
 
         var allLetters = r32Slots
@@ -1070,8 +1067,8 @@ public class KnockoutBracketResolverTests
             .SelectMany(r => r!.Split('/'))
             .ToList();
 
-        // 8 references × 3 letters = 24 total letter appearances
-        Assert.Equal(24, allLetters.Count);
+        // 8 references × 5 letters = 40 total letter appearances
+        Assert.Equal(40, allLetters.Count);
 
         // Each of A-L appears at least once
         var validLetters = new[] { "A","B","C","D","E","F","G","H","I","J","K","L" };

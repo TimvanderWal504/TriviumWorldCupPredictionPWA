@@ -403,15 +403,25 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
         Dictionary<string, List<string>> rankings,
         List<(string TeamId, string GroupLetter)> bestThirds)
     {
-        // Index best-thirds by group letter for fast lookup.
         var bestThirdByGroup = bestThirds.ToDictionary(t => t.GroupLetter, t => t.TeamId);
+
+        var r32Slots = slotByKey.Values.Where(s => s.Round == Round.R32).ToList();
+
+        // Pre-compute BestThirdPlace allocation via bipartite matching so that each
+        // qualifying third-placed team is assigned to exactly one R32 slot.
+        var btAllocation = AllocateBestThirds(bestThirdByGroup, r32Slots);
 
         var changed = 0;
 
-        foreach (var slot in slotByKey.Values.Where(s => s.Round == Round.R32))
+        foreach (var slot in r32Slots)
         {
-            var newHome = ResolveGroupSource(slot.HomeSlotSource, rankings, bestThirdByGroup);
-            var newAway = ResolveGroupSource(slot.AwaySlotSource, rankings, bestThirdByGroup);
+            var newHome = slot.HomeSlotSource.Type == SlotSourceType.BestThirdPlace
+                ? btAllocation.GetValueOrDefault(slot.SlotKey)
+                : ResolveGroupSource(slot.HomeSlotSource, rankings);
+
+            var newAway = slot.AwaySlotSource.Type == SlotSourceType.BestThirdPlace
+                ? btAllocation.GetValueOrDefault(slot.SlotKey)
+                : ResolveGroupSource(slot.AwaySlotSource, rankings);
 
             if (newHome is not null && slot.HomeTeamId != newHome)
             {
@@ -434,14 +444,13 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
     // -------------------------------------------------------------------------
 
     /// <summary>
-    /// Resolves a single SlotSource that references a group position (GroupWinner,
-    /// GroupRunnerUp, BestThirdPlace).  Returns null if the source is a MatchWinner
-    /// or MatchLoser type (those are handled by PropagateSlotResult).
+    /// Resolves a single SlotSource that references a group position (GroupWinner or
+    /// GroupRunnerUp).  Returns null for any other source type.
+    /// BestThirdPlace sources are resolved upstream via <see cref="AllocateBestThirds"/>.
     /// </summary>
     private static string? ResolveGroupSource(
         SlotSource source,
-        Dictionary<string, List<string>> rankings,
-        Dictionary<string, string> bestThirdByGroup)
+        Dictionary<string, List<string>> rankings)
     {
         switch (source.Type)
         {
@@ -461,26 +470,80 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
                 return null;
             }
 
-            case SlotSourceType.BestThirdPlace:
-            {
-                // Reference is like "B/C/D" — find the best third-placed qualifying team
-                // whose group is one of those letters.
-                var letters = source.Reference
-                    .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-                foreach (var letter in letters)
-                {
-                    if (bestThirdByGroup.TryGetValue(letter, out var teamId))
-                        return teamId;
-                }
-
-                return null;
-            }
-
             default:
-                return null; // MatchWinner / MatchLoser handled elsewhere
+                return null; // BestThirdPlace handled by AllocateBestThirds; MatchWinner/Loser elsewhere
         }
+    }
+
+    /// <summary>
+    /// Assigns qualifying third-placed teams to BestThirdPlace R32 slots using a
+    /// maximum bipartite matching (augmenting-path algorithm).
+    ///
+    /// Each slot's Reference encodes the groups whose third-placed team is eligible
+    /// for that slot (e.g. "A/B/C/D/F"). The matching ensures each qualifying team
+    /// is assigned to exactly one slot and each slot receives at most one team.
+    ///
+    /// Returns a dictionary keyed by SlotKey → TeamId (absent when no qualifier
+    /// could be matched to that slot).
+    /// </summary>
+    private static Dictionary<string, string?> AllocateBestThirds(
+        Dictionary<string, string> bestThirdByGroup,
+        IEnumerable<KnockoutSlot> r32Slots)
+    {
+        // Collect at most one BestThirdPlace source per R32 slot.
+        var btSources = r32Slots
+            .Select(s => (s.SlotKey,
+                Source: s.HomeSlotSource.Type == SlotSourceType.BestThirdPlace ? s.HomeSlotSource
+                      : s.AwaySlotSource.Type == SlotSourceType.BestThirdPlace ? s.AwaySlotSource
+                      : null))
+            .Where(x => x.Source is not null)
+            .ToList();
+
+        // Eligible qualifying groups per slot.
+        var eligiblePerSlot = btSources.ToDictionary(
+            x => x.SlotKey,
+            x => x.Source!.Reference
+                .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(g => bestThirdByGroup.ContainsKey(g))
+                .ToList());
+
+        var slotToGroup = new Dictionary<string, string>();
+        var groupToSlot = new Dictionary<string, string>();
+
+        foreach (var slotKey in eligiblePerSlot.Keys)
+        {
+            var visited = new HashSet<string>();
+            Augment(slotKey, eligiblePerSlot, slotToGroup, groupToSlot, visited);
+        }
+
+        return eligiblePerSlot.Keys.ToDictionary(
+            slotKey => slotKey,
+            slotKey => slotToGroup.TryGetValue(slotKey, out var g)
+                ? bestThirdByGroup.GetValueOrDefault(g)
+                : (string?)null);
+    }
+
+    /// <summary>DFS augmenting-path step for bipartite matching.</summary>
+    private static bool Augment(
+        string slotKey,
+        Dictionary<string, List<string>> eligiblePerSlot,
+        Dictionary<string, string> slotToGroup,
+        Dictionary<string, string> groupToSlot,
+        HashSet<string> visited)
+    {
+        foreach (var group in eligiblePerSlot[slotKey])
+        {
+            if (!visited.Add(group)) continue;
+
+            if (!groupToSlot.TryGetValue(group, out var occupyingSlot) ||
+                Augment(occupyingSlot, eligiblePerSlot, slotToGroup, groupToSlot, visited))
+            {
+                slotToGroup[slotKey] = group;
+                groupToSlot[group] = slotKey;
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>

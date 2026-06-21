@@ -33,7 +33,7 @@
 - **TWC-10** ✅ — My standings: GET /scores/me, rank, Golden Six per-player breakdown (`feature/TWC-11`)
 - **TWC-11** ✅ — Leaderboard + drill-down: competition-rank tiebreakers, privacy-enforced (`feature/TWC-11`)
 
-**Final: 324 .NET tests + 11 frontend tests + 16 Playwright smoke tests passing. All builds green.**
+**Final: 417 .NET tests + 11 frontend tests + 16 Playwright smoke tests passing. All builds green.**
 
 ### Post-MVP Wave 5
 - **TWC-14** ✅ — Knockout bracket population + per-round prediction screens
@@ -50,6 +50,7 @@
 
 ### Wave 7
 - **TWC-32** ✅ — Knockout bracket resolver: group ranking (FIFA criteria: pts/GD/GF + head-to-head), best-8-of-12 third-placed selection, R32 slot population, MatchWinner/MatchLoser round propagation, new admin endpoint `POST /admin/knockout/{slotKey}/result`, idempotent. 22 new tests; 351 total pass. (`feature/TWC-32`)
+- **TWC-33** ✅ — Link auth provider (replaces mock): `LinkIdentityProvider`, `LinkAuthEndpoints`, admin user management (`GET/POST/DELETE /admin/users`), `InviteUsersData` seed, official 2026 squad data (1 246 players, 48 teams), GroupPredictionsPage UX (scroll indicator, auto-advance), Rules promoted to top-level tab, TWC design token system, E2E harness updated for link auth, Azure staging deployment. (`unversioned/main`, 4–5 June 2026)
 
 ### Unversioned work (main, 4–5 June 2026)
 - **PlayersData.cs** — Complete rewrite with official 2026 FIFA World Cup squads for all 48 teams (1 246 players). Source: Wikipedia squads page fetched 4 June 2026 (all squads submitted by 1 June). Positions mapped exactly from Wikipedia GK/DF/MF/FW to `Position.GK/DEF/MID/FWD`. Test minimum-squad threshold raised from 15 → 23 (FIFA minimum). 351 tests still pass.
@@ -234,7 +235,7 @@ Root cause analysis of Azure 503 errors during live matches identified CPU credi
 
 ## Next action
 1. **Deploy B2ms Postgres upgrade** — re-run `az deployment group create` with updated `main.bicep` during a non-match window (Azure requires ~2 min downtime to resize Flexible Server).
-2. **`git push origin staging`** — triggers first GitHub Actions build; after ~5 min the web app URL serves the real app.
-3. **Seed admin user on staging** — navigate to `https://twc-web.bravesea-4935fc14.germanywestcentral.azurecontainerapps.io/auth/link/login?id=c0c53bf2-8c04-4f08-86ee-10d25e895fee`
-4. **Seed admin user on staging** — if the DB was already seeded before the admin user seed was added, create Tim manually: Admin page → Users → Create, or clear and re-seed the DB.
-5. **Wave 9 (final)** — TWC-20 real Entra, once the app registration is provided. When ready: add `EntraIdentityProvider`, set `Auth:Provider=entra` in Azure env vars, leave link auth as-is for fallback.
+2. **BestThirdPlace resolver** — `KnockoutSlotsData.cs` R32 slot wiring, kickoffs, and venues fully corrected against official FIFA 2026 bracket (verified 20 June 2026). BestThirdPlace Reference strings updated to 5-group eligibility sets as per FIFA. Current resolver iterates groups in Reference order and returns first match in `bestThirdByGroup` — works as a bijection only when exactly one eligible group qualifies per slot. A matrix-based allocation (C(12,8) = 495 rows) is needed for the general case; implement before group stage ends (27 June) to guarantee correct R32 population.
+3. **Platform generalization Gen-Wave B** — TWC-36 (data-driven structure), TWC-37 (generic outcome model), TWC-38 (competitor generalization), TWC-41 (lock policy + grace removal). All unblocked by TWC-35 ✅.
+4. **TWC-20 (Entra)** — deprioritised; may be marked obsolete. No action until decided.
+5. **Update Confluence Design & Architecture page** — use the prompt in `.docs/confluence-update-prompt.md`.

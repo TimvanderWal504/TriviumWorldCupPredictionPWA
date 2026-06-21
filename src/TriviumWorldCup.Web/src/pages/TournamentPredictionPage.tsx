@@ -223,9 +223,6 @@ function TeamGrid({ teams, players, selectedPlayers, onAdd, onRemove, disabled }
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
-// Temporary grace window: predictions stay open all of 2026-06-12 regardless of the server lock.
-const GRACE_DATE = '2026-06-12';
-
 export function TournamentPredictionPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -239,8 +236,7 @@ export function TournamentPredictionPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
 
-  const isGraceDay = new Date().toISOString().slice(0, 10) === GRACE_DATE;
-  const effectiveLocked = isLocked && !isGraceDay;
+  const effectiveLocked = isLocked;
 
   useEffect(() => {
     Promise.all([fetchTeams(), fetchPlayers(), fetchPrediction(), fetchLocked()]).then(([t, p, pred, locked]) => {
@@ -293,12 +289,6 @@ export function TournamentPredictionPage() {
         Predictions lock at first kickoff.
       </div>
 
-      {isGraceDay && isLocked && (
-        <div className="rounded-input px-4 py-3 text-sm font-medium border"
-             style={{ background: 'var(--win-soft)', borderColor: 'transparent', color: 'var(--win)' }}>
-          Extended deadline: predictions are open today (12 June) so everyone can still fill in their champion and top scorers.
-        </div>
-      )}
       {effectiveLocked && (
         <div className="rounded-input px-4 py-3 text-sm font-medium border"
              style={{ background: 'var(--warning-soft)', borderColor: 'transparent', color: 'var(--warning)' }}>
