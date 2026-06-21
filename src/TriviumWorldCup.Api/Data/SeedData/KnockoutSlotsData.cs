@@ -25,13 +25,11 @@ namespace TriviumWorldCup.Api.Data.SeedData;
 /// schedules (20 June 2026). Kickoff times converted from BST (UTC+1) to UTC.
 ///
 /// NOTE — BestThirdPlace resolver: the Reference strings below use 5-group
-/// eligibility sets (e.g. "A/B/C/D/F") as published by FIFA. The current
-/// resolver iterates Reference letters and returns the first qualifying team it
-/// finds in bestThirdByGroup. This worked under the old 3-group bijection but
-/// may assign incorrectly when multiple eligible groups qualify. A full
-/// FIFA-2026 matrix-based allocation (C(12,8) = 495 rows) is needed to handle
-/// the general case correctly — tracked as a follow-up before the group stage
-/// completes (first R32 match: 28 June 2026).
+/// eligibility sets (e.g. "A/B/C/D/F") as published by FIFA. The resolver
+/// uses a DFS augmenting-path bipartite matching (KnockoutBracketResolver.
+/// AllocateBestThirds) to assign each qualifying third-placed team to exactly
+/// one slot whose Reference contains their group — handles the general case
+/// correctly regardless of which 8 of 12 groups qualify.
 /// </summary>
 public static class KnockoutSlotsData
 {

@@ -1079,6 +1079,86 @@ public class KnockoutBracketResolverTests
     }
 
     // -------------------------------------------------------------------------
+    // BestThirdPlace bipartite matching — augmenting-path coverage
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Verifies that AllocateBestThirds (via PopulateR32Slots) correctly assigns
+    /// all 8 qualifying thirds when groups overlap across slot References, requiring
+    /// the augmenting-path algorithm to find the complete matching.
+    ///
+    /// Scenario: groups A–H qualify; I–L do not. Groups C, D, F each appear in
+    /// multiple slot References (e.g. R32-3 accepts A/B/C/D/F; R32-6 accepts
+    /// C/D/F/G/H), so a naive "first match wins" greedy would block some slots.
+    /// The augmenting path finds the complete bijection.
+    /// </summary>
+    [Fact]
+    public void PopulateR32Slots_BestThirdPlaceBipartiteMatching_AllSlotsFilledWithEligibleTeam()
+    {
+        var bestThirds = new List<(string TeamId, string GroupLetter)>
+        {
+            ("TP-A", "A"), ("TP-B", "B"), ("TP-C", "C"), ("TP-D", "D"),
+            ("TP-E", "E"), ("TP-F", "F"), ("TP-G", "G"), ("TP-H", "H"),
+            // I, J, K, L do NOT qualify — excluded from bestThirds
+        };
+
+        var rankings = new Dictionary<string, List<string>>();
+        foreach (var l in new[] { "A","B","C","D","E","F","G","H","I","J","K","L" })
+            rankings[l] = [$"W-{l}", $"RU-{l}", $"TP-{l}", $"FO-{l}"];
+
+        var slotByKey = KnockoutSlotsData.All
+            .Where(s => s.Round == Round.R32)
+            .Select(s => new KnockoutSlot
+            {
+                Id             = s.Id,
+                SlotKey        = s.SlotKey,
+                Round          = s.Round,
+                SlotNumber     = s.SlotNumber,
+                HomeSlotSource = s.HomeSlotSource,
+                AwaySlotSource = s.AwaySlotSource,
+                KickoffUtc     = s.KickoffUtc,
+            })
+            .ToDictionary(s => s.SlotKey);
+
+        KnockoutBracketResolver.PopulateR32Slots(slotByKey, rankings, bestThirds);
+
+        // Collect assigned BestThirdPlace teams and their slots.
+        var btpResults = new Dictionary<string, string?>(); // slotKey → assigned teamId
+        foreach (var (slotKey, slot) in slotByKey)
+        {
+            var seedSlot = KnockoutSlotsData.All.First(s => s.SlotKey == slotKey);
+            if (seedSlot.HomeSlotSource.Type == SlotSourceType.BestThirdPlace)
+                btpResults[slotKey + ".Home"] = slot.HomeTeamId;
+            if (seedSlot.AwaySlotSource.Type == SlotSourceType.BestThirdPlace)
+                btpResults[slotKey + ".Away"] = slot.AwayTeamId;
+        }
+
+        // Every BestThirdPlace slot source must be filled (8 total).
+        Assert.Equal(8, btpResults.Count);
+        Assert.All(btpResults.Values, teamId => Assert.NotNull(teamId));
+
+        // Each assigned team must appear in exactly one slot.
+        var assignedTeams = btpResults.Values.ToList();
+        Assert.Equal(8, assignedTeams.Distinct().Count());
+
+        // Each assigned team's group must be in that slot's Reference.
+        var teamToGroup = bestThirds.ToDictionary(t => t.TeamId, t => t.GroupLetter);
+        foreach (var (key, teamId) in btpResults)
+        {
+            var slotKey = key.Split('.')[0];
+            var side    = key.Split('.')[1];
+            var seedSlot = KnockoutSlotsData.All.First(s => s.SlotKey == slotKey);
+            var reference = side == "Home"
+                ? seedSlot.HomeSlotSource.Reference
+                : seedSlot.AwaySlotSource.Reference;
+
+            var eligibleGroups = reference.Split('/');
+            var assignedGroup  = teamToGroup[teamId!];
+            Assert.Contains(assignedGroup, eligibleGroups);
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Edge cases
     // -------------------------------------------------------------------------
 

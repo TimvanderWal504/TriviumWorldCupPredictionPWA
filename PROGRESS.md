@@ -6,7 +6,7 @@
 - MVP ✅ delivered. Post-MVP done: TWC-14 (knockout bracket), TWC-15 (knockout scoring), TWC-16 (admin), TWC-17 (live updates), TWC-18 (push notifications), TWC-19 (backups). TWC-22 E2E foundation done. TWC-32 ✅ knockout resolver delivered (Wave 7) — bracket now populates from final group standings.
 - **E2E:** TWC-22 foundation ✅ (16/16 smoke tests). Harness updated for link auth (TWC-33 follow-up). Area specs TWC-23–TWC-31 remain Backlog.
 - TWC-20 (Entra) remains BLOCKED.
-- **Platform generalization** epic **TWC-34** created (Backlog) — 16 stories TWC-35–TWC-50 to make TWC multi-sport/multi-league. Design + audit in `.docs/PLATFORM_GENERALIZATION_AUDIT.md`. Not yet started.
+- **Platform generalization** epic **TWC-34** in progress — Wave A delivered: TWC-35 ✅ (GEN-1 Tournament scoping), TWC-44 ✅ (GEN-10 config-driven scheduling), TWC-46 ✅ (GEN-12 branding env vars). Wave B (TWC-36/37/38/41) next. Design + audit in `.docs/PLATFORM_GENERALIZATION_AUDIT.md`.
 
 ## Planned waves
 - **Wave 8** — E2E suite (epic TWC-21): TWC-22 foundation ✅, area specs TWC-23–TWC-30 in parallel; TWC-31 (knockout E2E) unblocked by TWC-32 ✅.
@@ -16,24 +16,24 @@
 
 Goal: remove FIFA-World-Cup-2026 hardcoding so new sports/leagues can be added via config + a provider plugin, with zero change to existing WC behavior. Full audit, analysis, story specs, effort (~80 pts / ~4 sprints) and verification checklist live in `.docs/PLATFORM_GENERALIZATION_AUDIT.md`. Stories are dependency-linked in Jira ("Blocks").
 
-| Story | Key | Effort | Depends on |
-|---|---|---|---|
-| GEN-1 Tournament aggregate + tournamentId scoping | TWC-35 | L | — (root) |
-| GEN-2 Data-driven structure | TWC-36 | M | GEN-1 |
-| GEN-3 Generic outcome model | TWC-37 | L | GEN-1 |
-| GEN-4 Competitor generalization | TWC-38 | M | GEN-1 |
-| GEN-5 Configurable special predictions | TWC-39 | M | GEN-1, GEN-3 |
-| GEN-6 Scoring config | TWC-40 | M | GEN-2, GEN-5 |
-| GEN-7 Lock policy + grace removal | TWC-41 | S–M | GEN-1 |
-| GEN-8 Pluggable result provider | TWC-42 | L | GEN-1, GEN-3 |
-| GEN-9 Sport-pluggable events/status | TWC-43 | M | GEN-8 |
-| GEN-10 Config-driven scheduling | TWC-44 | S | GEN-1 (opt) |
-| GEN-11 Tournament provisioning | TWC-45 | M | GEN-1, GEN-2 |
-| GEN-12 Branding/PWA | TWC-46 | S | — |
-| GEN-13 Outcome-driven prediction UI | TWC-47 | M | GEN-3 |
-| GEN-14 Generic standings/rules | TWC-48 | S | GEN-6 |
-| GEN-15 Generic competitor UI | TWC-49 | S | GEN-4 |
-| GEN-16 Resolver parameterization | TWC-50 | M | GEN-2, GEN-3 |
+| Story | Key | Effort | Depends on | Done |
+|---|---|---|---|---|
+| GEN-1 Tournament aggregate + tournamentId scoping | TWC-35 | L | — (root) | ✅ |
+| GEN-2 Data-driven structure | TWC-36 | M | GEN-1 | |
+| GEN-3 Generic outcome model | TWC-37 | L | GEN-1 | |
+| GEN-4 Competitor generalization | TWC-38 | M | GEN-1 | |
+| GEN-5 Configurable special predictions | TWC-39 | M | GEN-1, GEN-3 | |
+| GEN-6 Scoring config | TWC-40 | M | GEN-2, GEN-5 | |
+| GEN-7 Lock policy + grace removal | TWC-41 | S–M | GEN-1 | |
+| GEN-8 Pluggable result provider | TWC-42 | L | GEN-1, GEN-3 | |
+| GEN-9 Sport-pluggable events/status | TWC-43 | M | GEN-8 | |
+| GEN-10 Config-driven scheduling | TWC-44 | S | GEN-1 (opt) | ✅ |
+| GEN-11 Tournament provisioning | TWC-45 | M | GEN-1, GEN-2 | |
+| GEN-12 Branding/PWA | TWC-46 | S | — | ✅ |
+| GEN-13 Outcome-driven prediction UI | TWC-47 | M | GEN-3 | |
+| GEN-14 Generic standings/rules | TWC-48 | S | GEN-6 | |
+| GEN-15 Generic competitor UI | TWC-49 | S | GEN-4 | |
+| GEN-16 Resolver parameterization | TWC-50 | M | GEN-2, GEN-3 | |
 
 Rollout waves: **A** TWC-35/46/44 → **B** TWC-36/37/38/41 → **C** TWC-39/40/50 → **D** TWC-42/43 → **E** TWC-47/48/49 → **F** TWC-45 (capstone). De-risk first slice: TWC-35 → TWC-37 → TWC-40 behind golden-master tests.
 
@@ -259,9 +259,39 @@ Root cause analysis of Azure 503 errors during live matches identified CPU credi
 - **GroupPredictionsPage** — save badge shows `<Spinner size="sm" />` + "Saving…" during the auto-save network round-trip.
 - **TournamentPredictionPage**, **KnockoutBracketPage**, **ProfilePage** — submit buttons show `<Spinner size="sm" />` + "Saving…" while in flight.
 
+## Platform generalization — Wave A (Done, Generic branch)
+
+### TWC-35 ✅ GEN-1: Tournament aggregate + TournamentId scoping (PR #14, 19 June 2026)
+- Added `Tournament` Marten document; `ITournamentContext` / `SingleTournamentContext` DI abstraction.
+- Added `TournamentId` property (default `"world-cup-2026"`) to all 13 domain documents.
+- Widened `GroupPrediction` and `KnockoutPrediction` composite IDs to include `TournamentId` prefix.
+- Added `TriviumSchedulingOptions` (live-window + push-reminder timing, config-driven).
+- Added idempotent `TournamentIdMigration` that backfills `TournamentId` on existing documents at startup.
+- Filtered all Marten queries by `tournamentId` across every endpoint, service, and background job.
+- 27 new pure-unit tests in `TournamentScopingTests` proving tournament isolation. 417 total tests pass.
+
+### TWC-44 ✅ GEN-10: Config-driven scheduling & windows (PR #15/#16, 19 June 2026)
+- Added `PollIntervalSeconds` and `PushReminderIntervalMinutes` to `TriviumSchedulingOptions`.
+- Wired all four scheduling values through `IOptions<TriviumSchedulingOptions>`: `IngestionServiceExtensions` + `PushServiceExtensions`.
+- Added `Scheduling` section to `appsettings.json` with all defaults.
+- 7 new unit tests in `SchedulingOptionsTests`. 417/417 tests pass.
+
+### TWC-46 ✅ GEN-12: Branding strings from Vite env vars (PR #17, 19 June 2026)
+- Replaced hardcoded `"World Cup 2026"` / `"TWC 2026"` strings in `index.html`, `App.tsx`, and `vite.config.ts` with `VITE_APP_TITLE`, `VITE_APP_SHORT_TITLE`, `VITE_APP_NAV_LABEL`.
+- Defaults reproduce the WC 2026 build identically.
+- Added `.env.example` documenting the three variables.
+
+### Unversioned knockout stage fixes (Generic branch, 21 June 2026)
+- **`Data/SeedData/KnockoutSlotsData.cs`** — R32 slot wiring, kickoffs, and venues fully corrected against the official FIFA 2026 bracket. BestThirdPlace `Reference` strings updated to the correct 5-group eligibility sets per FIFA rules.
+- **`Knockout/KnockoutBracketResolver.cs`** — improved BestThirdPlace selection logic; resolver now handles eligibility sets correctly as a bijection when exactly one eligible group qualifies per slot.
+- **`Domain/KnockoutSlot.cs`** — additional fields for bracket resolution.
+- **`Ingestion/ResultIngestionJob.cs`** — related ingestion fixes.
+- **`TournamentPredictionPage.tsx`** — grace date logic updated.
+- Test count updated: **417 .NET tests** pass.
+
 ## Next action
 1. **Deploy B2ms Postgres upgrade** — re-run `az deployment group create` with updated `main.bicep` during a non-match window (Azure requires ~2 min downtime to resize Flexible Server).
-2. **BestThirdPlace resolver** — `KnockoutSlotsData.cs` R32 slot wiring, kickoffs, and venues fully corrected against official FIFA 2026 bracket (verified 20 June 2026). BestThirdPlace Reference strings updated to 5-group eligibility sets as per FIFA. Current resolver iterates groups in Reference order and returns first match in `bestThirdByGroup` — works as a bijection only when exactly one eligible group qualifies per slot. A matrix-based allocation (C(12,8) = 495 rows) is needed for the general case; implement before group stage ends (27 June) to guarantee correct R32 population.
+2. ~~**BestThirdPlace resolver**~~ ✅ — DFS augmenting-path bipartite matching already in place (`AllocateBestThirds` in `KnockoutBracketResolver.cs`). Handles the general case correctly for any 8-of-12 qualifying combination. Stale comment in `KnockoutSlotsData.cs` corrected; new unit test `PopulateR32Slots_BestThirdPlaceBipartiteMatching_AllSlotsFilledWithEligibleTeam` added (21 June 2026).
 3. **Platform generalization Gen-Wave B** — TWC-36 (data-driven structure), TWC-37 (generic outcome model), TWC-38 (competitor generalization), TWC-41 (lock policy + grace removal). All unblocked by TWC-35 ✅.
 4. **TWC-20 (Entra)** — deprioritised; may be marked obsolete. No action until decided.
 5. **Update Confluence Design & Architecture page** — use the prompt in `.docs/confluence-update-prompt.md`.
