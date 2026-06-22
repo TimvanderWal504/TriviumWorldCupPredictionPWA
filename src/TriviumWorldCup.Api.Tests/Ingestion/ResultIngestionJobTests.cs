@@ -652,4 +652,59 @@ public class ResultIngestionJobTests
 
         Assert.Single(result); // goal should remain
     }
+
+    // ── IsMissedPenalty — missed penalties must never reach goal storage ─────
+
+    [Fact]
+    public void MissedPenalty_IsMissedPenalty_IsTrue()
+    {
+        var evt = new ApiMatchEvent
+        {
+            Time   = new ApiTime { Elapsed = 9 },
+            Player = new ApiPlayer { Name = "Lionel Messi" },
+            Detail = "Missed Penalty",
+        };
+
+        Assert.True(evt.IsMissedPenalty);
+    }
+
+    [Fact]
+    public void MissedPenalty_ExcludedByGoalFilter()
+    {
+        // IsGoal is true (type:"Goal") but IsMissedPenalty distinguishes it — the combined
+        // predicate used at all three call sites must evaluate to false for a missed penalty.
+        var evt = new ApiMatchEvent
+        {
+            Type   = "Goal",
+            Detail = "Missed Penalty",
+        };
+
+        Assert.True(evt.IsGoal);
+        Assert.True(evt.IsMissedPenalty);
+        Assert.False(evt.IsGoal && !evt.IsMissedPenalty);
+    }
+
+    [Fact]
+    public void MissedPenalty_CaseInsensitive()
+    {
+        Assert.True(new ApiMatchEvent { Detail = "missed penalty" }.IsMissedPenalty);
+        Assert.True(new ApiMatchEvent { Detail = "MISSED PENALTY" }.IsMissedPenalty);
+    }
+
+    [Fact]
+    public void ScoredPenalty_IsNotMissedPenalty()
+    {
+        var evt = new ApiMatchEvent { Detail = "Penalty" };
+
+        Assert.False(evt.IsMissedPenalty);
+        Assert.True(evt.IsPenalty);
+    }
+
+    [Fact]
+    public void NormalGoal_IsNotMissedPenalty()
+    {
+        var evt = new ApiMatchEvent { Detail = "Normal Goal" };
+
+        Assert.False(evt.IsMissedPenalty);
+    }
 }

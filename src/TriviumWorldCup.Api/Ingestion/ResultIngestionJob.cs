@@ -329,7 +329,7 @@ public class ResultIngestionJob(
             }
 
             var varEvents  = allEvents.Where(e => e.IsVar).ToList();
-            var goalEvents = FilterCancelledGoals(allEvents.Where(e => e.IsGoal), varEvents.Where(e => e.IsGoalCancelled));
+            var goalEvents = FilterCancelledGoals(allEvents.Where(e => e.IsGoal && !e.IsMissedPenalty), varEvents.Where(e => e.IsGoalCancelled));
             var cardEvents = allEvents.Where(e => e.IsCard).ToList();
             var subEvents  = allEvents.Where(e => e.IsSub).ToList();
 
@@ -515,7 +515,7 @@ public class ResultIngestionJob(
             if (liveEvents.Count > 0)
             {
                 var liveVarCancels    = liveEvents.Where(e => e.IsVar && e.IsGoalCancelled);
-                var liveFilteredGoals = FilterCancelledGoals(liveEvents.Where(e => e.IsGoal), liveVarCancels);
+                var liveFilteredGoals = FilterCancelledGoals(liveEvents.Where(e => e.IsGoal && !e.IsMissedPenalty), liveVarCancels);
 
                 // Purge all event types before re-writing from the current API response.
                 // Goal events alone were previously purged, but cards/subs/VAR also accumulate
@@ -718,7 +718,7 @@ public class ResultIngestionJob(
                             await PurgeFixtureEventsAsync(session, slot.SlotKey, ct);
 
                             var slotVarCancels    = liveSlotEvents.Where(e => e.IsVar && e.IsGoalCancelled);
-                            var slotFilteredGoals = FilterCancelledGoals(liveSlotEvents.Where(e => e.IsGoal), slotVarCancels);
+                            var slotFilteredGoals = FilterCancelledGoals(liveSlotEvents.Where(e => e.IsGoal && !e.IsMissedPenalty), slotVarCancels);
 
                             foreach (var evt in slotFilteredGoals)
                             {
