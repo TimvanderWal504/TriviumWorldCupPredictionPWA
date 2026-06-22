@@ -127,22 +127,27 @@ public class ResultIngestionJobTests
     }
 
     [Fact]
-    public void PlayerKey_ResolvedPlayer_UsesPlayerIdRegardlessOfRawNameFormat()
+    public void PlayerKey_SameRawName_StableRegardlessOfResolutionOutcome()
     {
-        var player = new Player { Id = Guid.NewGuid(), Name = "Maxim De Cuyper", TeamId = "BEL", Position = Position.DEF };
+        // PlayerKey must be stable even when player resolution succeeds on one poll and
+        // fails on the next (cache timing, ambiguous name, etc.). If the key changed between
+        // polls, a second SubstitutionEvent would be minted for the same real-world sub.
+        // Fix: always use the normalized raw name, never the resolved player's ID.
+        var player = new Player { Id = Guid.NewGuid(), Name = "Maxim De Cuyper" };
 
-        var keyFromAbbreviated = ResultIngestionJob.PlayerKey("M. De Cuyper", player);
-        var keyFromFull        = ResultIngestionJob.PlayerKey("Maxim De Cuyper", player);
+        var key = ResultIngestionJob.PlayerKey("Maxim De Cuyper");
 
-        Assert.Equal(keyFromAbbreviated, keyFromFull);
-        Assert.Equal(player.Id.ToString(), keyFromAbbreviated);
+        // Must not return the player's GUID (that was the bug: resolution-dependent key).
+        Assert.NotEqual(player.Id.ToString(), key);
+        // Must be the normalized raw name.
+        Assert.Equal("maxim de cuyper", key);
     }
 
     [Fact]
-    public void PlayerKey_UnresolvedPlayer_FallsBackToNormalizedRawName()
+    public void PlayerKey_NormalizedRawName_StripsAccents()
     {
-        var key1 = ResultIngestionJob.PlayerKey("Jiménez", null);
-        var key2 = ResultIngestionJob.PlayerKey("jimenez", null);
+        var key1 = ResultIngestionJob.PlayerKey("Jiménez");
+        var key2 = ResultIngestionJob.PlayerKey("jimenez");
 
         Assert.Equal(key1, key2);
     }
@@ -537,5 +542,169 @@ public class ResultIngestionJobTests
 
         var result = ResultIngestionJob.ResolvePlayer("Son Heung Min", byFull, byLast);
         Assert.Equal(player.Id, result?.Id);
+    }
+
+    // ── ShouldPurgeGoalEventsOnLivePoll — shootout guard ────────────────────────
+
+    [Theory]
+    [InlineData(MatchStatus.InProgress,      true)]
+    [InlineData(MatchStatus.ExtraTime,       true)]
+    [InlineData(MatchStatus.PenaltyShootout, false)]
+    public void ShouldPurgeGoalEventsOnLivePoll_ReturnsFalseOnlyDuringShootout(
+        MatchStatus status, bool expected)
+    {
+        // Regression guard: PurgeFixtureEventsAsync must NOT fire while a slot is in
+        // PenaltyShootout — the shootout-kick events look identical to in-match penalties,
+        // so purging here deletes the real regulation/ET goals with no restore path.
+        // InProgress and ExtraTime are safe to purge-and-rewrite.
+        Assert.Equal(expected, ResultIngestionJob.ShouldPurgeGoalEventsOnLivePoll(status));
+    }
+
+    // ── FilterCancelledGoals — name-format mismatch between goal and VAR event ─
+
+    [Fact]
+    public void FilterCancelledGoals_DiacriticMismatch_StillCancelsGoal()
+    {
+        // API-Football may return the goal event with accented characters ("Julián Quiñones")
+        // while the VAR GoalCancelled event uses the unaccented form ("Julian Quinones").
+        // NormalizeName on both sides strips diacritics so the comparison succeeds.
+        // Without normalization the exact-string match fails and the goal stays on the board,
+        // causing incorrect prediction scores.
+        var goal = new ApiMatchEvent
+        {
+            Time   = new ApiTime { Elapsed = 56 },
+            Player = new ApiPlayer { Name = "Julián Quiñones" },
+            Detail = "Normal Goal",
+        };
+        var varCancel = new ApiMatchEvent
+        {
+            Time   = new ApiTime { Elapsed = 58 },
+            Player = new ApiPlayer { Name = "Julian Quinones" },
+            Detail = "Goal Cancelled",
+        };
+
+        var result = ResultIngestionJob.FilterCancelledGoals([goal], [varCancel]);
+
+        Assert.Empty(result); // goal must be filtered despite diacritic mismatch
+    }
+
+    [Fact]
+    public void FilterCancelledGoals_SameNameFormat_CancelsGoal()
+    {
+        var goal = new ApiMatchEvent
+        {
+            Time   = new ApiTime { Elapsed = 23 },
+            Player = new ApiPlayer { Name = "Lionel Messi" },
+            Detail = "Normal Goal",
+        };
+        var varCancel = new ApiMatchEvent
+        {
+            Time   = new ApiTime { Elapsed = 25 },
+            Player = new ApiPlayer { Name = "Lionel Messi" },
+            Detail = "Goal Cancelled",
+        };
+
+        var result = ResultIngestionJob.FilterCancelledGoals([goal], [varCancel]);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void FilterCancelledGoals_NoVarCancellation_ReturnsAllGoals()
+    {
+        var goal1 = new ApiMatchEvent
+        {
+            Time   = new ApiTime { Elapsed = 23 },
+            Player = new ApiPlayer { Name = "Lionel Messi" },
+            Detail = "Normal Goal",
+        };
+        var goal2 = new ApiMatchEvent
+        {
+            Time   = new ApiTime { Elapsed = 67 },
+            Player = new ApiPlayer { Name = "Lionel Messi" },
+            Detail = "Normal Goal",
+        };
+
+        var result = ResultIngestionJob.FilterCancelledGoals([goal1, goal2], []);
+
+        Assert.Equal(2, result.Count);
+    }
+
+    [Fact]
+    public void FilterCancelledGoals_VarAfterGoalMinute_DoesNotCancel()
+    {
+        // VAR can only cancel a goal at or after the goal minute; a goal at min 80 cannot
+        // be cancelled by a VAR event at min 56.
+        var goal = new ApiMatchEvent
+        {
+            Time   = new ApiTime { Elapsed = 80 },
+            Player = new ApiPlayer { Name = "Player A" },
+            Detail = "Normal Goal",
+        };
+        var varCancel = new ApiMatchEvent
+        {
+            Time   = new ApiTime { Elapsed = 56 },
+            Player = new ApiPlayer { Name = "Player A" },
+            Detail = "Goal Cancelled",
+        };
+
+        var result = ResultIngestionJob.FilterCancelledGoals([goal], [varCancel]);
+
+        Assert.Single(result); // goal should remain
+    }
+
+    // ── IsMissedPenalty — missed penalties must never reach goal storage ─────
+
+    [Fact]
+    public void MissedPenalty_IsMissedPenalty_IsTrue()
+    {
+        var evt = new ApiMatchEvent
+        {
+            Time   = new ApiTime { Elapsed = 9 },
+            Player = new ApiPlayer { Name = "Lionel Messi" },
+            Detail = "Missed Penalty",
+        };
+
+        Assert.True(evt.IsMissedPenalty);
+    }
+
+    [Fact]
+    public void MissedPenalty_ExcludedByGoalFilter()
+    {
+        // IsGoal is true (type:"Goal") but IsMissedPenalty distinguishes it — the combined
+        // predicate used at all three call sites must evaluate to false for a missed penalty.
+        var evt = new ApiMatchEvent
+        {
+            Type   = "Goal",
+            Detail = "Missed Penalty",
+        };
+
+        Assert.True(evt.IsGoal);
+        Assert.True(evt.IsMissedPenalty);
+        Assert.False(evt.IsGoal && !evt.IsMissedPenalty);
+    }
+
+    [Fact]
+    public void MissedPenalty_CaseInsensitive()
+    {
+        Assert.True(new ApiMatchEvent { Detail = "missed penalty" }.IsMissedPenalty);
+        Assert.True(new ApiMatchEvent { Detail = "MISSED PENALTY" }.IsMissedPenalty);
+    }
+
+    [Fact]
+    public void ScoredPenalty_IsNotMissedPenalty()
+    {
+        var evt = new ApiMatchEvent { Detail = "Penalty" };
+
+        Assert.False(evt.IsMissedPenalty);
+        Assert.True(evt.IsPenalty);
+    }
+
+    [Fact]
+    public void NormalGoal_IsNotMissedPenalty()
+    {
+        var evt = new ApiMatchEvent { Detail = "Normal Goal" };
+
+        Assert.False(evt.IsMissedPenalty);
     }
 }

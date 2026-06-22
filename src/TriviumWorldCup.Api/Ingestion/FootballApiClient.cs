@@ -225,8 +225,11 @@ public sealed class ApiMatchEvent
     public bool IsVar  => string.Equals(Type, "Var",   StringComparison.OrdinalIgnoreCase);
 
     // ── Goal detail helpers ──────────────────────────────────────────────────
-    public bool IsOwnGoal => string.Equals(Detail, "Own Goal", StringComparison.OrdinalIgnoreCase);
-    public bool IsPenalty => string.Equals(Detail, "Penalty",  StringComparison.OrdinalIgnoreCase);
+    public bool IsOwnGoal      => string.Equals(Detail, "Own Goal",        StringComparison.OrdinalIgnoreCase);
+    public bool IsPenalty      => string.Equals(Detail, "Penalty",         StringComparison.OrdinalIgnoreCase);
+    // API-Football reports a missed penalty under type:"Goal" distinguished only by this detail value.
+    // A missed penalty must never reach goal storage — the shooter didn't score.
+    public bool IsMissedPenalty => string.Equals(Detail, "Missed Penalty", StringComparison.OrdinalIgnoreCase);
 
     // ── Card detail helpers ──────────────────────────────────────────────────
     public bool IsYellow       => string.Equals(Detail, "Yellow Card",   StringComparison.OrdinalIgnoreCase);
