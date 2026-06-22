@@ -57,7 +57,9 @@ public class ResultIngestionJob(
     // Minimum gap between consecutive RecomputeAllAsync calls. Guards against the
     // simultaneous-group-match scenario: when two final-round fixtures complete within the
     // same ~30-second window, the API may report them FT in successive poll cycles, which
-    // would otherwise trigger two back-to-back full recomputes.
+    // would otherwise trigger two back-to-back full recomputes. Skipped recomputes self-heal
+    // on the next 30s poll cycle (ingestedCount > 0 still triggers recompute). Do not raise
+    // the job cadence past 30s without revisiting this assumption.
     private static readonly TimeSpan RecomputeMinInterval = TimeSpan.FromSeconds(20);
 
     public async Task Execute(IJobExecutionContext context)
@@ -191,24 +193,13 @@ public class ResultIngestionJob(
 
         var completedSet = new HashSet<string>(completedInDb);
 
-        // ── 4. Find API fixtures that are FT but not yet Completed in Marten ─
-        var toIngest = allApiFixtures
-            .Where(af => af.IsFullTime)
-            .Where(af =>
-            {
-                // Resolve FIFA codes to find the matching Marten Fixture.Id
-                var homeCode = FootballApiTeamMap.Resolve(af.HomeTeamId, af.HomeTeamName);
-                var awayCode = FootballApiTeamMap.Resolve(af.AwayTeamId, af.AwayTeamName);
-                if (homeCode == null || awayCode == null) return false;
-
-                // We need to find the Fixture by team pair — we'll do the full resolution below.
-                return true;
-            })
-            .ToList();
-
+        // ── 4. Check whether there are FT fixtures or cancellations to process ─
+        // toIngest was previously computed here but was functionally just "any FT fixture" —
+        // the actual per-fixture team-pair resolution happens in step 7. Inline the check.
+        var anyFtFixtures           = allApiFixtures.Any(af => af.IsFullTime);
         var anyCancelledOrPostponed = allApiFixtures.Any(f => f.IsCancelledOrPostponed);
 
-        if (!anyLive && toIngest.Count == 0 && !anyCancelledOrPostponed)
+        if (!anyLive && !anyFtFixtures && !anyCancelledOrPostponed)
         {
             logger.LogDebug("ResultIngestionJob: no live window, no new completed fixtures — skipping");
             return;
@@ -219,7 +210,10 @@ public class ResultIngestionJob(
             .Query<Fixture>()
             .ToListAsync(ct);
 
-        // Index Marten fixtures by team pair for O(1) lookup
+        // Index Marten fixtures by team pair for O(1) lookup.
+        // Safe only because group-stage team pairs are unique (each pair plays at most once).
+        // Do not reuse this pattern for formats with repeat fixtures — follow the knockout-slot
+        // pattern below instead (ID-first lookup, team-pair fallback).
         var fixtureByTeamPair = allDbFixtures
             .ToDictionary(f => (f.HomeTeamId, f.AwayTeamId));
 
@@ -296,6 +290,8 @@ public class ResultIngestionJob(
             dbFixture.Status               = MatchStatus.Completed;
             dbFixture.ElapsedMinute        = null;
             dbFixture.ElapsedExtra         = null;
+            // Once set, FootballApiFixtureId is never overwritten. A reschedule that bypasses
+            // the postponed-recheck path could leave it pointing at a stale API ID.
             dbFixture.FootballApiFixtureId ??= apiFixture.FixtureId;
             session.Store(dbFixture);
 
@@ -339,22 +335,12 @@ public class ResultIngestionJob(
 
             // HARD RESET OF EVENTS AFTER ITS COMPLETION.
             // Purge events accumulated during live polling before writing the definitive FT set.
-            // Only on live→completed transition (not during backfill of already-completed fixtures)
-            // and only when the API fetch succeeded, to avoid clearing events with nothing to replace them.
-            if (!completedSet.Contains(dbFixture.Id) && !eventsIngestionFailed)
+            // Runs whenever the event fetch succeeded — not guarded by !completedSet.Contains(),
+            // so backfill polls (Completed + EventsIngested=false after a prior quota failure)
+            // also purge before re-writing, preventing duplicates on the retry path.
+            if (!eventsIngestionFailed)
             {
-                var staleGoals = await session.Query<GoalEvent>()
-                    .Where(g => g.FixtureId == dbFixture.Id).ToListAsync(ct);
-                var staleCards = await session.Query<CardEvent>()
-                    .Where(c => c.FixtureId == dbFixture.Id).ToListAsync(ct);
-                var staleSubs  = await session.Query<SubstitutionEvent>()
-                    .Where(s => s.FixtureId == dbFixture.Id).ToListAsync(ct);
-                var staleVars  = await session.Query<VarEvent>()
-                    .Where(v => v.FixtureId == dbFixture.Id).ToListAsync(ct);
-                foreach (var g in staleGoals) session.Delete(g);
-                foreach (var c in staleCards) session.Delete(c);
-                foreach (var s in staleSubs)  session.Delete(s);
-                foreach (var v in staleVars)  session.Delete(v);
+                await PurgeFixtureEventsAsync(session, dbFixture.Id, ct);
             }
 
             foreach (var evt in goalEvents)
@@ -444,7 +430,7 @@ public class ResultIngestionJob(
                     ? FootballApiTeamMap.Resolve(evt.Team.Id, teamName) ?? string.Empty
                     : string.Empty;
 
-                var subKey = $"sub:{apiFixture.FixtureId}:{PlayerKey(playerOutName, playerOut)}:{PlayerKey(playerInName, playerIn)}:{evt.Time?.Elapsed ?? 0}";
+                var subKey = $"sub:{apiFixture.FixtureId}:{PlayerKey(playerOutName)}:{PlayerKey(playerInName)}:{evt.Time?.Elapsed ?? 0}";
                 var subId  = CreateDeterministicGuid(GoalEventNamespace, subKey);
 
                 session.Store(new SubstitutionEvent
@@ -490,6 +476,7 @@ public class ResultIngestionJob(
             if (!eventsIngestionFailed)
             {
                 dbFixture.EventsIngested = true;
+                session.Store(dbFixture); // LightweightSession has no dirty-tracking — mutation after Store() is not auto-picked up
             }
 
             ingestedFixtureIds.Add(dbFixture.Id);
@@ -530,14 +517,10 @@ public class ResultIngestionJob(
                 var liveVarCancels    = liveEvents.Where(e => e.IsVar && e.IsGoalCancelled);
                 var liveFilteredGoals = FilterCancelledGoals(liveEvents.Where(e => e.IsGoal), liveVarCancels);
 
-                // Delete all existing goal events for this fixture before re-storing from the
-                // current API response. The API may initially return a goal with elapsed=null
-                // (stored as minute=0), then correct it on the next poll — producing a different
-                // deterministic ID and leaving the old minute=0 row as a phantom duplicate.
-                // Wiping and re-writing the full set each cycle keeps the DB in sync with the API.
-                var existingGoals = await session.Query<GoalEvent>()
-                    .Where(g => g.FixtureId == liveDbFixture.Id).ToListAsync(ct);
-                foreach (var g in existingGoals) session.Delete(g);
+                // Purge all event types before re-writing from the current API response.
+                // Goal events alone were previously purged, but cards/subs/VAR also accumulate
+                // stale rows when the PlayerKey or minute changes between live poll cycles.
+                await PurgeFixtureEventsAsync(session, liveDbFixture.Id, ct);
 
                 foreach (var evt in liveFilteredGoals)
                 {
@@ -588,7 +571,7 @@ public class ResultIngestionJob(
                     var livePlayerOut = ResolvePlayer(livePlayerOutName, playerByName, playersByLastName);
                     var livePlayerIn  = ResolvePlayer(livePlayerInName,  playerByName, playersByLastName);
                     var liveSubId = CreateDeterministicGuid(GoalEventNamespace,
-                        $"sub:{apiFixture.FixtureId}:{PlayerKey(livePlayerOutName, livePlayerOut)}:{PlayerKey(livePlayerInName, livePlayerIn)}:{evt.Time?.Elapsed ?? 0}");
+                        $"sub:{apiFixture.FixtureId}:{PlayerKey(livePlayerOutName)}:{PlayerKey(livePlayerInName)}:{evt.Time?.Elapsed ?? 0}");
                     session.Store(new SubstitutionEvent
                     {
                         Id            = liveSubId,
@@ -655,6 +638,8 @@ public class ResultIngestionJob(
             var knockoutByTeamPair = knockoutSlots
                 .ToDictionary(s => (s.HomeTeamId!, s.AwayTeamId!));
 
+            var touchedSlotKeys = new HashSet<string>();
+
             foreach (var apiFixture in allApiFixtures.Where(f => f.IsLive || f.IsFullTime || f.IsCancelledOrPostponed))
             {
                 // Prefer ID-based match (fast, unambiguous); fall back to team-pair on first contact.
@@ -670,6 +655,14 @@ public class ResultIngestionJob(
                     slot.FootballApiFixtureId = apiFixture.FixtureId;
                 }
                 // slot is guaranteed non-null here (both branches above either continue or set it).
+
+                if (!touchedSlotKeys.Add(slot.SlotKey))
+                {
+                    logger.LogWarning(
+                        "ResultIngestionJob: knockout slot {SlotKey} resolved twice in one poll — possible team-pair resolution collision, skipping duplicate",
+                        slot.SlotKey);
+                    continue;
+                }
 
                 if (apiFixture.IsCancelledOrPostponed)
                 {
@@ -692,10 +685,130 @@ public class ResultIngestionJob(
                                 : MatchStatus.InProgress;
                     slot.HomeScore = apiFixture.HomeGoals;
                     slot.AwayScore = apiFixture.AwayGoals;
+                    // WinnerTeamId is only valid when Status == Completed; clear on regression.
+                    slot.WinnerTeamId     = null;
+                    slot.PenaltyHomeScore = null;
+                    slot.PenaltyAwayScore = null;
                     if (slot.Status == MatchStatus.PenaltyShootout)
                     {
                         slot.PenaltyHomeScore = apiFixture.ScorePenaltyHome;
                         slot.PenaltyAwayScore = apiFixture.ScorePenaltyAway;
+                    }
+
+                    // Live events for knockout slots — mirrors step 8a's group-fixture logic.
+                    // GoalEvent.FixtureId = slot.SlotKey (e.g. "R32-1"): safe because the
+                    // scoring service counts goals globally by PlayerId and never joins through
+                    // FixtureId; SlotKey values are non-colliding with group Fixture.Id strings.
+                    IReadOnlyList<ApiMatchEvent> liveSlotEvents = [];
+                    try { liveSlotEvents = await apiClient.GetAllEventsAsync(apiFixture.FixtureId, ct); }
+                    catch { /* non-critical — score/status already updated above; events catch up at FT */ }
+
+                    if (liveSlotEvents.Count > 0)
+                    {
+                        // During a penalty shootout, API-Football emits each kick as
+                        // type:"Goal", detail:"Penalty" — the same shape as an in-match penalty.
+                        // The only distinguishing field is comments:"Penalty Shootout", which is
+                        // not mapped. Skip goal purge+storage during shootout so regulation/ET
+                        // goals settled on prior polls are preserved — they are never re-written
+                        // by the FT branch and would be permanently lost if purged here.
+                        // Cards/subs/VAR use deterministic IDs and are safe upserts; they run
+                        // regardless of shootout status to capture any events during the shootout.
+                        if (ShouldPurgeGoalEventsOnLivePoll(slot.Status))
+                        {
+                            await PurgeFixtureEventsAsync(session, slot.SlotKey, ct);
+
+                            var slotVarCancels    = liveSlotEvents.Where(e => e.IsVar && e.IsGoalCancelled);
+                            var slotFilteredGoals = FilterCancelledGoals(liveSlotEvents.Where(e => e.IsGoal), slotVarCancels);
+
+                            foreach (var evt in slotFilteredGoals)
+                            {
+                                if (evt.Player?.Name is not { Length: > 0 } pName) continue;
+                                var slotGoalMinute = evt.Time?.Elapsed ?? 0;
+                                var slotPlayer = ResolvePlayer(pName, playerByName, playersByLastName);
+                                if (slotPlayer == null) { statusStore.RecordUnmatched(slot.SlotKey, "goal", pName, slotGoalMinute); continue; }
+                                var slotGt = evt.IsOwnGoal ? GoalType.OwnGoal : evt.IsPenalty ? GoalType.PenaltyInMatch : GoalType.OpenPlay;
+                                session.Store(new GoalEvent
+                                {
+                                    Id          = CreateDeterministicGuid(GoalEventNamespace, $"{apiFixture.FixtureId}:{slotPlayer.Id}:{slotGoalMinute}"),
+                                    FixtureId   = slot.SlotKey,
+                                    PlayerId    = slotPlayer.Id,
+                                    Type        = slotGt,
+                                    Minute      = slotGoalMinute,
+                                    ExtraMinute = evt.Time?.Extra,
+                                });
+                            }
+                        }
+
+                        foreach (var evt in liveSlotEvents.Where(e => e.IsCard))
+                        {
+                            if (evt.Player?.Name is not { Length: > 0 } pName) continue;
+                            if (!evt.IsYellow && !evt.IsSecondYellow && !evt.IsRed) continue;
+                            var slotPlayer = ResolvePlayer(pName, playerByName, playersByLastName);
+                            if (slotPlayer == null) { statusStore.RecordUnmatched(slot.SlotKey, "card", pName, evt.Time?.Elapsed ?? 0); continue; }
+                            var slotCt = evt.IsSecondYellow ? CardType.SecondYellow : evt.IsRed ? CardType.Red : CardType.Yellow;
+                            var slotCardMinute = evt.Time?.Elapsed ?? 0;
+                            session.Store(new CardEvent
+                            {
+                                Id          = CreateDeterministicGuid(GoalEventNamespace, $"card:{apiFixture.FixtureId}:{slotPlayer.Id}:{slotCardMinute}"),
+                                FixtureId   = slot.SlotKey,
+                                PlayerId    = slotPlayer.Id,
+                                Type        = slotCt,
+                                Minute      = slotCardMinute,
+                                ExtraMinute = evt.Time?.Extra,
+                            });
+                        }
+
+                        foreach (var evt in liveSlotEvents.Where(e => e.IsSub))
+                        {
+                            var slotPlayerOutName = evt.Player?.Name ?? string.Empty;
+                            var slotPlayerInName  = evt.Assist?.Name ?? string.Empty;
+                            if (string.IsNullOrWhiteSpace(slotPlayerOutName) && string.IsNullOrWhiteSpace(slotPlayerInName)) continue;
+                            var slotSubTeam = evt.Team?.Name is { } stn
+                                ? FootballApiTeamMap.Resolve(evt.Team.Id, stn) ?? string.Empty
+                                : string.Empty;
+                            var slotPlayerOut = ResolvePlayer(slotPlayerOutName, playerByName, playersByLastName);
+                            var slotPlayerIn  = ResolvePlayer(slotPlayerInName,  playerByName, playersByLastName);
+                            var slotSubId = CreateDeterministicGuid(GoalEventNamespace,
+                                $"sub:{apiFixture.FixtureId}:{PlayerKey(slotPlayerOutName)}:{PlayerKey(slotPlayerInName)}:{evt.Time?.Elapsed ?? 0}");
+                            session.Store(new SubstitutionEvent
+                            {
+                                Id            = slotSubId,
+                                FixtureId     = slot.SlotKey,
+                                PlayerOutId   = slotPlayerOut?.Id,
+                                PlayerInId    = slotPlayerIn?.Id,
+                                PlayerOutName = slotPlayerOutName,
+                                PlayerInName  = slotPlayerInName,
+                                TeamId        = slotSubTeam,
+                                Minute        = evt.Time?.Elapsed ?? 0,
+                                ExtraMinute   = evt.Time?.Extra,
+                            });
+                        }
+
+                        foreach (var evt in liveSlotEvents.Where(e => e.IsVar))
+                        {
+                            if (evt.Player?.Name is not { Length: > 0 } pName) continue;
+                            VarDecisionType? slotDecType =
+                                evt.IsGoalCancelled     ? VarDecisionType.GoalCancelled :
+                                evt.IsCardUpgradeRed    ? VarDecisionType.CardUpgradeRed :
+                                evt.IsCardUpgrade2ndYel ? VarDecisionType.CardUpgradeSecondYellow :
+                                null;
+                            if (slotDecType is null) continue;
+                            var slotVarTeam = evt.Team?.Name is { } vtn
+                                ? FootballApiTeamMap.Resolve(evt.Team.Id, vtn) ?? string.Empty
+                                : string.Empty;
+                            var slotVarId = CreateDeterministicGuid(GoalEventNamespace,
+                                $"var:{apiFixture.FixtureId}:{slotDecType}:{pName}:{evt.Time?.Elapsed ?? 0}");
+                            session.Store(new VarEvent
+                            {
+                                Id          = slotVarId,
+                                FixtureId   = slot.SlotKey,
+                                Type        = slotDecType.Value,
+                                PlayerName  = pName,
+                                TeamId      = slotVarTeam,
+                                Minute      = evt.Time?.Elapsed ?? 0,
+                                ExtraMinute = evt.Time?.Extra,
+                            });
+                        }
                     }
                 }
                 else // IsFullTime
@@ -823,8 +936,17 @@ public class ResultIngestionJob(
         {
             allApiFixtures = await apiClient.GetAllFixturesForSeasonAsync(ct);
         }
+        catch (HttpRequestException ex) when (ex.InnerException is InvalidOperationException { Message: "Quota exceeded" })
+        {
+            statusStore.LastError = "API quota exhausted (429) — postponed recheck deferred";
+            statusStore.ErrorCount++;
+            logger.LogWarning(ex, "ResultIngestionJob: postponed recheck deferred — API quota exhausted");
+            return;
+        }
         catch (Exception ex)
         {
+            statusStore.LastError = ex.Message;
+            statusStore.ErrorCount++;
             logger.LogWarning(ex,
                 "ResultIngestionJob: failed to recheck postponed fixtures — will retry on next scheduled recheck");
             return;
@@ -907,6 +1029,9 @@ public class ResultIngestionJob(
                     id, tentativeDate);
                 return true;
             }
+            logger.LogDebug(
+                "ResultIngestionJob: postponed fixture/slot {Id} still postponed — could not parse API date '{Date}', no change applied",
+                id, apiFixture.Date);
             return false;
         }
 
@@ -1061,14 +1186,25 @@ public class ResultIngestionJob(
     }
 
     /// <summary>
-    /// Stable key for an event-ID hash: the resolved Player's Guid when known, otherwise a
-    /// normalized form of the raw API name. API-Football's events feed doesn't always return
-    /// the same name format for a given player across separate calls (abbreviated vs. full,
-    /// accented vs. not) — hashing the resolved PlayerId instead avoids minting a second
-    /// GoalEvent/CardEvent/SubstitutionEvent for the same real-world event when that happens.
+    /// Stable key for a substitution event-ID hash. Always uses the normalized raw name —
+    /// never the resolved player ID — so the key is stable across polls regardless of
+    /// whether player resolution succeeds. Resolution outcome varies with cache state and
+    /// can cause duplicate SubstitutionEvent documents if the key changes between polls.
+    /// Combined with PurgeFixtureEventsAsync before each re-write, this guarantees no
+    /// stale rows survive even when the raw name format shifts between calls.
     /// </summary>
-    internal static string PlayerKey(string rawName, Player? resolved) =>
-        resolved?.Id.ToString() ?? NormalizeName(rawName).Trim().ToLowerInvariant();
+    internal static string PlayerKey(string rawName) =>
+        NormalizeName(rawName).Trim().ToLowerInvariant();
+
+    /// <summary>
+    /// Returns true when goal events should be purged and rewritten on a live-poll cycle.
+    /// False during <see cref="MatchStatus.PenaltyShootout"/>: API-Football emits each
+    /// shootout kick as a "Penalty" goal event, indistinguishable from in-match penalties,
+    /// so purging here would delete the regulation/ET goals with no path to restore them.
+    /// Pure function — testable without any infrastructure.
+    /// </summary>
+    internal static bool ShouldPurgeGoalEventsOnLivePoll(MatchStatus slotStatus)
+        => slotStatus != MatchStatus.PenaltyShootout;
 
     /// <summary>
     /// Maps an API-Football goal event detail string to the app's <see cref="GoalType"/>.
@@ -1106,11 +1242,28 @@ public class ResultIngestionJob(
     }
 
     /// <summary>
+    /// Deletes all goal, card, substitution, and VAR event documents for the given fixture/slot ID.
+    /// Used before re-writing a complete event set (live poll cycle, FT transition, or backfill retry)
+    /// so that stale rows from a prior poll never survive as duplicates.
+    /// </summary>
+    private static async Task PurgeFixtureEventsAsync(IDocumentSession session, string fixtureId, CancellationToken ct)
+    {
+        var staleGoals = await session.Query<GoalEvent>().Where(g => g.FixtureId == fixtureId).ToListAsync(ct);
+        var staleCards = await session.Query<CardEvent>().Where(c => c.FixtureId == fixtureId).ToListAsync(ct);
+        var staleSubs  = await session.Query<SubstitutionEvent>().Where(s => s.FixtureId == fixtureId).ToListAsync(ct);
+        var staleVars  = await session.Query<VarEvent>().Where(v => v.FixtureId == fixtureId).ToListAsync(ct);
+        foreach (var g in staleGoals) session.Delete(g);
+        foreach (var c in staleCards) session.Delete(c);
+        foreach (var s in staleSubs)  session.Delete(s);
+        foreach (var v in staleVars)  session.Delete(v);
+    }
+
+    /// <summary>
     /// Removes goal events that were subsequently cancelled by a VAR decision.
     /// For each VAR GoalCancelled event, finds the most recent goal by the same player
     /// at or before the VAR minute and drops it from the list.
     /// </summary>
-    private static List<ApiMatchEvent> FilterCancelledGoals(
+    internal static List<ApiMatchEvent> FilterCancelledGoals(
         IEnumerable<ApiMatchEvent> goalEvents,
         IEnumerable<ApiMatchEvent> varCancellations)
     {
@@ -1123,9 +1276,13 @@ public class ResultIngestionJob(
             var name = varEvt.Player?.Name;
             if (string.IsNullOrEmpty(name)) continue;
             var varMinute = varEvt.Time?.Elapsed ?? int.MaxValue;
+            var normalizedVarName = NormalizeName(name);
 
+            // Normalize both sides so "M. De Cuyper" (goal event) matches "Maxim De Cuyper"
+            // (VAR event) — API-Football is inconsistent about name formats across event types.
             var target = remaining
-                .Where(g => string.Equals(g.Player?.Name, name, StringComparison.OrdinalIgnoreCase)
+                .Where(g => g.Player?.Name is { } gName
+                         && string.Equals(NormalizeName(gName), normalizedVarName, StringComparison.OrdinalIgnoreCase)
                          && (g.Time?.Elapsed ?? 0) <= varMinute)
                 .OrderByDescending(g => g.Time?.Elapsed ?? 0)
                 .FirstOrDefault();
