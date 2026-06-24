@@ -39,6 +39,21 @@ function SkeletonLeaderboardRow() {
   );
 }
 
+export function SkeletonRankCard() {
+  return (
+    <div className="rounded-card bg-surface border border-border p-5 flex items-center justify-between">
+      <div className="space-y-2">
+        <SkeletonBlock className="h-2.5 w-20 rounded-full" />
+        <SkeletonBlock className="h-9 w-16 rounded" />
+      </div>
+      <div className="flex flex-col items-end space-y-2">
+        <SkeletonBlock className="h-2.5 w-20 rounded-full" />
+        <SkeletonBlock className="h-9 w-12 rounded" />
+      </div>
+    </div>
+  );
+}
+
 export function SkeletonLeaderboard() {
   return (
     <div className="rounded-card bg-surface border border-border overflow-hidden">

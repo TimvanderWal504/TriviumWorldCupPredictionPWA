@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, Search, X } from 'lucide-react';
 import { useAuth } from '../auth/useAuth.ts';
 import { Spinner } from '../components/ui/Spinner.tsx';
-import { SkeletonLeaderboard } from '../components/ui/Skeleton.tsx';
+import { SkeletonLeaderboard, SkeletonRankCard } from '../components/ui/Skeleton.tsx';
 
 interface LeaderboardEntry {
   rank: number;
@@ -301,6 +301,7 @@ export function LeaderboardPage() {
 
   if (loading) return (
     <div className="max-w-3xl mx-auto px-4 py-4 space-y-3">
+      <SkeletonRankCard />
       <SkeletonLeaderboard />
     </div>
   );
