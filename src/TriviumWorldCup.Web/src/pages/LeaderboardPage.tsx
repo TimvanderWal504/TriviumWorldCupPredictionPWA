@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { ChevronLeft } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ChevronLeft, Search, X } from 'lucide-react';
 import { useAuth } from '../auth/useAuth.ts';
 import { Spinner } from '../components/ui/Spinner.tsx';
 import { SkeletonLeaderboard } from '../components/ui/Skeleton.tsx';
@@ -9,6 +9,7 @@ interface LeaderboardEntry {
   userId: string;
   displayName: string;
   countryCode?: string;
+  email?: string;
   totalPoints: number;
   groupMatchPoints: number;
   championPoints: number;
@@ -269,6 +270,8 @@ export function LeaderboardPage() {
   const [drillDown, setDrillDown] = useState<MemberDrillDown | null>(null);
   const [drillDownLoading, setDrillDownLoading] = useState(false);
   const [drillDownError, setDrillDownError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchLeaderboard()
@@ -320,11 +323,23 @@ export function LeaderboardPage() {
     );
   }
 
-  const top3 = entries.filter(e => e.rank <= 3);
-  const rest  = entries.filter(e => e.rank > 3);
+  const isSearching = searchQuery.trim().length > 0;
+  const normalised  = searchQuery.trim().toLowerCase();
+  const filteredEntries = isSearching
+    ? entries.filter(e => e.email?.toLowerCase().includes(normalised))
+    : entries;
+
+  const top3 = filteredEntries.filter(e => e.rank <= 3);
+  const rest  = filteredEntries.filter(e => e.rank > 3);
+
+  // When searching, render all filtered entries (including ranks 1–3) in the flat list.
+  const listEntries = isSearching ? filteredEntries : rest;
+
+  const myEntry = user ? entries.find(e => e.userId === user.userId) : undefined;
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-4 space-y-3">
+    <>
+    <div className="max-w-3xl mx-auto px-4 pt-4 pb-[5.5rem] space-y-3">
       {drillDownLoading && (
         <div className="flex justify-center py-4">
           <Spinner size="md" />
@@ -336,8 +351,28 @@ export function LeaderboardPage() {
         </p>
       )}
 
+      {/* Your position banner */}
+      {myEntry && (
+        <div className="rounded-card bg-surface border border-border p-5 flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-display font-bold uppercase tracking-wider text-fg-muted">Your Rank</p>
+            <p className="font-display font-black text-4xl tnum mt-1">
+              {myEntry.rank}
+              <span className="text-lg text-fg-muted font-bold"> / {entries.length}</span>
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-[11px] font-display font-bold uppercase tracking-wider text-fg-muted">Your Points</p>
+            <p className="font-display font-black text-4xl tnum mt-1" style={{ color: 'var(--primary)' }}>
+              {myEntry.totalPoints}
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="rounded-card bg-surface border border-border overflow-hidden">
-        {top3.length > 0 && (
+        {/* Podium — hidden while a search is active */}
+        {!isSearching && top3.length > 0 && (
           <PodiumSection
             entries={top3}
             currentUserId={user?.userId}
@@ -346,7 +381,7 @@ export function LeaderboardPage() {
           />
         )}
 
-        {rest.length > 0 && (
+        {listEntries.length > 0 ? (
           <>
             <div className="grid grid-cols-[2.25rem_1fr_3.25rem] gap-2.5 px-4 py-2.5 bg-surface-2 text-[10px] font-display font-bold uppercase tracking-wider text-fg-muted">
               <span className="text-center">#</span>
@@ -354,7 +389,7 @@ export function LeaderboardPage() {
               <span className="text-right">Pts</span>
             </div>
             <div className="divide-y divide-border">
-              {rest.map(entry => {
+              {listEntries.map(entry => {
                 const isCurrentUser = user?.userId === entry.userId;
                 return (
                   <button
@@ -379,10 +414,17 @@ export function LeaderboardPage() {
                           className="shrink-0 rounded-sm"
                         />
                       )}
-                      <span className={`font-semibold truncate ${isCurrentUser ? 'text-secondary' : 'text-fg'}`}>
-                        {entry.displayName}
-                      </span>
-                      {isCurrentUser && <span className="text-[11px] text-secondary shrink-0">(you)</span>}
+                      <div className="flex flex-col min-w-0">
+                        <div className={`flex items-center gap-1.5 ${entry.email ? 'border-b border-border/60 pb-0.5' : ''}`}>
+                          <span className={`font-semibold truncate ${isCurrentUser ? 'text-secondary' : 'text-fg'}`}>
+                            {entry.displayName}
+                          </span>
+                          {isCurrentUser && <span className="text-[11px] text-secondary shrink-0">(you)</span>}
+                        </div>
+                        {entry.email && (
+                          <span className="text-[11px] text-fg-muted truncate mt-0.5">{entry.email}</span>
+                        )}
+                      </div>
                     </div>
                     <div className="font-display font-black text-[18px] tnum text-right">{entry.totalPoints}</div>
                   </button>
@@ -390,14 +432,43 @@ export function LeaderboardPage() {
               })}
             </div>
           </>
-        )}
-
-
+        ) : isSearching ? (
+          <div className="px-4 py-10 text-center">
+            <p className="text-fg-muted text-sm">No members match &ldquo;{searchQuery}&rdquo;.</p>
+          </div>
+        ) : null}
       </div>
 
       {user && (
         <p className="text-[12px] text-fg-muted text-center">Click a row to see that member&apos;s predictions.</p>
       )}
     </div>
+
+    {/* Fixed search bar — sits just above the bottom nav */}
+    <div className="fixed bottom-[4.25rem] inset-x-0 z-30 bg-bg-elevated/95 backdrop-blur-sm border-t border-border">
+      <div className="max-w-3xl mx-auto px-4 py-3">
+        <div className="relative flex items-center">
+          <Search size={15} className="absolute left-3 text-fg-muted pointer-events-none" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search by email…"
+            className="w-full rounded-input bg-surface border border-border pl-8 pr-8 py-2.5 text-[14px] text-fg placeholder:text-fg-muted focus:outline-none focus:border-primary transition-colors"
+          />
+          {isSearching && (
+            <button
+              onClick={() => { setSearchQuery(''); searchInputRef.current?.focus(); }}
+              className="absolute right-2.5 text-fg-muted hover:text-fg transition-colors"
+              aria-label="Clear search"
+            >
+              <X size={15} />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+    </>
   );
 }

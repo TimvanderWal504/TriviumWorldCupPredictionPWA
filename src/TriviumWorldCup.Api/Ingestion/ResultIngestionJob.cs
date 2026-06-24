@@ -154,11 +154,11 @@ public class ResultIngestionJob(
         // Fetch by date instead of the full season to keep each call cheap (max 5–6
         // fixtures returned). The live window can span two UTC dates when a match
         // kicks off close to midnight UTC, so we fetch both dates in that case.
+        var today          = DateOnly.FromDateTime(now.UtcDateTime);
+        var windowStartDay = DateOnly.FromDateTime(liveWindowStart.UtcDateTime);
         IReadOnlyList<ApiFixture> allApiFixtures;
         try
         {
-            var today          = DateOnly.FromDateTime(now.UtcDateTime);
-            var windowStartDay = DateOnly.FromDateTime(liveWindowStart.UtcDateTime);
             allApiFixtures = await apiClient.GetFixturesByDateAsync(today, ct);
             if (windowStartDay != today)
             {
@@ -178,6 +178,53 @@ public class ResultIngestionJob(
         {
             logger.LogDebug("ResultIngestionJob: no fixtures returned from API");
             return;
+        }
+
+        // ── 2b. Catch-up fetch for InProgress fixtures that crossed a UTC date boundary ──
+        // The main fetch above covers today and at most yesterday (within the first 30 minutes
+        // after midnight UTC). A match that kicked off around 23:00–23:30 UTC can still be
+        // live past 00:30 UTC, at which point its date is no longer fetched and the FT signal
+        // is never seen — leaving the fixture permanently stuck at InProgress with a frozen
+        // ElapsedMinute. Detect any InProgress fixture/slot whose kickoff date isn't covered
+        // and fetch that date once to recover the FT (or continued-live) signal.
+        var alreadyFetched = new HashSet<DateOnly> { today };
+        if (windowStartDay != today) alreadyFetched.Add(windowStartDay);
+
+        var groupKickoffs = await checkSession
+            .Query<Fixture>()
+            .Where(f => f.Status == MatchStatus.InProgress)
+            .Select(f => f.KickoffUtc)
+            .ToListAsync(ct);
+
+        var knockoutKickoffs = await checkSession
+            .Query<KnockoutSlot>()
+            .Where(s => s.KickoffUtc != null
+                     && (s.Status == MatchStatus.InProgress
+                      || s.Status == MatchStatus.ExtraTime
+                      || s.Status == MatchStatus.PenaltyShootout))
+            .Select(s => s.KickoffUtc!.Value)
+            .ToListAsync(ct);
+
+        var missedDates = groupKickoffs
+            .Select(k => DateOnly.FromDateTime(k.UtcDateTime))
+            .Concat(knockoutKickoffs.Select(k => DateOnly.FromDateTime(k.UtcDateTime)))
+            .Where(alreadyFetched.Add)
+            .ToList();
+
+        foreach (var date in missedDates)
+        {
+            try
+            {
+                var extra = await apiClient.GetFixturesByDateAsync(date, ct);
+                allApiFixtures = [..allApiFixtures.Concat(extra).DistinctBy(f => f.FixtureId)];
+                logger.LogInformation(
+                    "ResultIngestionJob: catch-up fetch for {Date} — {Count} fixture(s) recovered",
+                    date, extra.Count);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "ResultIngestionJob: catch-up fetch for {Date} failed", date);
+            }
         }
 
         var anyLive = allApiFixtures.Any(f => f.IsLive);
