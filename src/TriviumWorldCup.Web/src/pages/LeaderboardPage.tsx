@@ -96,6 +96,11 @@ function PodiumSection({ entries, currentUserId, onSelect, selectable }: PodiumS
               {entry.displayName}
               {isCurrentUser && <span className="text-secondary ml-1 text-[11px]">(you)</span>}
             </span>
+            {entry.email && (
+              <span className="text-[11px] text-fg-muted truncate w-full px-1 text-center mb-0.5">
+                {entry.email.split('@')[0]}
+              </span>
+            )}
             <span className={`${ptsSize[entry.rank]} font-black tnum mb-2`} style={{ color: colorVar }}>
               {entry.totalPoints} pts
             </span>
@@ -383,9 +388,10 @@ export function LeaderboardPage() {
 
         {listEntries.length > 0 ? (
           <>
-            <div className="grid grid-cols-[2.25rem_1fr_3.25rem] gap-2.5 px-4 py-2.5 bg-surface-2 text-[10px] font-display font-bold uppercase tracking-wider text-fg-muted">
+            <div className="grid grid-cols-[2rem_1fr_1fr_3.5rem] gap-x-3 px-4 py-2.5 bg-surface-2 text-[10px] font-display font-bold uppercase tracking-wider text-fg-muted items-center">
               <span className="text-center">#</span>
               <span>Member</span>
+              <span>Email</span>
               <span className="text-right">Pts</span>
             </div>
             <div className="divide-y divide-border">
@@ -396,15 +402,13 @@ export function LeaderboardPage() {
                     key={entry.userId}
                     onClick={user ? () => void handleRowClick(entry) : undefined}
                     disabled={!user}
-                    className={`w-full grid grid-cols-[2.25rem_1fr_3.25rem] gap-2.5 px-4 py-3.5 text-left transition-colors ${
+                    className={`w-full grid grid-cols-[2rem_1fr_1fr_3.5rem] gap-x-3 px-4 py-3 text-left items-center transition-colors ${
                       user ? 'hover:bg-surface-2 cursor-pointer' : 'cursor-default'
                     } ${isCurrentUser ? 'bg-blue-500/10' : ''}`}
                   >
-                    <div className="flex justify-center">
-                      <span className="font-display font-black text-fg-muted text-[14px] grid place-items-center w-7 h-7 tnum">
-                        {entry.rank}
-                      </span>
-                    </div>
+                    <span className="font-display font-black text-fg-muted text-[13px] text-center tnum">
+                      {entry.rank}
+                    </span>
                     <div className="flex items-center gap-2 min-w-0">
                       {entry.countryCode && (
                         <img
@@ -414,19 +418,15 @@ export function LeaderboardPage() {
                           className="shrink-0 rounded-sm"
                         />
                       )}
-                      <div className="flex flex-col min-w-0">
-                        <div className={`flex items-center gap-1.5 ${entry.email ? 'border-b border-border/60 pb-0.5' : ''}`}>
-                          <span className={`font-semibold truncate ${isCurrentUser ? 'text-secondary' : 'text-fg'}`}>
-                            {entry.displayName}
-                          </span>
-                          {isCurrentUser && <span className="text-[11px] text-secondary shrink-0">(you)</span>}
-                        </div>
-                        {entry.email && (
-                          <span className="text-[11px] text-fg-muted truncate mt-0.5">{entry.email}</span>
-                        )}
-                      </div>
+                      <span className={`font-semibold truncate text-[14px] ${isCurrentUser ? 'text-secondary' : 'text-fg'}`}>
+                        {entry.displayName}
+                      </span>
+                      {isCurrentUser && <span className="text-[11px] text-secondary shrink-0">(you)</span>}
                     </div>
-                    <div className="font-display font-black text-[18px] tnum text-right">{entry.totalPoints}</div>
+                    <span className="text-[12px] text-fg-muted truncate">
+                      {entry.email?.split('@')[0] ?? '—'}
+                    </span>
+                    <span className="font-display font-black text-[18px] tnum text-right">{entry.totalPoints}</span>
                   </button>
                 );
               })}
@@ -444,10 +444,10 @@ export function LeaderboardPage() {
       )}
     </div>
 
-    {/* Fixed search bar — sits just above the bottom nav */}
-    <div className="fixed bottom-[4.25rem] inset-x-0 z-30 bg-bg-elevated/95 backdrop-blur-sm border-t border-border">
-      <div className="max-w-3xl mx-auto px-4 py-3">
-        <div className="relative flex items-center">
+    {/* Fixed search bar — sits flush above the bottom nav, same width as leaderboard content */}
+    <div className="fixed bottom-14 inset-x-0 z-30">
+      <div className="max-w-3xl mx-auto px-4">
+        <div className="relative flex items-center bg-bg-elevated/95 backdrop-blur-sm border border-border rounded-input shadow-lg">
           <Search size={15} className="absolute left-3 text-fg-muted pointer-events-none" />
           <input
             ref={searchInputRef}
@@ -455,7 +455,7 @@ export function LeaderboardPage() {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search by email…"
-            className="w-full rounded-input bg-surface border border-border pl-8 pr-8 py-2.5 text-[14px] text-fg placeholder:text-fg-muted focus:outline-none focus:border-primary transition-colors"
+            className="w-full bg-transparent pl-8 pr-8 py-2.5 text-[14px] text-fg placeholder:text-fg-muted focus:outline-none"
           />
           {isSearching && (
             <button
