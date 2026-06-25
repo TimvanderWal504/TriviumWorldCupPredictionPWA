@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Radio, ListChecks, Trophy, BarChart3, User, NotebookPen, ClipboardCheck } from 'lucide-react';
+import { Radio, ListChecks, BarChart3, User, NotebookPen, ClipboardCheck } from 'lucide-react';
 import triviumLogomark from './assets/_Trivium_Logos/trivium_logomark_transparent.svg';
 import heroBg from './assets/hero-2000-DW7OUruS.svg';
 import { AuthProvider } from './auth/AuthContext.tsx';
@@ -22,16 +22,15 @@ import { useAppUpdate } from './hooks/useAppUpdate.ts';
 import { UpdateModal } from './components/UpdateModal.tsx';
 
 
-type Tab = 'live' | 'predict' | 'results' | 'bracket' | 'ranks' | 'rules' | 'me';
-// 'tournament' is a sub-page within the 'predict' tab, not a top-level subPage
+type Tab = 'live' | 'predict' | 'results' | 'ranks' | 'rules' | 'me';
+// 'tournament' and 'knockout' are sub-pages within the 'predict' tab, not top-level tabs
 type SubPage = 'profile' | 'admin' | null;
-type PredictView = 'group' | 'tournament';
+type PredictView = 'group' | 'tournament' | 'knockout';
 
 const ALL_TABS: { id: Tab; label: string; Icon: React.FC<{ size?: number }> }[] = [
   { id: 'live',    label: 'Live',    Icon: Radio },
   { id: 'predict', label: 'Predict', Icon: ListChecks },
   { id: 'results', label: 'Results', Icon: ClipboardCheck },
-  { id: 'bracket', label: 'Bracket', Icon: Trophy },
   { id: 'ranks',   label: 'Ranks',   Icon: BarChart3 },
   { id: 'rules',   label: 'Rules',   Icon: NotebookPen },
   { id: 'me',      label: 'Me',      Icon: User },
@@ -41,7 +40,6 @@ const TAB_TITLES: Record<Tab, string> = {
   live:    'Live Scores',
   predict: 'Predictions',
   results: 'Results',
-  bracket: 'Knockout Bracket',
   ranks:   'Leaderboard',
   rules:   'Rules & Scoring',
   me:      'My Standings',
@@ -141,7 +139,6 @@ function AppShell() {
   const visibleTabs = ALL_TABS.filter(t => {
     if (t.id === 'live' && !liveActive) return false;
     if (t.id === 'results' && !hasResults) return false;
-    if (t.id === 'bracket' && !bracketOpen && !isAdmin) return false;
     return true;
   });
 
@@ -149,6 +146,8 @@ function AppShell() {
     ? SUB_TITLES[subPage]
     : tab === 'predict' && predictView === 'tournament'
     ? 'Tournament Prediction'
+    : tab === 'predict' && predictView === 'knockout'
+    ? 'Knockout Bracket'
     : TAB_TITLES[tab];
 
   return (
@@ -215,6 +214,7 @@ function AppShell() {
               <div className="flex items-center justify-between gap-2">
                 <div className="flex gap-2">
                   <SubPill active={predictView === 'group'} onClick={() => setPredictView('group')}>Group Stage</SubPill>
+                  { (bracketOpen && isAdmin) ?? <SubPill active={predictView === 'knockout'} onClick={() => setPredictView('knockout')}>Knockout Stage</SubPill> }
                   <SubPill active={predictView === 'tournament'} onClick={() => setPredictView('tournament')}>Tournament</SubPill>
                 </div>
                 {predictView === 'group' && (
@@ -237,12 +237,12 @@ function AppShell() {
             </div>
             {predictView === 'tournament'
               ? <TournamentPredictionPage />
+              : predictView === 'knockout'
+              ? <KnockoutBracketPage />
               : <GroupPredictionsPage viewMode={groupViewMode} onAllGroupsComplete={() => setPredictView('tournament')} />}
           </div>
 
-        ) : tab === 'bracket' ? (
-          <KnockoutBracketPage />
-
+        
         ) : tab === 'ranks' ? (
           <LeaderboardPage />
 
