@@ -1,5 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { Clock } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { flagUrl } from '../utils/flagUrl.ts';
 import { Spinner } from '../components/ui/Spinner.tsx';
 
@@ -27,9 +26,23 @@ async function fetchPredictions(): Promise<KnockoutPredictionDto[]> {
   if (!res.ok) throw new Error(`Failed to load predictions (${res.status})`);
   return res.json() as Promise<KnockoutPredictionDto[]>;
 }
+async function fetchTeamNames(): Promise<Map<string, string>> {
+  const res = await fetch('/teams', { credentials: 'include' });
+  if (!res.ok) return new Map();
+  const teams = await res.json() as { id: string; name: string; fifaCode: string }[];
+  const map = new Map<string, string>();
+  for (const t of teams) {
+    map.set(t.id, t.name);
+    if (t.fifaCode) map.set(t.fifaCode, t.name);
+  }
+  return map;
+}
 async function savePrediction(
-  slotKey: string, predictedWinnerTeamId: string,
-  predictedHomeScore: number | null, predictedAwayScore: number | null, method: 'POST' | 'PUT',
+  slotKey: string,
+  predictedWinnerTeamId: string,
+  predictedHomeScore: number | null,
+  predictedAwayScore: number | null,
+  method: 'POST' | 'PUT',
 ): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch(`/predictions/knockout/${slotKey}`, {
     method, headers: { 'Content-Type': 'application/json' }, credentials: 'include',
@@ -37,39 +50,58 @@ async function savePrediction(
   });
   if (res.ok) return { ok: true };
   const body = await res.json().catch(() => ({})) as { error?: string };
-  if (res.status === 403) return { ok: false, error: 'This match is locked. Predictions closed at kickoff.' };
+  if (res.status === 403) return { ok: false, error: 'Locked — predictions closed at kickoff.' };
   if (res.status === 422) return { ok: false, error: body.error ?? 'Bracket not yet resolved.' };
   return { ok: false, error: body.error ?? `Error ${res.status}` };
 }
 
 const ROUND_ORDER = ['R32', 'R16', 'QF', 'SF', 'ThirdPlace', 'Final'];
 const ROUND_LABELS: Record<string, string> = {
-  R32: 'Round of 32', R16: 'Round of 16', QF: 'Quarter-finals',
-  SF: 'Semi-finals', ThirdPlace: 'Third-place Play-off', Final: 'Final',
+  R32: 'R32', R16: 'R16', QF: 'QF', SF: 'SF', ThirdPlace: '3rd', Final: 'Final',
+};
+const ROUND_MULTIPLIER: Record<string, string> = {
+  R32: '×1', R16: '×1.5', QF: '×2', SF: '×2.5', ThirdPlace: '×2.5', Final: '×3',
 };
 
 function isLocked(kickoffUtc: string | null): boolean {
   if (!kickoffUtc) return true;
   return new Date(kickoffUtc).getTime() <= Date.now();
 }
-function formatKickoff(kickoffUtc: string | null): string {
+function formatCompactKickoff(kickoffUtc: string | null): string {
   if (!kickoffUtc) return 'TBD';
-  return new Date(kickoffUtc).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return new Date(kickoffUtc).toLocaleString(undefined, {
+    weekday: 'short', hour: '2-digit', minute: '2-digit',
+  });
 }
 
-interface SlotCardProps { slot: KnockoutSlotDto; prediction: KnockoutPredictionDto | undefined; onSaved: (u: KnockoutPredictionDto) => void; }
+interface SlotCardProps {
+  slot: KnockoutSlotDto;
+  prediction: KnockoutPredictionDto | undefined;
+  teamNames: Map<string, string>;
+  onSaved: (u: KnockoutPredictionDto) => void;
+}
 
-function SlotCard({ slot, prediction, onSaved }: SlotCardProps) {
-  const locked = isLocked(slot.kickoffUtc);
+function SlotCard({ slot, prediction, teamNames, onSaved }: SlotCardProps) {
+  const locked     = isLocked(slot.kickoffUtc);
   const teamsKnown = slot.homeTeamId !== null && slot.awayTeamId !== null;
+  const hasResult  = slot.homeScore !== null && slot.awayScore !== null;
+  const isLiveET   = slot.status === 'ExtraTime';
+  const isLivePen  = slot.status === 'PenaltyShootout';
+  const isLive     = slot.status === 'InProgress' || isLiveET || isLivePen;
+  const wonOnPens  = slot.penaltyHomeScore !== null && slot.penaltyAwayScore !== null;
+  const wentToAet  = hasResult && slot.homeScore === slot.awayScore
+                  && slot.winnerTeamId !== null && !wonOnPens;
+
   const [selectedWinner, setSelectedWinner] = useState(prediction?.predictedWinnerTeamId ?? '');
-  const [homeInput, setHomeInput] = useState(prediction?.predictedHomeScore != null ? String(prediction.predictedHomeScore) : '');
-  const [awayInput, setAwayInput] = useState(prediction?.predictedAwayScore != null ? String(prediction.predictedAwayScore) : '');
+  const [homeInput, setHomeInput] = useState(
+    prediction?.predictedHomeScore != null ? String(prediction.predictedHomeScore) : '',
+  );
+  const [awayInput, setAwayInput] = useState(
+    prediction?.predictedAwayScore != null ? String(prediction.predictedAwayScore) : '',
+  );
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const hasResult = slot.homeScore !== null && slot.awayScore !== null;
-  const unpredicted = !prediction && !locked && teamsKnown;
+  const [error, setError]   = useState<string | null>(null);
+  const [saved, setSaved]   = useState(false);
 
   useEffect(() => {
     if (prediction) {
@@ -79,207 +111,275 @@ function SlotCard({ slot, prediction, onSaved }: SlotCardProps) {
     }
   }, [prediction]);
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault(); setError(null); setSaved(false);
-    if (!selectedWinner) { setError('Select the team you predict will advance.'); return; }
+  const handleSave = async () => {
+    if (!selectedWinner) return;
+    setError(null); setSaved(false); setSaving(true);
     const homeScore = homeInput !== '' ? parseInt(homeInput, 10) : null;
     const awayScore = awayInput !== '' ? parseInt(awayInput, 10) : null;
-    if (homeInput !== '' && (isNaN(homeScore!) || homeScore! < 0)) { setError('Home score must be a non-negative number.'); return; }
-    if (awayInput !== '' && (isNaN(awayScore!) || awayScore! < 0)) { setError('Away score must be a non-negative number.'); return; }
-    setSaving(true);
-    const result = await savePrediction(slot.slotKey, selectedWinner, homeScore, awayScore, prediction !== undefined ? 'PUT' : 'POST');
+    const result = await savePrediction(
+      slot.slotKey, selectedWinner, homeScore, awayScore, prediction ? 'PUT' : 'POST',
+    );
     setSaving(false);
     if (result.ok) {
-      onSaved({ slotKey: slot.slotKey, predictedWinnerTeamId: selectedWinner, predictedHomeScore: homeScore, predictedAwayScore: awayScore, submittedAt: new Date().toISOString() });
-      setSaved(true); setTimeout(() => setSaved(false), 3000);
-    } else { setError(result.error ?? 'Save failed.'); }
+      onSaved({
+        slotKey: slot.slotKey, predictedWinnerTeamId: selectedWinner,
+        predictedHomeScore: homeScore, predictedAwayScore: awayScore,
+        submittedAt: new Date().toISOString(),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } else {
+      setError(result.error ?? 'Save failed.');
+    }
   };
 
-  const isLiveET  = slot.status === 'ExtraTime';
-  const isLivePen = slot.status === 'PenaltyShootout';
-  const isLive    = slot.status === 'InProgress' || isLiveET || isLivePen;
-  const wonOnPens = slot.penaltyHomeScore !== null && slot.penaltyAwayScore !== null;
-  // Match went to AET when: 90-min draw, winner decided, no penalty scores stored
-  const wentToAet = hasResult && slot.homeScore === slot.awayScore
-                 && slot.winnerTeamId !== null && !wonOnPens;
+  const name = (id: string) => teamNames.get(id) ?? id;
 
-  const cardBorderColor = unpredicted ? 'var(--secondary)' : isLive ? 'var(--live)' : 'var(--border)';
-  const cardOpacity = locked && !teamsKnown ? 0.6 : locked && !isLive ? 0.8 : 1;
+  // Right side of header
+  let headerRight = '';
+  let headerRightColor = 'var(--fg-muted)';
+  if (isLive) {
+    headerRight      = isLivePen ? 'PEN' : isLiveET ? 'AET' : 'LIVE';
+    headerRightColor = 'var(--live)';
+  } else if (hasResult) {
+    headerRight      = ROUND_MULTIPLIER[slot.round] ?? '';
+    headerRightColor = 'var(--secondary)';
+  } else {
+    headerRight = formatCompactKickoff(slot.kickoffUtc);
+  }
+
+  const canPick = !locked && teamsKnown && !hasResult;
+
+  const teams = teamsKnown ? [
+    { id: slot.homeTeamId!, score: slot.homeScore, penScore: slot.penaltyHomeScore, isWinner: slot.winnerTeamId === slot.homeTeamId },
+    { id: slot.awayTeamId!, score: slot.awayScore, penScore: slot.penaltyAwayScore, isWinner: slot.winnerTeamId === slot.awayTeamId },
+  ] : null;
+
+  const borderColor = !teamsKnown
+    ? 'var(--border)'
+    : isLive
+    ? 'var(--live)'
+    : !locked && !prediction && !hasResult
+    ? 'var(--secondary)'
+    : 'var(--border)';
 
   return (
-    <div className="rounded-card bg-surface p-4 flex flex-col gap-2.5 border" style={{ borderColor: cardBorderColor, opacity: cardOpacity }}>
-      <div className="flex items-center justify-between text-[11px] text-fg-muted">
-        <span className="font-mono">{slot.slotKey}{slot.venue ? ` · ${slot.venue}` : ''}</span>
-        <div className="flex items-center gap-1.5">
-          {isLivePen && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md" style={{ background: 'var(--live-soft)', color: 'var(--live)' }}>PEN</span>}
-          {isLiveET  && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md" style={{ background: 'var(--live-soft)', color: 'var(--live)' }}>ET</span>}
-          {isLive && !isLiveET && !isLivePen && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md" style={{ background: 'var(--live-soft)', color: 'var(--live)' }}>LIVE</span>}
-          {locked && !isLive && teamsKnown && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-surface-3 text-fg-muted">Locked</span>}
-          {unpredicted && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md" style={{ background: 'var(--win-soft)', color: 'var(--win)' }}>Unpredicted</span>}
+    <div className="rounded-card bg-surface border overflow-hidden" style={{ borderColor }}>
+
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-2.5">
+        <span className="text-[12px] font-mono font-medium text-fg-muted">{slot.slotKey}</span>
+        <span className="text-[12px] font-semibold" style={{ color: headerRightColor }}>
+          {headerRight}
+        </span>
+      </div>
+
+      {/* TBD state */}
+      {!teamsKnown && (
+        <div className="px-4 pb-3 pt-1 text-[13px] text-fg-muted italic border-t border-border">
+          Bracket not yet set
         </div>
-      </div>
+      )}
 
-      <div className="flex items-center gap-1.5 text-[11px] text-fg-muted">
-        <Clock size={12} />{formatKickoff(slot.kickoffUtc)}
-      </div>
-
-      {!teamsKnown && <p className="text-fg-muted text-sm italic">TBD vs TBD (bracket not yet set)</p>}
-
+      {/* Teams + footer */}
       {teamsKnown && (
         <>
-          {hasResult && (locked || isLive) && (
-            <div className="flex flex-col gap-2 py-1">
-              {[
-                { id: slot.homeTeamId!, score: slot.homeScore, penScore: slot.penaltyHomeScore, win: slot.winnerTeamId === slot.homeTeamId },
-                { id: slot.awayTeamId!, score: slot.awayScore, penScore: slot.penaltyAwayScore, win: slot.winnerTeamId === slot.awayTeamId },
-              ].map(({ id, score, penScore, win }) => (
-                <div key={id} className={`flex items-center gap-2.5 ${win ? '' : 'opacity-55'}`}>
-                  {flagUrl(id) && <img src={flagUrl(id)} alt="" width={22} height={15} className="flag shrink-0" />}
-                  <span className={`flex-1 font-mono font-semibold text-sm ${win ? '' : 'text-fg-muted'}`} style={win ? { color: 'var(--win)' } : {}}>{id}</span>
-                  <span className={`font-display font-bold tnum ${win ? 'text-fg' : 'text-fg-muted'}`}>
-                    {score}
-                    {wonOnPens && penScore !== null && (
-                      <span className="text-[11px] font-normal text-fg-muted ml-1">({penScore})</span>
-                    )}
+          {/* Team rows */}
+          <div className="border-t border-border">
+            {teams!.map(({ id, score, penScore, isWinner }) => {
+              const isSelected = selectedWinner === id;
+              const dimmed = hasResult
+                ? !isWinner
+                : selectedWinner !== '' && !isSelected;
+
+              return (
+                <div
+                  key={id}
+                  onClick={() => canPick && setSelectedWinner(id)}
+                  className={[
+                    'flex items-center gap-3 px-4 py-2.5 border-b border-border last:border-b-0 transition-colors',
+                    canPick ? 'cursor-pointer active:bg-surface-2' : '',
+                    dimmed ? 'opacity-40' : '',
+                  ].join(' ')}
+                >
+                  {flagUrl(id) && (
+                    <img src={flagUrl(id)} alt="" width={22} height={15} className="flag shrink-0" />
+                  )}
+                  <span className={`flex-1 min-w-0 truncate text-[15px] font-semibold ${isWinner || isSelected ? 'text-fg' : 'text-fg-secondary'}`}>
+                    {name(id)}
                   </span>
+                  {isWinner && (
+                    <span className="text-[12px] font-bold mr-1 shrink-0" style={{ color: 'var(--win)' }}>✓</span>
+                  )}
+                  {canPick && isSelected && (
+                    <span className="w-2 h-2 rounded-full mr-1 shrink-0" style={{ background: 'var(--secondary)' }} />
+                  )}
+                  {hasResult && (
+                    <span className={`font-display font-black tnum text-[22px] w-7 text-right shrink-0 ${isWinner ? 'text-fg' : 'text-fg-muted'}`}>
+                      {score}
+                    </span>
+                  )}
+                  {hasResult && wonOnPens && penScore != null && (
+                    <span className="text-[11px] text-fg-muted tnum shrink-0">({penScore})</span>
+                  )}
                 </div>
-              ))}
-              {wentToAet && (
-                <p className="text-[11px] text-fg-muted">After extra time</p>
-              )}
-              {wonOnPens && (
-                <p className="text-[11px] text-fg-muted">Won on penalties</p>
-              )}
+              );
+            })}
+          </div>
+
+          {/* AET/penalties note */}
+          {(wentToAet || wonOnPens) && (
+            <div className="px-4 py-1.5 border-t border-border">
+              <span className="text-[11px] text-fg-muted">
+                {wonOnPens ? 'Won on penalties' : 'After extra time'}
+              </span>
             </div>
           )}
 
-          {!hasResult && locked && (
-            <div className="flex flex-col gap-2">
-              {[slot.homeTeamId!, slot.awayTeamId!].map(id => (
-                <div key={id} className="flex items-center gap-2.5">
-                  {flagUrl(id) && <img src={flagUrl(id)} alt="" width={22} height={15} className="flag shrink-0" />}
-                  <span className="font-mono font-semibold text-sm text-fg-secondary">{id}</span>
-                </div>
-              ))}
-            </div>
-          )}
+          {/* Footer: pick status / action */}
+          <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-t border-border min-h-[40px]">
+            <span className="text-[12px] text-fg-muted shrink-0">Your pick</span>
 
-          {!locked && (
-            <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-              <div className="flex flex-col gap-2">
-                {[
-                  { id: slot.homeTeamId!, side: 'home' as const },
-                  { id: slot.awayTeamId!, side: 'away' as const },
-                ].map(({ id }) => (
-                  <label key={id} className="flex items-center gap-2.5 cursor-pointer">
-                    <input type="radio" name={`winner-${slot.slotKey}`} value={id}
-                      checked={selectedWinner === id} onChange={() => setSelectedWinner(id)}
-                      className="accent-pitch-500 shrink-0" />
-                    {flagUrl(id) && <img src={flagUrl(id)} alt="" width={22} height={15} className="flag shrink-0" />}
-                    <span className="font-mono font-semibold text-fg">{id}</span>
-                  </label>
-                ))}
-              </div>
+            {/* Locked — show existing prediction or dash */}
+            {locked && (
+              prediction ? (
+                <span className="text-[13px] font-semibold text-right" style={{ color: 'var(--secondary)' }}>
+                  {name(prediction.predictedWinnerTeamId)}
+                  {prediction.predictedHomeScore != null && (
+                    <span className="text-fg-muted font-normal tnum">
+                      {' '}({prediction.predictedHomeScore}–{prediction.predictedAwayScore})
+                    </span>
+                  )}
+                </span>
+              ) : (
+                <span className="text-[13px] text-fg-muted">—</span>
+              )
+            )}
 
-              <div className="flex items-center gap-2 text-[11px] text-fg-muted">
-                <span className="shrink-0">90-min score (optional):</span>
-                {[
-                  { v: homeInput, set: setHomeInput, label: `${slot.homeTeamId} predicted score` },
-                  { v: awayInput, set: setAwayInput, label: `${slot.awayTeamId} predicted score` },
-                ].map(({ v, set, label }, i) => (
-                  <>
-                    {i === 1 && <span className="text-fg-muted font-bold">–</span>}
-                    <input key={label} type="number" min={0} max={99} placeholder="0" value={v}
-                      onChange={e => set(e.target.value)} aria-label={label}
-                      className="w-12 text-center font-display font-bold tnum bg-surface-2 rounded-input py-1 border border-border" />
-                  </>
-                ))}
-              </div>
-
-              <div className="flex justify-end">
-                <button type="submit" disabled={saving}
-                  className="px-4 py-1.5 rounded-input text-[13px] font-semibold transition-colors disabled:opacity-40"
-                  style={{ background: 'var(--primary-fill)', color: 'var(--fg-onbrand)' }}>
-                  {saving ? <span className="flex items-center gap-1.5"><Spinner size="sm" />Saving…</span> : prediction !== undefined ? 'Update' : 'Save'}
+            {/* Unlocked + winner selected: inline score inputs + save */}
+            {!locked && selectedWinner && (
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number" min={0} max={99} placeholder="0" value={homeInput}
+                  onChange={e => setHomeInput(e.target.value)}
+                  aria-label="Home score"
+                  className="w-10 text-center text-[13px] font-bold tnum bg-surface-2 border border-border rounded-input py-0.5 focus:outline-none focus:border-secondary"
+                />
+                <span className="text-[12px] text-fg-muted">–</span>
+                <input
+                  type="number" min={0} max={99} placeholder="0" value={awayInput}
+                  onChange={e => setAwayInput(e.target.value)}
+                  aria-label="Away score"
+                  className="w-10 text-center text-[13px] font-bold tnum bg-surface-2 border border-border rounded-input py-0.5 focus:outline-none focus:border-secondary"
+                />
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="ml-1 px-3 py-1 rounded-input text-[12px] font-semibold disabled:opacity-40 transition-colors shrink-0"
+                  style={{ background: 'var(--primary-fill)', color: 'var(--fg-onbrand)' }}
+                >
+                  {saving ? '…' : saved ? '✓' : 'Save'}
                 </button>
               </div>
-            </form>
-          )}
+            )}
 
-          {locked && prediction && (
-            <div className="text-[11px] text-fg-muted">
-              Your pick:{' '}
-              <span className="font-mono font-semibold text-secondary">{prediction.predictedWinnerTeamId}</span>
-              {prediction.predictedHomeScore != null && prediction.predictedAwayScore != null && (
-                <span className="tnum"> ({prediction.predictedHomeScore}–{prediction.predictedAwayScore})</span>
-              )}
+            {/* Unlocked + no winner selected yet: hint */}
+            {!locked && !selectedWinner && (
+              <span className="text-[13px] font-semibold" style={{ color: 'var(--secondary)' }}>
+                Tap to pick →
+              </span>
+            )}
+          </div>
+
+          {error && (
+            <div className="px-4 pb-3 text-[12px]" style={{ color: 'var(--loss)' }}>
+              {error}
             </div>
           )}
         </>
       )}
-
-      {error && <p className="text-[13px] px-3 py-1.5 rounded-input" style={{ color: 'var(--loss)', background: 'var(--live-soft)' }}>{error}</p>}
-      {saved && <p className="text-[13px] px-3 py-1.5 rounded-input" style={{ color: 'var(--win)', background: 'var(--win-soft)' }}>Prediction saved.</p>}
     </div>
   );
 }
 
 export function KnockoutBracketPage() {
-  const [slots, setSlots] = useState<KnockoutSlotDto[]>([]);
+  const [slots, setSlots]           = useState<KnockoutSlotDto[]>([]);
   const [predictions, setPredictions] = useState<Map<string, KnockoutPredictionDto>>(new Map());
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [teamNames, setTeamNames]   = useState<Map<string, string>>(new Map());
+  const [loading, setLoading]       = useState(true);
+  const [loadError, setLoadError]   = useState<string | null>(null);
   const [activeRound, setActiveRound] = useState<string>('R32');
 
   useEffect(() => {
-    Promise.all([fetchSlots(), fetchPredictions()])
-      .then(([slotList, predictionList]) => {
+    Promise.all([fetchSlots(), fetchPredictions(), fetchTeamNames()])
+      .then(([slotList, predictionList, names]) => {
         setSlots(slotList);
+        setTeamNames(names);
         const map = new Map<string, KnockoutPredictionDto>();
         for (const p of predictionList) map.set(p.slotKey, p);
         setPredictions(map);
         const firstRound = ROUND_ORDER.find(r => slotList.some(s => s.round === r));
         if (firstRound) setActiveRound(firstRound);
       })
-      .catch((err: unknown) => setLoadError(err instanceof Error ? err.message : 'Failed to load bracket data.'))
+      .catch((err: unknown) =>
+        setLoadError(err instanceof Error ? err.message : 'Failed to load bracket data.'),
+      )
       .finally(() => setLoading(false));
   }, []);
 
   const presentRounds = ROUND_ORDER.filter(r => slots.some(s => s.round === r));
-  const activeSlots = slots.filter(s => s.round === activeRound).sort((a, b) => a.slotNumber - b.slotNumber);
+  const activeSlots   = slots
+    .filter(s => s.round === activeRound)
+    .sort((a, b) => a.slotNumber - b.slotNumber);
 
   if (loading) return (
     <div className="flex items-center justify-center py-20">
       <Spinner size="lg" label="Loading bracket" />
     </div>
   );
-  if (loadError) return <div className="flex items-center justify-center py-20 text-[13px]" style={{ color: 'var(--loss)' }}>{loadError}</div>;
+  if (loadError) return (
+    <div className="flex items-center justify-center py-20 text-[13px]" style={{ color: 'var(--loss)' }}>
+      {loadError}
+    </div>
+  );
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-4">
-      <div className="rounded-card bg-surface border border-border px-4 py-3 mb-3 text-[13px] text-fg-secondary leading-relaxed">
-        Pick the advancing team for each match. Optional 90-min score earns a bonus.
-        Predictions lock at kickoff. Slots open once both teams are determined.
+
+      {/* Round tab bar — underline style */}
+      <div className="flex border-b border-border overflow-x-auto appscroll mb-4">
+        {presentRounds.map(round => {
+          const active = activeRound === round;
+          return (
+            <button
+              key={round}
+              role="tab"
+              aria-selected={active}
+              onClick={() => setActiveRound(round)}
+              className={[
+                'px-4 py-2.5 text-[13px] font-semibold whitespace-nowrap transition-colors border-b-2 -mb-px shrink-0',
+                active ? 'border-secondary text-secondary' : 'border-transparent text-fg-muted hover:text-fg',
+              ].join(' ')}
+              style={active ? { borderColor: 'var(--secondary)', color: 'var(--secondary)' } : undefined}
+            >
+              {ROUND_LABELS[round] ?? round}
+            </button>
+          );
+        })}
       </div>
 
-      <div className="flex gap-1.5 overflow-x-auto appscroll pb-3" role="tablist">
-        {presentRounds.map(round => (
-          <button key={round} role="tab" aria-selected={activeRound === round}
-            onClick={() => setActiveRound(round)}
-            className={`px-3.5 py-1.5 rounded-input text-[13px] font-semibold whitespace-nowrap transition-colors ${
-              activeRound !== round ? 'bg-surface-3 text-fg-secondary' : ''
-            }`}
-            style={activeRound === round ? { background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' } : undefined}>
-            {ROUND_LABELS[round] ?? round}
-          </button>
-        ))}
-      </div>
-
+      {/* Slot cards */}
       <div className="flex flex-col gap-2.5">
         {activeSlots.map(slot => (
-          <SlotCard key={slot.slotKey} slot={slot}
+          <SlotCard
+            key={slot.slotKey}
+            slot={slot}
             prediction={predictions.get(slot.slotKey)}
-            onSaved={updated => setPredictions(prev => new Map(prev).set(updated.slotKey, updated))} />
+            teamNames={teamNames}
+            onSaved={updated =>
+              setPredictions(prev => new Map(prev).set(updated.slotKey, updated))
+            }
+          />
         ))}
       </div>
     </div>
