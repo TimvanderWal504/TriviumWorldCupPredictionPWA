@@ -65,8 +65,8 @@ public static class KnockoutPredictionEndpoints
             if (existing is not null)
                 return Results.Conflict(new { error = "Prediction already exists for this slot. Use PUT to update." });
 
-            // Bracket-progression enforcement: winner must be one of the two participants
-            var validationError = ValidateWinner(request.PredictedWinnerTeamId, slot);
+            // Bracket-progression enforcement: mandatory scores + winner consistent with the scoreline
+            var validationError = ValidatePrediction(request, slot);
             if (validationError is not null)
                 return Results.BadRequest(new { error = validationError });
 
@@ -126,7 +126,7 @@ public static class KnockoutPredictionEndpoints
                 return Results.Forbid();
 
             // Bracket-progression enforcement
-            var validationError = ValidateWinner(request.PredictedWinnerTeamId, slot);
+            var validationError = ValidatePrediction(request, slot);
             if (validationError is not null)
                 return Results.BadRequest(new { error = validationError });
 
@@ -173,6 +173,38 @@ public static class KnockoutPredictionEndpoints
             !string.Equals(predictedWinnerTeamId, slot.AwayTeamId, StringComparison.OrdinalIgnoreCase))
         {
             return $"PredictedWinnerTeamId must be '{slot.HomeTeamId}' or '{slot.AwayTeamId}'.";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Validates a full knockout prediction request against the slot:
+    /// winner must be a participant, both scores are mandatory and non-negative, and on a
+    /// decisive scoreline the predicted winner must be the higher-scoring team. A level
+    /// scoreline allows either participant to advance (penalty / extra-time outcome).
+    /// Requires HomeTeamId and AwayTeamId to be non-null before calling.
+    /// </summary>
+    public static string? ValidatePrediction(KnockoutPredictionRequest request, KnockoutSlot slot)
+    {
+        var winnerError = ValidateWinner(request.PredictedWinnerTeamId, slot);
+        if (winnerError is not null)
+            return winnerError;
+
+        if (request.PredictedHomeScore is null || request.PredictedAwayScore is null)
+            return "Both PredictedHomeScore and PredictedAwayScore are required.";
+
+        var home = request.PredictedHomeScore.Value;
+        var away = request.PredictedAwayScore.Value;
+
+        if (home < 0 || away < 0)
+            return "Predicted scores must be zero or greater.";
+
+        if (home != away)
+        {
+            var higherTeamId = home > away ? slot.HomeTeamId : slot.AwayTeamId;
+            if (!string.Equals(request.PredictedWinnerTeamId, higherTeamId, StringComparison.OrdinalIgnoreCase))
+                return "PredictedWinnerTeamId must be the team with the higher predicted score.";
         }
 
         return null;

@@ -109,12 +109,18 @@ function SlotCard({ slot, prediction, teamNames, onSaved }: SlotCardProps) {
                   && slot.winnerTeamId !== null && !wonOnPens;
   const canPick    = !locked && teamsKnown && !hasResult;
 
-  const [selectedWinner, setSelectedWinner] = useState(prediction?.predictedWinnerTeamId ?? '');
   const [homeInput, setHomeInput] = useState(
     prediction?.predictedHomeScore != null ? String(prediction.predictedHomeScore) : '',
   );
   const [awayInput, setAwayInput] = useState(
     prediction?.predictedAwayScore != null ? String(prediction.predictedAwayScore) : '',
+  );
+  // On a tied scoreline, the explicitly chosen advancing team. Seeded from an existing tie prediction.
+  const [tieWinner, setTieWinner] = useState(
+    prediction != null
+    && prediction.predictedHomeScore != null
+    && prediction.predictedHomeScore === prediction.predictedAwayScore
+      ? prediction.predictedWinnerTeamId : '',
   );
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState<string | null>(null);
@@ -122,35 +128,61 @@ function SlotCard({ slot, prediction, teamNames, onSaved }: SlotCardProps) {
 
   useEffect(() => {
     if (prediction) {
-      setSelectedWinner(prediction.predictedWinnerTeamId);
       setHomeInput(prediction.predictedHomeScore != null ? String(prediction.predictedHomeScore) : '');
       setAwayInput(prediction.predictedAwayScore != null ? String(prediction.predictedAwayScore) : '');
+      setTieWinner(
+        prediction.predictedHomeScore != null
+        && prediction.predictedHomeScore === prediction.predictedAwayScore
+          ? prediction.predictedWinnerTeamId : '',
+      );
     }
   }, [prediction]);
 
-  const handleSave = async () => {
-    if (!selectedWinner) return;
-    setError(null); setSaved(false); setSaving(true);
-    const homeScore = homeInput !== '' ? parseInt(homeInput, 10) : null;
-    const awayScore = awayInput !== '' ? parseInt(awayInput, 10) : null;
-    const result = await savePrediction(
-      slot.slotKey, selectedWinner, homeScore, awayScore, prediction ? 'PUT' : 'POST',
-    );
-    setSaving(false);
-    if (result.ok) {
-      onSaved({
-        slotKey: slot.slotKey, predictedWinnerTeamId: selectedWinner,
-        predictedHomeScore: homeScore, predictedAwayScore: awayScore,
-        submittedAt: new Date().toISOString(),
-      });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
-    } else {
-      setError(result.error ?? 'Save failed.');
-    }
-  };
-
   const name = (id: string) => teamNames.get(id) ?? id;
+
+  // Parse the current inputs and derive the advancing team.
+  // Both scores are mandatory; the higher score advances, and a tie requires an explicit pick.
+  const homeNum = homeInput !== '' ? parseInt(homeInput, 10) : NaN;
+  const awayNum = awayInput !== '' ? parseInt(awayInput, 10) : NaN;
+  const bothEntered = !isNaN(homeNum) && !isNaN(awayNum) && homeNum >= 0 && awayNum >= 0;
+  const isTie = bothEntered && homeNum === awayNum;
+  const advancingTeamId = !bothEntered
+    ? null
+    : homeNum > awayNum ? slot.homeTeamId
+    : homeNum < awayNum ? slot.awayTeamId
+    : (tieWinner || null);
+
+  // Auto-save once both scores are entered and an advancing team is resolved (group-stage style debounce).
+  useEffect(() => {
+    if (!canPick) return;
+    if (!bothEntered || !advancingTeamId) return;
+    if (prediction
+        && prediction.predictedHomeScore === homeNum
+        && prediction.predictedAwayScore === awayNum
+        && prediction.predictedWinnerTeamId === advancingTeamId) return;
+
+    const timer = setTimeout(async () => {
+      setError(null); setSaved(false); setSaving(true);
+      const result = await savePrediction(
+        slot.slotKey, advancingTeamId, homeNum, awayNum, prediction ? 'PUT' : 'POST',
+      );
+      setSaving(false);
+      if (result.ok) {
+        onSaved({
+          slotKey: slot.slotKey, predictedWinnerTeamId: advancingTeamId,
+          predictedHomeScore: homeNum, predictedAwayScore: awayNum,
+          submittedAt: new Date().toISOString(),
+        });
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      } else {
+        setError(result.error ?? 'Save failed.');
+      }
+    }, 700);
+    return () => clearTimeout(timer);
+    // prediction / slot / onSaved omitted to avoid re-triggering after each save (matches FixtureCard)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [homeInput, awayInput, tieWinner, canPick]);
 
   // Badge — same logic as FixtureCard
   let badgeText = '';
@@ -221,40 +253,32 @@ function SlotCard({ slot, prediction, teamNames, onSaved }: SlotCardProps) {
         <p className="text-[13px] text-fg-muted italic">Bracket not yet set</p>
       )}
 
-      {/* Team rows — same structure as FixtureCard; rows are tappable to pick */}
-      {teamsKnown && (
+      {/* Read-only rows — actual result (played) or the user's locked-in prediction */}
+      {teamsKnown && !canPick && (
         <div className="flex flex-col gap-2">
-          {teams!.map(({ id, score, penScore, isWinner }) => {
-            const isSelected = selectedWinner === id;
-            const dimmed = hasResult
-              ? !isWinner
-              : selectedWinner !== '' && !isSelected;
+          {teams!.map(({ id, score, penScore, isWinner }, idx) => {
+            const predScore   = idx === 0 ? prediction?.predictedHomeScore : prediction?.predictedAwayScore;
+            const scoreToShow = hasResult ? score : (predScore != null ? predScore : null);
+            const advances    = hasResult ? isWinner : prediction?.predictedWinnerTeamId === id;
+            const dimmed      = (hasResult || prediction != null) ? !advances : false;
             const url = flagUrl(id);
             return (
-              <div
-                key={id}
-                onClick={() => canPick && setSelectedWinner(id)}
-                className={[
-                  'flex items-center gap-2.5 transition-opacity',
-                  canPick ? 'cursor-pointer active:opacity-60' : '',
-                  dimmed ? 'opacity-40' : '',
-                ].join(' ')}
-              >
+              <div key={id} className={['flex items-center gap-2.5', dimmed ? 'opacity-40' : ''].join(' ')}>
                 {url && (
                   <img src={url} alt="" width={28} height={20} className="flag shrink-0" />
                 )}
-                <span className={`flex-1 min-w-0 truncate font-semibold ${isWinner || isSelected ? 'text-fg' : 'text-fg-secondary'}`}>
+                <span className={`flex-1 min-w-0 truncate font-semibold ${advances ? 'text-fg' : 'text-fg-secondary'}`}>
                   {name(id)}
                 </span>
-                {isWinner && !canPick && (
-                  <span className="text-[12px] font-bold shrink-0 mr-1" style={{ color: 'var(--win)' }}>✓</span>
+                {advances && (
+                  <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded shrink-0"
+                    style={{ background: 'var(--win-soft)', color: 'var(--win)' }}>
+                    {hasResult ? 'Through' : 'Advances'}
+                  </span>
                 )}
-                {canPick && isSelected && (
-                  <span className="w-2 h-2 rounded-full shrink-0 mr-1" style={{ background: 'var(--secondary)' }} />
-                )}
-                {hasResult && (
-                  <span className={`font-display font-black tnum text-[22px] w-7 text-right shrink-0 ${isWinner ? 'text-fg' : 'text-fg-muted'}`}>
-                    {score}
+                {scoreToShow != null && (
+                  <span className={`font-display font-black tnum text-[22px] w-7 text-right shrink-0 ${advances ? 'text-fg' : 'text-fg-muted'}`}>
+                    {scoreToShow}
                   </span>
                 )}
                 {hasResult && wonOnPens && penScore != null && (
@@ -266,6 +290,11 @@ function SlotCard({ slot, prediction, teamNames, onSaved }: SlotCardProps) {
         </div>
       )}
 
+      {/* Locked with no prediction made */}
+      {locked && !hasResult && !prediction && teamsKnown && (
+        <p className="text-[12px] text-fg-muted">No pick made</p>
+      )}
+
       {/* AET / penalties note */}
       {(wentToAet || wonOnPens) && (
         <p className="text-[11px] text-fg-muted">
@@ -273,52 +302,70 @@ function SlotCard({ slot, prediction, teamNames, onSaved }: SlotCardProps) {
         </p>
       )}
 
-      {/* Footer: pick action (unlocked) */}
+      {/* Editable: mandatory score per team; the higher score advances */}
       {canPick && (
-        <div className="flex items-center justify-between gap-3 text-[12px]">
-          <span className="text-fg-muted shrink-0">Your pick</span>
-          {selectedWinner ? (
-            <div className="flex items-center gap-1.5">
-              <input
-                type="number" min={0} max={99} placeholder="0" value={homeInput}
-                onChange={e => setHomeInput(e.target.value)} aria-label="Home score"
-                className="w-10 text-center text-[13px] font-bold tnum bg-surface-2 border border-border rounded-input py-0.5 focus:outline-none focus:border-secondary"
-              />
-              <span className="text-fg-muted">–</span>
-              <input
-                type="number" min={0} max={99} placeholder="0" value={awayInput}
-                onChange={e => setAwayInput(e.target.value)} aria-label="Away score"
-                className="w-10 text-center text-[13px] font-bold tnum bg-surface-2 border border-border rounded-input py-0.5 focus:outline-none focus:border-secondary"
-              />
-              <button
-                onClick={handleSave} disabled={saving}
-                className="ml-1 px-3 py-1 rounded-input text-[12px] font-semibold disabled:opacity-40 transition-colors shrink-0"
-                style={{ background: 'var(--primary-fill)', color: 'var(--fg-onbrand)' }}
-              >
-                {saving ? '…' : saved ? '✓' : 'Save'}
-              </button>
-            </div>
-          ) : (
-            <span className="font-semibold" style={{ color: 'var(--secondary)' }}>
-              Tap to pick →
-            </span>
-          )}
+        <div className="flex flex-col gap-2">
+          {[
+            { id: slot.homeTeamId!, value: homeInput, set: setHomeInput },
+            { id: slot.awayTeamId!, value: awayInput, set: setAwayInput },
+          ].map(({ id, value, set }) => {
+            const advances = !isTie && advancingTeamId === id;
+            const url = flagUrl(id);
+            return (
+              <div key={id} className="flex items-center gap-2.5">
+                {url && (
+                  <img src={url} alt="" width={28} height={20} className="flag shrink-0" />
+                )}
+                <span className="flex-1 min-w-0 truncate font-semibold text-fg">{name(id)}</span>
+                {advances && (
+                  <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded shrink-0"
+                    style={{ background: 'var(--win-soft)', color: 'var(--win)' }}>
+                    Advances
+                  </span>
+                )}
+                <input
+                  type="text" inputMode="numeric" placeholder="–" value={value}
+                  onChange={e => set(e.target.value)} aria-label={`${name(id)} predicted score`}
+                  className="w-12 text-center font-display font-bold text-lg tnum bg-surface-2 rounded-input py-1.5 border border-border focus:outline-none focus:border-secondary"
+                />
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {/* Footer: locked prediction */}
-      {locked && prediction && (
-        <div className="flex items-center justify-between text-[12px]">
-          <span className="text-fg-muted shrink-0">Your pick</span>
-          <span className="font-semibold text-right" style={{ color: 'var(--secondary)' }}>
-            {name(prediction.predictedWinnerTeamId)}
-            {prediction.predictedHomeScore != null && (
-              <span className="text-fg-muted font-normal tnum">
-                {' '}({prediction.predictedHomeScore}–{prediction.predictedAwayScore})
-              </span>
-            )}
+      {/* Tie-breaker — prominent: who advances when the predicted scores are level */}
+      {canPick && isTie && (
+        <div className="rounded-input p-2.5 flex flex-col gap-2"
+          style={{ background: 'var(--surface-2)', border: '1px solid var(--secondary)' }}>
+          <span className="text-[12px] font-bold" style={{ color: 'var(--secondary)' }}>
+            Tied {homeNum}–{awayNum} · who goes through?
           </span>
+          <div className="flex gap-2">
+            {[slot.homeTeamId!, slot.awayTeamId!].map(id => {
+              const sel = tieWinner === id;
+              const url = flagUrl(id);
+              return (
+                <button
+                  key={id} onClick={() => setTieWinner(id)}
+                  aria-pressed={sel}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-input text-[12px] font-semibold transition-colors min-w-0"
+                  style={sel
+                    ? { background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }
+                    : { background: 'var(--surface)', color: 'var(--fg-secondary)', border: '1px solid var(--border)' }}
+                >
+                  {url && <img src={url} alt="" width={20} height={14} className="flag shrink-0" />}
+                  <span className="truncate">{name(id)}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
+      )}
+
+      {/* Hint when scores incomplete */}
+      {canPick && !bothEntered && (
+        <p className="text-[11px] text-fg-muted">Enter a score for both teams to lock in your pick.</p>
       )}
 
       {error && (

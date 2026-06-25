@@ -159,6 +159,86 @@ public class KnockoutPredictionTests
         Assert.Null(error);
     }
 
+    // ── ValidatePrediction: mandatory scores + winner/score consistency ───────
+
+    private static KnockoutPredictionRequest MakeRequest(string winner, int? home, int? away) =>
+        new(winner, home, away);
+
+    [Fact]
+    public void ValidatePrediction_MissingHomeScore_ReturnsError()
+    {
+        var slot = MakeSlot(homeTeamId: "BRA", awayTeamId: "ARG");
+        var error = KnockoutPredictionEndpoints.ValidatePrediction(MakeRequest("BRA", null, 1), slot);
+        Assert.NotNull(error);
+        Assert.Contains("required", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ValidatePrediction_MissingAwayScore_ReturnsError()
+    {
+        var slot = MakeSlot(homeTeamId: "BRA", awayTeamId: "ARG");
+        var error = KnockoutPredictionEndpoints.ValidatePrediction(MakeRequest("BRA", 2, null), slot);
+        Assert.NotNull(error);
+    }
+
+    [Fact]
+    public void ValidatePrediction_NegativeScore_ReturnsError()
+    {
+        var slot = MakeSlot(homeTeamId: "BRA", awayTeamId: "ARG");
+        var error = KnockoutPredictionEndpoints.ValidatePrediction(MakeRequest("BRA", -1, 0), slot);
+        Assert.NotNull(error);
+    }
+
+    [Fact]
+    public void ValidatePrediction_WinnerNotParticipant_ReturnsError()
+    {
+        var slot = MakeSlot(homeTeamId: "BRA", awayTeamId: "ARG");
+        var error = KnockoutPredictionEndpoints.ValidatePrediction(MakeRequest("FRA", 2, 1), slot);
+        Assert.NotNull(error);
+    }
+
+    [Fact]
+    public void ValidatePrediction_WinnerIsLowerScoringTeam_ReturnsError()
+    {
+        // Home BRA 1 – 2 ARG away, but winner claimed as BRA → inconsistent
+        var slot = MakeSlot(homeTeamId: "BRA", awayTeamId: "ARG");
+        var error = KnockoutPredictionEndpoints.ValidatePrediction(MakeRequest("BRA", 1, 2), slot);
+        Assert.NotNull(error);
+        Assert.Contains("higher", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ValidatePrediction_HigherScoringHomeWins_ReturnsNull()
+    {
+        var slot = MakeSlot(homeTeamId: "BRA", awayTeamId: "ARG");
+        var error = KnockoutPredictionEndpoints.ValidatePrediction(MakeRequest("BRA", 2, 1), slot);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void ValidatePrediction_HigherScoringAwayWins_ReturnsNull()
+    {
+        var slot = MakeSlot(homeTeamId: "BRA", awayTeamId: "ARG");
+        var error = KnockoutPredictionEndpoints.ValidatePrediction(MakeRequest("ARG", 0, 3), slot);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void ValidatePrediction_Tie_EitherTeamMayAdvance()
+    {
+        // On a level scoreline, either participant is a valid pick (pens / extra time).
+        var slot = MakeSlot(homeTeamId: "BRA", awayTeamId: "ARG");
+        Assert.Null(KnockoutPredictionEndpoints.ValidatePrediction(MakeRequest("BRA", 1, 1), slot));
+        Assert.Null(KnockoutPredictionEndpoints.ValidatePrediction(MakeRequest("ARG", 1, 1), slot));
+    }
+
+    [Fact]
+    public void ValidatePrediction_GoallessTie_EitherTeamMayAdvance()
+    {
+        var slot = MakeSlot(homeTeamId: "BRA", awayTeamId: "ARG");
+        Assert.Null(KnockoutPredictionEndpoints.ValidatePrediction(MakeRequest("ARG", 0, 0), slot));
+    }
+
     // ── BuildId: composite key format ─────────────────────────────────────────
 
     [Fact]

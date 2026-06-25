@@ -233,6 +233,20 @@ Root cause analysis of Azure 503 errors during live matches identified CPU credi
 - **GroupPredictionsPage** — save badge shows `<Spinner size="sm" />` + "Saving…" during the auto-save network round-trip.
 - **TournamentPredictionPage**, **KnockoutBracketPage**, **ProfilePage** — submit buttons show `<Spinner size="sm" />` + "Saving…" while in flight.
 
+## Unversioned work (main, 25 June 2026)
+
+### Knockout bracket redesign + score-driven winner with tie-breaker
+
+- **`pages/KnockoutBracketPage.tsx`** — replaced the bracket page with the new design: a horizontal round **progression stepper** (R32 → … → Final, each tab showing `predicted / total` or `Done ✓`), a full round label, and `SlotCard`s styled to match `FixtureCard`. Restored the real `flagUrl` / `Spinner` imports and `Clock` from `lucide-react` (the dropped-in file had inlined copies); fixed a `React.CSSProperties` reference (now `import { type CSSProperties }`) and corrected mojibake glyphs (`×`, `–`, `✓`, `→`, `·`).
+- **Pick model changed** — a knockout pick is now entered as a **mandatory score per team** (same input as the group-stage `FixtureCard`, debounced **auto-save** after both scores are valid; no Save button). The advancing team is **derived from the higher score** and shown with an `Advances` pill; the losing row dims.
+- **Tie-breaker** — when the two predicted scores are level, a prominent panel appears (`Tied X–X · who goes through?`) with two selectable team buttons (selected fills `--secondary-fill`). The chosen team becomes `predictedWinnerTeamId`. Until both scores are entered, a hint blocks the save.
+- Read-only states unchanged in spirit: played slots show actual scores with a `Through` pill (+ penalty scores / "Won on penalties" / "After extra time"); locked slots show the user's predicted scores with an `Advances` pill, or "No pick made".
+
+### Server-side enforcement of the new pick rules
+
+- **`Predictions/KnockoutPredictionEndpoints.cs`** — added `ValidatePrediction(request, slot)`, now called by **POST** and **PUT** (replacing the bare `ValidateWinner`). Enforces: winner is a participant (delegates to existing `ValidateWinner`); **both scores mandatory** and non-negative; on a **decisive** scoreline the winner must be the higher-scoring team; on a **tie** either participant is accepted. Invalid payloads → `400`. `ValidateWinner` left intact.
+- **`Api.Tests/Predictions/KnockoutPredictionTests.cs`** — 10 new tests (missing/negative scores, non-participant winner, lower-scoring-team mismatch, decisive home/away wins, tie + goalless-tie). **28 tests pass** in this file; frontend `npm run build` green.
+
 ## Next action
 1. **Deploy B2ms Postgres upgrade** — re-run `az deployment group create` with updated `main.bicep` during a non-match window (Azure requires ~2 min downtime to resize Flexible Server).
 2. **BestThirdPlace resolver** — `KnockoutSlotsData.cs` R32 slot wiring, kickoffs, and venues fully corrected against official FIFA 2026 bracket (verified 20 June 2026). BestThirdPlace Reference strings updated to 5-group eligibility sets as per FIFA. Current resolver iterates groups in Reference order and returns first match in `bestThirdByGroup` — works as a bijection only when exactly one eligible group qualifies per slot. A matrix-based allocation (C(12,8) = 495 rows) is needed for the general case; implement before group stage ends (27 June) to guarantee correct R32 population.
