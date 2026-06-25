@@ -136,10 +136,12 @@ function AppShell() {
     );
   }
 
+  const isAdmin = user?.roles?.includes('admin') ?? false;
+
   const visibleTabs = ALL_TABS.filter(t => {
     if (t.id === 'live' && !liveActive) return false;
     if (t.id === 'results' && !hasResults) return false;
-    if (t.id === 'bracket' && !bracketOpen) return false;
+    if (t.id === 'bracket' && !bracketOpen && !isAdmin) return false;
     return true;
   });
 

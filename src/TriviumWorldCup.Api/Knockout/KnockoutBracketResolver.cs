@@ -63,28 +63,33 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
 
     private async Task<int> ResolveGroupStageCoreAsync(IDocumentSession session, CancellationToken ct)
     {
-        // Load all 72 group-stage fixtures.
+        // Load all group-stage fixtures.
         var fixtures = await session.Query<Fixture>().ToListAsync(ct);
 
-        // Only proceed when every fixture is completed.
-        if (fixtures.Count < 72 || fixtures.Any(f => f.Status != MatchStatus.Completed))
+        // Identify groups where all 6 fixtures are completed — these can be ranked now.
+        var completedGroups = fixtures
+            .GroupBy(f => f.GroupLetter)
+            .Where(g => g.Count() == 6 && g.All(f => f.Status == MatchStatus.Completed))
+            .Select(g => g.Key)
+            .ToHashSet();
+
+        if (completedGroups.Count == 0)
         {
-            logger.LogDebug(
-                "KnockoutBracketResolver: group stage not complete ({Done}/{Total} done) — skipping R32 resolution",
-                fixtures.Count(f => f.Status == MatchStatus.Completed), fixtures.Count);
+            logger.LogDebug("KnockoutBracketResolver: no groups fully complete yet — skipping R32 resolution");
             return 0;
         }
 
-        logger.LogInformation("KnockoutBracketResolver: all group fixtures complete — resolving R32 bracket");
+        logger.LogInformation(
+            "KnockoutBracketResolver: {Done}/12 groups complete — attempting partial R32 resolution",
+            completedGroups.Count);
 
-        // Load groups to know which teams are in each group.
+        // Load groups to know which teams are in each group; rank only completed ones.
         var groups = await session.Query<Group>().ToListAsync(ct);
+        var rankings = RankAllGroups(groups.Where(g => completedGroups.Contains(g.Letter)), fixtures);
 
-        // Rank each group.
-        var rankings = RankAllGroups(groups, fixtures);
-
-        // Determine the 8 best third-placed teams.
-        var bestThirds = SelectBestThirdPlaced(rankings, fixtures);
+        // BestThirdPlace selection requires all 12 groups — defer until then.
+        var allGroupsDone = completedGroups.Count == 12;
+        var bestThirds = allGroupsDone ? SelectBestThirdPlaced(rankings, fixtures) : [];
 
         // Load all knockout slots.
         var slots = await session.Query<KnockoutSlot>().ToListAsync(ct);
