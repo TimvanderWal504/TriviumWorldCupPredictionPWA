@@ -109,31 +109,66 @@ export function RulesPage() {
 
       <section className="bg-surface rounded-card border border-border p-5 space-y-4">
         <h2 className={sectionHead}>Knockout Match Scoring</h2>
-        <p className="text-fg-muted text-sm">Per match, before the round multiplier:</p>
-        <ul className="text-fg-secondary text-sm space-y-2 list-disc list-inside">
-          <li><span className="font-semibold text-fg">5 points</span>: correct advancing team (who actually progresses, including after extra time / penalties)</li>
-          <li><span className="font-semibold text-fg">+3 points</span>: exact 90-minute score bonus (normal time only)</li>
-        </ul>
+        <p className="text-fg-muted text-sm">
+          Two <span className="text-fg-secondary font-medium">independent</span> components are scored and summed.
+        </p>
 
-        <h3 className="text-sm font-semibold text-fg mt-2">Round multipliers</h3>
-        <table className="w-full text-sm border-collapse rounded-card overflow-hidden border border-border">
-          <thead><tr className={tableHead}>
-            <th className="px-4 py-2.5">Round</th>
-            <th className="px-4 py-2.5 text-right">Multiplier</th>
-          </tr></thead>
-          <tbody className="divide-y divide-border">
-            {[['Round of 32','×1.0'],['Round of 16','×1.5'],['Quarter-final','×2.0'],['Semi-final & third-place play-off','×2.5'],['Final','×3.0']].map(([r, m]) => (
-              <tr key={r} className="even:bg-surface-2">
-                <td className={tdBase}>{r}</td>
-                <td className={tdRight}>{m}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-fg">Component 1 — 90-minute score <span className="font-normal text-fg-muted">(not multiplied)</span></h3>
+          <p className="text-fg-muted text-sm">Scored using the same group-stage tiers, judged at end of normal time only:</p>
+          <table className="w-full text-sm border-collapse rounded-card overflow-hidden border border-border">
+            <thead><tr className={tableHead}>
+              <th className="px-4 py-2.5">90-minute score prediction</th>
+              <th className="px-4 py-2.5 text-right">Points</th>
+            </tr></thead>
+            <tbody className="divide-y divide-border">
+              {[['Exact score','10'],['Correct goal difference (not exact)','7'],['Correct outcome only (W/D/L at 90 min)','3'],['Wrong','0']].map(([label, pts]) => (
+                <tr key={label} className="even:bg-surface-2">
+                  <td className={tdBase}>{label}</td>
+                  <td className={tdRight}>{pts}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="text-fg-muted text-sm">
+            Team-tally bonus <span className="font-semibold text-fg-secondary">+1</span> applies here too — same rule as the group stage. This component is never multiplied.
+          </p>
+        </div>
 
-        <div className="rounded-input px-4 py-3 text-sm text-fg-secondary bg-surface-2">
-          Example: In the Final, correct winner + exact 90-min score ={' '}
-          <span className="font-semibold text-fg">(5 + 3) × 3.0 = 24 points</span>.
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-fg">Component 2 — Advancing team <span className="font-normal text-fg-muted">(multiplied)</span></h3>
+          <p className="text-fg-muted text-sm">
+            <span className="font-semibold text-fg-secondary">5 points</span> if the correct team advances (including via extra time / penalties), multiplied by the round multiplier below.
+          </p>
+          <table className="w-full text-sm border-collapse rounded-card overflow-hidden border border-border">
+            <thead><tr className={tableHead}>
+              <th className="px-4 py-2.5">Round</th>
+              <th className="px-4 py-2.5 text-right">Multiplier</th>
+            </tr></thead>
+            <tbody className="divide-y divide-border">
+              {[['Round of 32','×1.0'],['Round of 16','×2.0'],['Quarter-final','×3.0'],['Semi-final & third-place play-off','×4.0'],['Final','×5.0']].map(([r, m]) => (
+                <tr key={r} className="even:bg-surface-2">
+                  <td className={tdBase}>{r}</td>
+                  <td className={tdRight}>{m}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="rounded-card bg-surface-2 border border-border p-4 space-y-1 text-sm text-fg-muted">
+          <p className="font-medium text-fg-secondary">Total = [90-min score] + [5 × multiplier if advancing team correct]</p>
+        </div>
+
+        <div className="rounded-card p-5 space-y-2 border" style={{ background: 'var(--win-soft)', borderColor: 'transparent' }}>
+          <h3 className="text-sm font-display font-bold uppercase tracking-wider" style={{ color: 'var(--win)' }}>
+            Worked Examples
+          </h3>
+          <ul className="text-fg-secondary text-sm space-y-1.5 list-disc list-inside">
+            <li>Final, correct winner + exact score: 10 + (5 × 5.0) = <span className="font-semibold text-fg">35 points</span></li>
+            <li>Final, exact score but wrong winner: 10 + 0 = <span className="font-semibold text-fg">10 points</span></li>
+            <li>Quarter-final, correct winner but wrong score: 0 + (5 × 3.0) = <span className="font-semibold text-fg">15 points</span></li>
+          </ul>
         </div>
       </section>
 
