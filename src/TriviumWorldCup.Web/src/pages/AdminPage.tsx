@@ -121,6 +121,12 @@ export function AdminPage() {
   const [koResultMsg, setKoResultMsg] = useState<string | null>(null);
   const [koResultError, setKoResultError] = useState<string | null>(null);
 
+  const [koTeamsSlotKey, setKoTeamsSlotKey] = useState('');
+  const [koHomeTeamId, setKoHomeTeamId] = useState('');
+  const [koAwayTeamId, setKoAwayTeamId] = useState('');
+  const [koTeamsMsg, setKoTeamsMsg] = useState<string | null>(null);
+  const [koTeamsError, setKoTeamsError] = useState<string | null>(null);
+
   const [subFixtureId, setSubFixtureId] = useState('');
   const [subPlayerInName, setSubPlayerInName] = useState('');
   const [subPlayerInSearch, setSubPlayerInSearch] = useState('');
@@ -325,6 +331,27 @@ export function AdminPage() {
       fetch('/knockout/slots').then(r => r.json()).then((data: KnockoutSlotDto[]) => setKnockoutSlots(data)).catch(() => {});
       await fetchOverrides();
     } catch (err) { setKoResultError(String(err)); }
+  }
+
+  async function handleSetKnockoutTeams(e: React.FormEvent) {
+    e.preventDefault(); setKoTeamsMsg(null); setKoTeamsError(null);
+    if (!koTeamsSlotKey) { setKoTeamsError('Slot is required.'); return; }
+    if (!koHomeTeamId.trim() && !koAwayTeamId.trim()) { setKoTeamsError('At least one team ID is required.'); return; }
+    try {
+      const res = await fetch(`/admin/knockout/${encodeURIComponent(koTeamsSlotKey)}/teams`, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          homeTeamId: koHomeTeamId.trim() || null,
+          awayTeamId: koAwayTeamId.trim() || null,
+        }),
+      });
+      if (!res.ok) { const b = await res.json().catch(() => ({})); setKoTeamsError((b as { error?: string }).error ?? `HTTP ${res.status}`); return; }
+      const updated = await res.json() as KnockoutSlotDto;
+      setKoTeamsMsg(`${koTeamsSlotKey} updated — home: ${updated.homeTeamId ?? '—'}, away: ${updated.awayTeamId ?? '—'}`);
+      setKoTeamsSlotKey(''); setKoHomeTeamId(''); setKoAwayTeamId('');
+      fetch('/knockout/slots').then(r => r.json()).then((data: KnockoutSlotDto[]) => setKnockoutSlots(data)).catch(() => {});
+      await fetchOverrides();
+    } catch (err) { setKoTeamsError(String(err)); }
   }
 
   async function handleForceRecompute() {
@@ -899,6 +926,64 @@ export function AdminPage() {
           </button>
           {koResultError && <p className="text-sm" style={{ color: 'var(--loss)' }}>{koResultError}</p>}
           {koResultMsg   && <p className="text-sm" style={{ color: 'var(--win)' }}>{koResultMsg}</p>}
+        </form>
+      </section>
+
+      {/* Knockout teams override */}
+      <section className="rounded-card bg-surface border border-border p-5 space-y-4">
+        <h2 className="font-display font-bold text-lg tracking-tight">Knockout Teams Override</h2>
+        <p className="text-sm text-fg-muted">
+          Manually set home and/or away team on a slot when the bracket resolver assigns the wrong teams
+          (e.g. BestThirdPlace bipartite matching diverges from the FIFA allocation table).
+          Scores and winner are left untouched.
+        </p>
+        <form onSubmit={handleSetKnockoutTeams} className="space-y-3">
+          <div>
+            <label htmlFor="koTeamsSlotKey" className={labelCls}>Slot</label>
+            <select id="koTeamsSlotKey" value={koTeamsSlotKey}
+              onChange={e => { setKoTeamsSlotKey(e.target.value); setKoHomeTeamId(''); setKoAwayTeamId(''); }}
+              className={`${inputCls} w-full max-w-sm`}>
+              <option value="">— select a slot —</option>
+              {knockoutSlots.map(s => {
+                const label = s.homeTeamId && s.awayTeamId
+                  ? `${s.slotKey}: ${s.homeTeamId} vs ${s.awayTeamId}`
+                  : `${s.slotKey} (teams not yet resolved)`;
+                return <option key={s.slotKey} value={s.slotKey}>{label}</option>;
+              })}
+            </select>
+          </div>
+          {koTeamsSlotKey && (() => {
+            const slot = knockoutSlots.find(s => s.slotKey === koTeamsSlotKey);
+            return (
+              <div className="flex gap-3 flex-wrap items-end">
+                <div>
+                  <label htmlFor="koHomeTeamId" className={labelCls}>
+                    Home team ID <span className="normal-case font-normal text-fg-muted">(leave blank to keep {slot?.homeTeamId ?? 'current'})</span>
+                  </label>
+                  <input id="koHomeTeamId" type="text" value={koHomeTeamId}
+                    onChange={e => setKoHomeTeamId(e.target.value.toUpperCase())}
+                    placeholder={slot?.homeTeamId ?? 'e.g. USA'}
+                    className={`${inputCls} w-28 uppercase`} />
+                </div>
+                <div>
+                  <label htmlFor="koAwayTeamId" className={labelCls}>
+                    Away team ID <span className="normal-case font-normal text-fg-muted">(leave blank to keep {slot?.awayTeamId ?? 'current'})</span>
+                  </label>
+                  <input id="koAwayTeamId" type="text" value={koAwayTeamId}
+                    onChange={e => setKoAwayTeamId(e.target.value.toUpperCase())}
+                    placeholder={slot?.awayTeamId ?? 'e.g. BIH'}
+                    className={`${inputCls} w-28 uppercase`} />
+                </div>
+              </div>
+            );
+          })()}
+          <button type="submit"
+            className="px-4 py-2 rounded-input text-sm font-semibold transition-colors"
+            style={{ background: 'var(--warning)', color: '#fff' }}>
+            Override teams
+          </button>
+          {koTeamsError && <p className="text-sm" style={{ color: 'var(--loss)' }}>{koTeamsError}</p>}
+          {koTeamsMsg   && <p className="text-sm" style={{ color: 'var(--win)' }}>{koTeamsMsg}</p>}
         </form>
       </section>
 

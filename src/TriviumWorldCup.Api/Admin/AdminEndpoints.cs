@@ -1446,6 +1446,72 @@ public static class AdminEndpoints
         .WithName("FetchAllFixtureEvents")
         .WithSummary("Bulk-fetches events (goals, cards, subs) for all completed group-stage fixtures and upserts them. Pass onlyMissing=true to skip fixtures that already have events (saves API quota). Idempotent.");
 
+        // ── POST /admin/knockout/{slotKey}/teams ─────────────────────────────
+        // Manually sets the HomeTeamId and/or AwayTeamId on a knockout slot.
+        // Use when the automatic bracket resolver assigns the wrong teams (e.g.
+        // BestThirdPlace bipartite matching diverges from the FIFA allocation table).
+        // Does NOT affect scores, winner, or status — those stay untouched.
+        // Logs to the override history; triggers a full scoring recompute so
+        // existing predictions are re-evaluated against the correct teams.
+        group.MapPost("/knockout/{slotKey}/teams", async (
+            string slotKey,
+            HttpContext context,
+            [FromBody] SetKnockoutTeamsRequest request,
+            IDocumentSession session,
+            ScoringRecomputeService scoringService,
+            CancellationToken ct) =>
+        {
+            var user = context.GetAppUser();
+            if (!user.IsInRole("admin"))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            if (string.IsNullOrWhiteSpace(request.HomeTeamId) && string.IsNullOrWhiteSpace(request.AwayTeamId))
+                return Results.BadRequest(new { error = "At least one of HomeTeamId or AwayTeamId must be provided." });
+
+            var slot = await session.LoadAsync<KnockoutSlot>(slotKey, ct);
+            if (slot is null)
+                return Results.NotFound(new { error = $"Knockout slot '{slotKey}' not found." });
+
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(request.HomeTeamId))
+            {
+                slot.HomeTeamId = request.HomeTeamId.Trim().ToUpperInvariant();
+                parts.Add($"home={slot.HomeTeamId}");
+            }
+            if (!string.IsNullOrWhiteSpace(request.AwayTeamId))
+            {
+                slot.AwayTeamId = request.AwayTeamId.Trim().ToUpperInvariant();
+                parts.Add($"away={slot.AwayTeamId}");
+            }
+            session.Store(slot);
+
+            session.Store(new ResultOverride
+            {
+                Id               = Guid.NewGuid(),
+                AdminUserId      = user.UserId,
+                AdminDisplayName = user.DisplayName,
+                OverriddenAt     = DateTimeOffset.UtcNow,
+                TargetType       = "knockoutslot",
+                TargetId         = slotKey,
+                Description      = $"Manual team override: {string.Join(", ", parts)}",
+            });
+
+            await session.SaveChangesAsync(ct);
+            await scoringService.RecomputeAllAsync(ct);
+
+            return Results.Ok(new
+            {
+                slot.SlotKey,
+                slot.HomeTeamId,
+                slot.AwayTeamId,
+                slot.HomeScore,
+                slot.AwayScore,
+                slot.Status,
+            });
+        })
+        .WithName("SetKnockoutSlotTeams")
+        .WithSummary("Manually overrides HomeTeamId and/or AwayTeamId on a knockout slot. Use when the bracket resolver assigns wrong teams. Does not affect scores or winner.");
+
         // ── POST /admin/recompute ─────────────────────────────────────────────
         group.MapPost("/recompute", async (
             HttpContext context,
@@ -1505,3 +1571,6 @@ public sealed record SetKnockoutResultRequest(int HomeScore, int AwayScore, stri
 
 /// <summary>Request body for POST /admin/push/test.</summary>
 public sealed record TestPushRequest(string? UserId, string? Title, string? Body);
+
+/// <summary>Request body for POST /admin/knockout/{slotKey}/teams.</summary>
+public sealed record SetKnockoutTeamsRequest(string? HomeTeamId, string? AwayTeamId);
