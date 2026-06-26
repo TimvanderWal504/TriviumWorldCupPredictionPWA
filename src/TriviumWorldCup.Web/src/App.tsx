@@ -123,7 +123,7 @@ function AppShell() {
   function goTab(t: Tab) {
     setTab(t);
     setSubPage(null);
-    if (t === 'predict') setPredictView('group');
+    if (t === 'predict') setPredictView(bracketOpen ? 'knockout' : 'group');
   }
 
   if (isLoading) {
@@ -134,8 +134,6 @@ function AppShell() {
     );
   }
 
-  const isAdmin = user?.roles?.includes('admin') ?? false;
-
   const visibleTabs = ALL_TABS.filter(t => {
     if (t.id === 'live' && !liveActive) return false;
     if (t.id === 'results' && !hasResults) return false;
@@ -144,10 +142,6 @@ function AppShell() {
 
   const pageTitle = subPage
     ? SUB_TITLES[subPage]
-    : tab === 'predict' && predictView === 'tournament'
-    ? 'Tournament Prediction'
-    : tab === 'predict' && predictView === 'knockout'
-    ? 'Knockout Bracket'
     : TAB_TITLES[tab];
 
   return (
@@ -214,7 +208,7 @@ function AppShell() {
               <div className="flex items-center justify-between gap-2">
                 <div className="flex gap-2">
                   <SubPill active={predictView === 'group'} onClick={() => setPredictView('group')}>Group Stage</SubPill>
-                  {bracketOpen && isAdmin && ( <SubPill active={predictView === 'knockout'} onClick={() => setPredictView('knockout')}>Knockout Stage</SubPill> )}
+                  {bracketOpen && ( <SubPill active={predictView === 'knockout'} onClick={() => setPredictView('knockout')}>Knockout Stage</SubPill> )}
                   <SubPill active={predictView === 'tournament'} onClick={() => setPredictView('tournament')}>Tournament</SubPill>
                 </div>
                 {predictView === 'group' && (

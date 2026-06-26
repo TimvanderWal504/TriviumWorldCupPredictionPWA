@@ -1,4 +1,4 @@
 {
-  "version": "2026-06-18",
-  "notes": "The app is now more stable during live matches.\n\nWe identified the cause of the occasional server errors (503s) that some of you noticed while matches were being played. You should see a noticeably smoother experience during busy match evenings going forward.\n\nThe leaderboard now features a podium view for the top 3: gold, silver, and bronze bars with flag avatars — tap any podium slot to see their predictions."
+  "version": "2026-06-26",
+  "notes": "The Knockout Bracket is now open!\n\nYou'll find it as a sub-tab alongside Group Stage and Tournament inside the Predict page. Tap Predict and you'll automatically redirected to the Knockout bracket. Everything else works exactly as before: pick scores for each round, the advancing team is derived from the higher score, and a tie-breaker prompt appears for level scorelines.\n\nThe advancing-team bonus now rewards consecutive correct predictions. Each time you correctly predict the team that advances, your streak grows by 1 and the bonus increases: 5 pts for the 1st correct, 10 for the 2nd in a row, 15 for the third, and so on. Miss one and the streak resets. Your next correct pick starts back at 5 pts. The 90-minute scoreline points (exact score, goal difference, correct outcome) are unaffected by this multiplier. You can read this again in the Rules page."
 }
