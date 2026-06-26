@@ -21,6 +21,19 @@ interface OverrideRecord {
   targetType: string; targetId: string; description: string;
 }
 
+interface KnockoutSlotDto {
+  slotKey: string;
+  round: string;
+  slotNumber: number;
+  homeTeamId: string | null;
+  awayTeamId: string | null;
+  kickoffUtc: string | null;
+  status: string;
+  homeScore: number | null;
+  awayScore: number | null;
+  winnerTeamId: string | null;
+}
+
 interface InviteUserDto {
   id: string;
   displayName: string;
@@ -100,6 +113,14 @@ export function AdminPage() {
   const [cardMsg, setCardMsg] = useState<string | null>(null);
   const [cardError, setCardError] = useState<string | null>(null);
 
+  const [knockoutSlots, setKnockoutSlots] = useState<KnockoutSlotDto[]>([]);
+  const [koSlotKey, setKoSlotKey] = useState('');
+  const [koHomeScore, setKoHomeScore] = useState('');
+  const [koAwayScore, setKoAwayScore] = useState('');
+  const [koWinnerTeamId, setKoWinnerTeamId] = useState('');
+  const [koResultMsg, setKoResultMsg] = useState<string | null>(null);
+  const [koResultError, setKoResultError] = useState<string | null>(null);
+
   const [subFixtureId, setSubFixtureId] = useState('');
   const [subPlayerInName, setSubPlayerInName] = useState('');
   const [subPlayerInSearch, setSubPlayerInSearch] = useState('');
@@ -115,6 +136,7 @@ export function AdminPage() {
     fetchIngestion(); fetchOverrides();
     if (isLinkAuth) fetchInviteUsers();
     fetch('/players').then(r => r.json()).then((data: PlayerDto[]) => setPlayers(data)).catch(() => {});
+    fetch('/knockout/slots').then(r => r.json()).then((data: KnockoutSlotDto[]) => setKnockoutSlots(data)).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, isLinkAuth]);
 
@@ -283,6 +305,26 @@ export function AdminPage() {
       setSubFixtureId(''); setSubPlayerInName(''); setSubPlayerInSearch(''); setSubPlayerOutName(''); setSubPlayerOutSearch(''); setSubTeamId(''); setSubMinute('');
       await fetchOverrides();
     } catch (err) { setSubError(String(err)); }
+  }
+
+  async function handleSetKnockoutResult(e: React.FormEvent) {
+    e.preventDefault(); setKoResultMsg(null); setKoResultError(null);
+    const home = parseInt(koHomeScore, 10);
+    const away = parseInt(koAwayScore, 10);
+    if (!koSlotKey) { setKoResultError('Slot is required.'); return; }
+    if (isNaN(home) || isNaN(away) || home < 0 || away < 0) { setKoResultError('Scores must be non-negative integers.'); return; }
+    if (!koWinnerTeamId.trim()) { setKoResultError('Winner is required.'); return; }
+    try {
+      const res = await fetch(`/admin/knockout/${encodeURIComponent(koSlotKey)}/result`, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ homeScore: home, awayScore: away, winnerTeamId: koWinnerTeamId.trim() }),
+      });
+      if (!res.ok) { const b = await res.json().catch(() => ({})); setKoResultError((b as { error?: string }).error ?? `HTTP ${res.status}`); return; }
+      setKoResultMsg(`${koSlotKey}: result set ${home}-${away}, winner ${koWinnerTeamId.trim()}`);
+      setKoSlotKey(''); setKoHomeScore(''); setKoAwayScore(''); setKoWinnerTeamId('');
+      fetch('/knockout/slots').then(r => r.json()).then((data: KnockoutSlotDto[]) => setKnockoutSlots(data)).catch(() => {});
+      await fetchOverrides();
+    } catch (err) { setKoResultError(String(err)); }
   }
 
   async function handleForceRecompute() {
@@ -791,6 +833,72 @@ export function AdminPage() {
           )}
           {resultError && <p className="text-sm" style={{ color: 'var(--loss)' }}>{resultError}</p>}
           {resultMsg && <p className="text-sm" style={{ color: 'var(--win)' }}>{resultMsg}</p>}
+        </form>
+      </section>
+
+      {/* Knockout result override */}
+      <section className="rounded-card bg-surface border border-border p-5 space-y-4">
+        <h2 className="font-display font-bold text-lg tracking-tight">Knockout Result Override</h2>
+        <p className="text-sm text-fg-muted">
+          Set or correct the result of a knockout slot. Propagates the winner into downstream slots and triggers a full recompute.
+        </p>
+        <form onSubmit={handleSetKnockoutResult} className="space-y-3">
+          <div>
+            <label htmlFor="koSlotKey" className={labelCls}>Slot</label>
+            <select id="koSlotKey" value={koSlotKey}
+              onChange={e => { setKoSlotKey(e.target.value); setKoWinnerTeamId(''); }}
+              className={`${inputCls} w-full max-w-sm`}>
+              <option value="">— select a slot —</option>
+              {knockoutSlots.map(s => {
+                const label = s.homeTeamId && s.awayTeamId
+                  ? `${s.slotKey}: ${s.homeTeamId} vs ${s.awayTeamId}${s.status === 'Completed' ? ` (${s.homeScore}-${s.awayScore})` : ''}`
+                  : `${s.slotKey} (teams not yet resolved)`;
+                return <option key={s.slotKey} value={s.slotKey}>{label}</option>;
+              })}
+            </select>
+          </div>
+          {(() => {
+            const slot = knockoutSlots.find(s => s.slotKey === koSlotKey);
+            if (!slot) return null;
+            if (!slot.homeTeamId || !slot.awayTeamId) {
+              return <p className="text-sm" style={{ color: 'var(--warning)' }}>Teams for this slot aren't resolved yet — complete the preceding round first.</p>;
+            }
+            return (
+              <>
+                <div className="flex items-end gap-3 flex-wrap">
+                  <div>
+                    <label htmlFor="koHomeScore" className={labelCls}>{slot.homeTeamId} score</label>
+                    <input id="koHomeScore" type="number" min="0" value={koHomeScore}
+                      onChange={e => setKoHomeScore(e.target.value)}
+                      placeholder="0" className={`${inputCls} w-24`} />
+                  </div>
+                  <div>
+                    <label htmlFor="koAwayScore" className={labelCls}>{slot.awayTeamId} score</label>
+                    <input id="koAwayScore" type="number" min="0" value={koAwayScore}
+                      onChange={e => setKoAwayScore(e.target.value)}
+                      placeholder="0" className={`${inputCls} w-24`} />
+                  </div>
+                </div>
+                <div>
+                  <label htmlFor="koWinnerTeamId" className={labelCls}>Winner</label>
+                  <select id="koWinnerTeamId" value={koWinnerTeamId}
+                    onChange={e => setKoWinnerTeamId(e.target.value)}
+                    className={`${inputCls}`}>
+                    <option value="">— select winner —</option>
+                    <option value={slot.homeTeamId}>{slot.homeTeamId} (home)</option>
+                    <option value={slot.awayTeamId}>{slot.awayTeamId} (away)</option>
+                  </select>
+                </div>
+              </>
+            );
+          })()}
+          <button type="submit"
+            className="px-4 py-2 rounded-input text-sm font-semibold transition-colors"
+            style={{ background: 'var(--warning)', color: '#fff' }}>
+            Set knockout result
+          </button>
+          {koResultError && <p className="text-sm" style={{ color: 'var(--loss)' }}>{koResultError}</p>}
+          {koResultMsg   && <p className="text-sm" style={{ color: 'var(--win)' }}>{koResultMsg}</p>}
         </form>
       </section>
 
