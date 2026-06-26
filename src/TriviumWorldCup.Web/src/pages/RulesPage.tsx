@@ -136,28 +136,34 @@ export function RulesPage() {
         </div>
 
         <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-fg">Component 2 — Advancing team <span className="font-normal text-fg-muted">(multiplied)</span></h3>
+          <h3 className="text-sm font-semibold text-fg">Component 2 — Advancing team <span className="font-normal text-fg-muted">(streak-multiplied)</span></h3>
           <p className="text-fg-muted text-sm">
-            <span className="font-semibold text-fg-secondary">5 points</span> if the correct team advances (including via extra time / penalties), multiplied by the round multiplier below.
+            <span className="font-semibold text-fg-secondary">5 × streak points</span> if the correct team advances (including via extra time / penalties).
+            Your <em>streak</em> is the number of consecutive correct advancing-team predictions you have made so far in the knockout phase.
+            Each correct prediction grows your streak by 1. One wrong prediction resets it to zero.
           </p>
           <table className="w-full text-sm border-collapse rounded-card overflow-hidden border border-border">
             <thead><tr className={tableHead}>
-              <th className="px-4 py-2.5">Round</th>
-              <th className="px-4 py-2.5 text-right">Multiplier</th>
+              <th className="px-4 py-2.5">Consecutive correct predictions (streak)</th>
+              <th className="px-4 py-2.5 text-right">Advancing-team bonus</th>
             </tr></thead>
             <tbody className="divide-y divide-border">
-              {[['Round of 32','×1.0'],['Round of 16','×2.0'],['Quarter-final','×3.0'],['Semi-final & third-place play-off','×4.0'],['Final','×5.0']].map(([r, m]) => (
-                <tr key={r} className="even:bg-surface-2">
-                  <td className={tdBase}>{r}</td>
-                  <td className={tdRight}>{m}</td>
+              {[['1st correct (streak = 1)','5 × 1 = 5 pts'],['2nd in a row (streak = 2)','5 × 2 = 10 pts'],['3rd in a row (streak = 3)','5 × 3 = 15 pts'],['…and so on','5 × streak']].map(([label, bonus]) => (
+                <tr key={label} className="even:bg-surface-2">
+                  <td className={tdBase}>{label}</td>
+                  <td className={tdRight}>{bonus}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          <p className="text-fg-muted text-sm">
+            A miss (wrong advancing team) earns 0 and resets the streak — the next correct prediction starts back at streak = 1 (5 pts).
+            A skipped match leaves your streak unchanged.
+          </p>
         </div>
 
         <div className="rounded-card bg-surface-2 border border-border p-4 space-y-1 text-sm text-fg-muted">
-          <p className="font-medium text-fg-secondary">Total = [90-min score] + [5 × multiplier if advancing team correct]</p>
+          <p className="font-medium text-fg-secondary">Total = [90-min score] + [5 × streak if advancing team correct]</p>
         </div>
 
         <div className="rounded-card p-5 space-y-2 border" style={{ background: 'var(--win-soft)', borderColor: 'transparent' }}>
@@ -165,9 +171,10 @@ export function RulesPage() {
             Worked Examples
           </h3>
           <ul className="text-fg-secondary text-sm space-y-1.5 list-disc list-inside">
-            <li>Final, correct winner + exact score: 10 + (5 × 5.0) = <span className="font-semibold text-fg">35 points</span></li>
-            <li>Final, exact score but wrong winner: 10 + 0 = <span className="font-semibold text-fg">10 points</span></li>
-            <li>Quarter-final, correct winner but wrong score: 0 + (5 × 3.0) = <span className="font-semibold text-fg">15 points</span></li>
+            <li>5th correct in a row, correct winner + exact score: 10 + (5 × 5) = <span className="font-semibold text-fg">35 points</span></li>
+            <li>Any match, exact score but wrong winner: 10 + 0 = <span className="font-semibold text-fg">10 points</span> (streak resets)</li>
+            <li>1st correct prediction, correct winner but wrong score: 0 + (5 × 1) = <span className="font-semibold text-fg">5 points</span></li>
+            <li>Wrong advancing team predicted, exact 90-min score: 10 + 0 = <span className="font-semibold text-fg">10 points</span> (streak resets)</li>
           </ul>
         </div>
       </section>

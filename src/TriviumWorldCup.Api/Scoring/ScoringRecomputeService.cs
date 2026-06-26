@@ -237,25 +237,57 @@ public class ScoringRecomputeService(IDocumentStore store, IOutputCacheStore out
             goldenSixPointsByUser[tp.UserId] = gs6Pts;
         }
 
-        // ── Step 3: Knockout match points ─────────────────────────────────────
+        // ── Step 3: Knockout match points (streak-multiplied) ─────────────────
+        //
+        // Process each user's predictions in tournament order (R32 → R16 → QF → SF →
+        // ThirdPlace → Final). A running per-user streak tracks consecutive correct
+        // advancing-team predictions; a wrong prediction resets the streak to 0.
+        // The advancing-team bonus for match N in a user's streak is 5 × (streak + 1).
 
         var slotByKey = completedKnockoutSlots.ToDictionary(s => s.SlotKey);
 
+        // Canonical slot order: Round enum values ascend in tournament order;
+        // within a round, ordered by SlotNumber.
+        var orderedSlotKeys = completedKnockoutSlots
+            .OrderBy(s => s.Round)
+            .ThenBy(s => s.SlotNumber)
+            .Select(s => s.SlotKey)
+            .ToList();
+
+        // Group each user's predictions by slot key for O(1) lookup.
+        var predsByUserAndSlot = allKnockoutPredictions
+            .GroupBy(p => p.UserId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.ToDictionary(p => p.SlotKey));
+
         var knockoutPointsByUser = new Dictionary<string, int>();
+        var streakByUser         = new Dictionary<string, int>();
 
-        foreach (var pred in allKnockoutPredictions)
+        foreach (var slotKey in orderedSlotKeys)
         {
-            if (!slotByKey.TryGetValue(pred.SlotKey, out var slot))
-                continue; // slot not yet completed — skip
+            var slot = slotByKey[slotKey];
 
-            var pts = KnockoutMatchScorer.Compute(
-                pred.PredictedWinnerTeamId,
-                pred.PredictedHomeScore, pred.PredictedAwayScore,
-                slot.WinnerTeamId!,
-                slot.HomeScore, slot.AwayScore,
-                slot.Round);
+            foreach (var (userId, predsBySlot) in predsByUserAndSlot)
+            {
+                if (!predsBySlot.TryGetValue(slotKey, out var pred))
+                    continue; // no prediction for this slot — skip (streak unchanged)
 
-            knockoutPointsByUser[pred.UserId] = knockoutPointsByUser.GetValueOrDefault(pred.UserId) + pts;
+                var streakBefore = streakByUser.GetValueOrDefault(userId, 0);
+
+                var pts = KnockoutMatchScorer.Compute(
+                    pred.PredictedWinnerTeamId,
+                    pred.PredictedHomeScore, pred.PredictedAwayScore,
+                    slot.WinnerTeamId!,
+                    slot.HomeScore, slot.AwayScore,
+                    streakBefore);
+
+                knockoutPointsByUser[userId] = knockoutPointsByUser.GetValueOrDefault(userId) + pts;
+
+                streakByUser[userId] = pred.PredictedWinnerTeamId == slot.WinnerTeamId
+                    ? streakBefore + 1
+                    : 0;
+            }
         }
 
         // ── Step 4: Gather all user IDs and upsert MemberScore documents ──────
