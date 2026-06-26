@@ -247,9 +247,50 @@ Root cause analysis of Azure 503 errors during live matches identified CPU credi
 - **`Predictions/KnockoutPredictionEndpoints.cs`** — added `ValidatePrediction(request, slot)`, now called by **POST** and **PUT** (replacing the bare `ValidateWinner`). Enforces: winner is a participant (delegates to existing `ValidateWinner`); **both scores mandatory** and non-negative; on a **decisive** scoreline the winner must be the higher-scoring team; on a **tie** either participant is accepted. Invalid payloads → `400`. `ValidateWinner` left intact.
 - **`Api.Tests/Predictions/KnockoutPredictionTests.cs`** — 10 new tests (missing/negative scores, non-participant winner, lower-scoring-team mismatch, decisive home/away wins, tie + goalless-tie). **28 tests pass** in this file; frontend `npm run build` green.
 
+## Unversioned work (main, 26 June 2026)
+
+### Knockout bracket merged into Predict tab
+
+- **`App.tsx`** — `bracket` removed from the `Tab` union and `ALL_TABS`; `TAB_TITLES` updated; `bracketOpen` state + `/knockout/slots` visibility-gate fetch removed. `PredictView` extended to `'group' | 'tournament' | 'knockout'`. Page title resolves to `'Knockout Bracket'` when `predictView === 'knockout'`. The By Group / By Date filter row moved to its own second row (below the sub-pills row) for better mobile layout.
+- **`KnockoutBracketPage.tsx`** — retained as a component; rendered as the third sub-pill ("Knockout") inside the Predict tab, replacing the dedicated bottom-nav tab.
+
+## Unversioned work (main, 26 June 2026)
+
+### Knockout scoring — streak-based multiplier
+
+- **`Scoring/KnockoutMatchScorer.cs`** — removed static `Multiplier(Round)` method and `Round` parameter from `Compute`. Advancing-team bonus is now `5 × (streakBefore + 1)` where `streakBefore` is the number of consecutive correct advancing-team predictions immediately before this match for the same user. Removed the `using TriviumWorldCup.Api.Domain` dependency (no longer needed).
+- **`Scoring/ScoringRecomputeService.cs`** — Step 3 restructured. Slots are now sorted in tournament order (`Round` enum ascending, then `SlotNumber`). A per-user streak counter tracks consecutive correct advancing-team predictions; a wrong prediction resets the streak to 0, a skipped slot leaves it unchanged. The streak is passed to `KnockoutMatchScorer.Compute` for each prediction.
+- **`Tests/Scoring/KnockoutMatchScorerTests.cs`** — all tests rewritten around `streakBefore` values instead of `Round` enum values. Added streak-specific tests: high-streak bonus, reset after wrong prediction, score component unaffected by streak.
+- **`pages/RulesPage.tsx`** — round multiplier table replaced with a streak multiplier table; worked examples updated.
+- **`public/changelog.json`** — in-app changelog entry added explaining the streak mechanic.
+
+## Unversioned work (main, 26 June 2026)
+
+### Bracket wiring fix + BestThirdPlace early resolver
+
+**Root cause:** `TournamentSeed.SeedAsync` idempotency guard (`if anyTeam return`) skipped all slot seeding on existing databases, so a corrected `KnockoutSlotsData.cs` never reached the DB. Morocco was paired with Australia instead of the Netherlands because R32-2/R32-4 had stale incorrect source references.
+
+**Fixes applied:**
+
+- **`Data/TournamentSeed.cs`** — split into two phases: the initial full seed (guarded as before) + `MigrateKnockoutSlotsAsync` which always runs on startup and upserts slots whose wiring or metadata changed. Slots with wiring changes have `HomeTeamId`/`AwayTeamId` cleared; the resolver repopulates them on the next `POST /admin/recompute`. No other runtime state (scores, status, WinnerTeamId) is touched.
+
+- **`Knockout/KnockoutBracketResolver.cs`** — removed the `allGroupsDone` guard on BestThirdPlace selection. The resolver now tries early injection via `ComputeMaxPossibleThirdStats`:
+  - For each incomplete group, computes a conservative upper bound on the eventual 3rd-placed team's stats: excludes teams definitively locked into top-2 (when < 2 opponents can still overtake their current pts), then takes `max(gd[t] + 8 × remaining[t])` per candidate.
+  - Combines real (completed group) and virtual (incomplete group) third-placed teams, sorts by pts/GD/GF.
+  - If every slot in the top-8 is occupied by a real team (no virtual can displace any of them), the top-8 is mathematically locked and all BestThirdPlace slots are injected immediately — no need to wait for all 12 groups.
+  - If any virtual team could still rank in the top-8, returns empty and defers until more groups complete.
+
+- **`Api.Tests/Knockout/KnockoutBracketResolverTests.cs`** — 4 new tests added:
+  - `SelectBestThirdPlaced_EarlyInjection_DefersWhenVirtualCanDisplace` — unstarted incomplete groups produce a (6 pts, +24 GD) virtual that outranks real 3-pt thirds → defer.
+  - `SelectBestThirdPlaced_EarlyInjection_InjectsWhenVirtualCannotDisplace` — incomplete groups' dominant team excluded from 3rd-place candidates; virtual max GD (+6) below real 3rd GD (+18) → all 8 inject immediately.
+  - `ComputeMaxPossibleThirdStats_NoGamesPlayed_ReturnsSixPtsAndBuffer` — fresh group with 6 unplayed fixtures → (6 pts, +24 GD).
+  - `ComputeMaxPossibleThirdStats_FinalMatchdayGroup_ReflectsLockedThird` — 5 of 6 played, top-2 locked, 3rd-place definitively X3 → reports X3's actual locked stats (3 pts, −3 GD).
+
+**406 tests pass.**
+
 ## Next action
 1. **Deploy B2ms Postgres upgrade** — re-run `az deployment group create` with updated `main.bicep` during a non-match window (Azure requires ~2 min downtime to resize Flexible Server).
-2. **BestThirdPlace resolver** — `KnockoutSlotsData.cs` R32 slot wiring, kickoffs, and venues fully corrected against official FIFA 2026 bracket (verified 20 June 2026). BestThirdPlace Reference strings updated to 5-group eligibility sets as per FIFA. Current resolver iterates groups in Reference order and returns first match in `bestThirdByGroup` — works as a bijection only when exactly one eligible group qualifies per slot. A matrix-based allocation (C(12,8) = 495 rows) is needed for the general case; implement before group stage ends (27 June) to guarantee correct R32 population.
+2. **Run `POST /admin/recompute`** after deploying — the startup migration will have corrected stale slot wiring; the recompute repopulates team assignments from the corrected sources.
 3. **Platform generalization Gen-Wave B** — TWC-36 (data-driven structure), TWC-37 (generic outcome model), TWC-38 (competitor generalization), TWC-41 (lock policy + grace removal). All unblocked by TWC-35 ✅.
 4. **TWC-20 (Entra)** — deprioritised; may be marked obsolete. No action until decided.
 5. **Update Confluence Design & Architecture page** — use the prompt in `.docs/confluence-update-prompt.md`.

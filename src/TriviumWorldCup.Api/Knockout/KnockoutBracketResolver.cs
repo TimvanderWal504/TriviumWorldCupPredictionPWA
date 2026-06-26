@@ -87,9 +87,11 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
         var groups = await session.Query<Group>().ToListAsync(ct);
         var rankings = RankAllGroups(groups.Where(g => completedGroups.Contains(g.Letter)), fixtures);
 
-        // BestThirdPlace selection requires all 12 groups — defer until then.
-        var allGroupsDone = completedGroups.Count == 12;
-        var bestThirds = allGroupsDone ? SelectBestThirdPlaced(rankings, fixtures) : [];
+        // Attempt early BestThirdPlace selection: if the real top-8 thirds from completed
+        // groups are already unbeatable by any incomplete group's theoretical maximum,
+        // inject them now rather than waiting for all 12 groups.
+        var incompleteGroups = groups.Where(g => !completedGroups.Contains(g.Letter)).ToList();
+        var bestThirds = SelectBestThirdPlaced(rankings, fixtures, incompleteGroups);
 
         // Load all knockout slots.
         var slots = await session.Query<KnockoutSlot>().ToListAsync(ct);
@@ -339,21 +341,31 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
     /// <summary>
     /// Selects the 8 best third-placed teams, using fixture data to compute their
     /// overall stats for cross-group comparison.
+    ///
+    /// When <paramref name="incompleteGroups"/> is provided, a conservative upper-bound
+    /// is computed for the eventual third-placed team from each incomplete group. The
+    /// top-8 is only returned when all 8 positions are occupied by real (completed)
+    /// teams — i.e., no incomplete group can possibly produce a better third-placed
+    /// team than any of the current top-8. This allows early injection as soon as the
+    /// result is mathematically certain without waiting for all 12 groups.
     /// </summary>
     internal static List<(string TeamId, string GroupLetter)> SelectBestThirdPlaced(
         Dictionary<string, List<string>> rankings,
-        IEnumerable<Fixture> allFixtures)
+        IEnumerable<Fixture> allFixtures,
+        IEnumerable<Group>? incompleteGroups = null)
     {
-        var fixtureList = allFixtures
+        var allFixtureList = allFixtures.ToList();
+
+        var completedFixtures = allFixtureList
             .Where(f => f.HomeScore.HasValue && f.AwayScore.HasValue)
             .ToList();
 
-        var fixturesByGroup = fixtureList
+        var fixturesByGroup = completedFixtures
             .GroupBy(f => f.GroupLetter)
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        // Collect third-placed teams with their overall stats.
-        var thirds = new List<(string TeamId, string GroupLetter, int Points, int GD, int GF)>();
+        // Collect third-placed teams with their overall stats from completed groups.
+        var thirds = new List<(string? TeamId, string GroupLetter, int Points, int GD, int GF, bool IsReal)>();
 
         foreach (var kv in rankings)
         {
@@ -385,17 +397,98 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
                 }
             }
 
-            thirds.Add((teamId, groupLetter, pts, gf - ga, gf));
+            thirds.Add((teamId, groupLetter, pts, gf - ga, gf, IsReal: true));
         }
 
-        // Sort best-first and take top 8.
-        return thirds
+        // For each incomplete group, compute a pessimistic upper-bound: the best a
+        // third-placed team from that group could possibly achieve. This accounts for
+        // partial results already played in the group.
+        var incomplete = incompleteGroups?.ToList() ?? [];
+        foreach (var group in incomplete)
+        {
+            var (maxPts, maxGD, maxGF) = ComputeMaxPossibleThirdStats(
+                group.TeamIds, allFixtureList.Where(f => f.GroupLetter == group.Letter));
+            thirds.Add((null, group.Letter, maxPts, maxGD, maxGF, IsReal: false));
+        }
+
+        // Sort all (real + virtual) candidates best-first.
+        var sorted = thirds
             .OrderByDescending(t => t.Points)
             .ThenByDescending(t => t.GD)
             .ThenByDescending(t => t.GF)
-            .Take(8)
-            .Select(t => (t.TeamId, t.GroupLetter))
             .ToList();
+
+        // If the top 8 includes any virtual (incomplete-group) team, the final ranking
+        // is not yet certain — an incomplete group could still produce a qualifying team.
+        var top8 = sorted.Take(8).ToList();
+        if (top8.Any(t => !t.IsReal))
+            return [];
+
+        return top8
+            .Select(t => (t.TeamId!, t.GroupLetter))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Computes a conservative upper bound on the stats that the eventual third-placed
+    /// team from an incomplete group could achieve, given their remaining fixtures.
+    /// Uses a practical per-game maximum GD of 8 goals — large enough to cover any
+    /// realistic World Cup scoreline while still allowing early resolution once
+    /// incomplete groups can no longer displace the locked top-8.
+    /// </summary>
+    internal static (int MaxPts, int MaxGD, int MaxGF) ComputeMaxPossibleThirdStats(
+        IEnumerable<string> teamIds,
+        IEnumerable<Fixture> groupFixtures,
+        int maxGoalDiffPerGame = 8)
+    {
+        var teams = teamIds.ToList();
+        if (teams.Count == 0) return (0, 0, 0);
+
+        var fixtures = groupFixtures.ToList();
+        var played   = fixtures.Where(f => f.HomeScore.HasValue && f.AwayScore.HasValue).ToList();
+        var unplayed = fixtures.Where(f => !f.HomeScore.HasValue || !f.AwayScore.HasValue).ToList();
+
+        // Accumulate partial standings.
+        var pts = teams.ToDictionary(t => t, _ => 0);
+        var gd  = teams.ToDictionary(t => t, _ => 0);
+        var gf  = teams.ToDictionary(t => t, _ => 0);
+
+        foreach (var f in played)
+        {
+            if (!pts.ContainsKey(f.HomeTeamId) || !pts.ContainsKey(f.AwayTeamId)) continue;
+            var hs = f.HomeScore!.Value;
+            var aws = f.AwayScore!.Value;
+            gf[f.HomeTeamId] += hs;  gd[f.HomeTeamId] += hs - aws;
+            gf[f.AwayTeamId] += aws; gd[f.AwayTeamId] += aws - hs;
+            if      (hs > aws) pts[f.HomeTeamId] += 3;
+            else if (hs < aws) pts[f.AwayTeamId] += 3;
+            else { pts[f.HomeTeamId] += 1; pts[f.AwayTeamId] += 1; }
+        }
+
+        // Remaining games per team.
+        var remaining = teams.ToDictionary(
+            t => t,
+            t => unplayed.Count(f => f.HomeTeamId == t || f.AwayTeamId == t));
+
+        // Exclude teams definitively in the top 2: a team T is locked in top-2 when fewer
+        // than 2 other teams can possibly earn more pts than T has right now.
+        // (i.e., T can't be overtaken by ≥ 2 opponents even if they win every remaining game.)
+        var definitivelyTop2 = teams
+            .Where(t => teams.Count(s => s != t && (pts[s] + 3 * remaining[s]) > pts[t]) < 2)
+            .ToHashSet();
+
+        var thirdCandidates = teams.Where(t => !definitivelyTop2.Contains(t)).ToList();
+        if (thirdCandidates.Count == 0) thirdCandidates = teams; // fallback: no group is fully resolved yet
+
+        // Upper bound: a third-placed team has at most 6 points in a 4-team group.
+        var maxPts = Math.Min(6, thirdCandidates.Max(t => pts[t] + 3 * remaining[t]));
+
+        // Per-team GD/GF: the max each candidate can reach is their current stat plus
+        // the buffer for their own remaining games (not the group's overall max remaining).
+        var maxGD = thirdCandidates.Max(t => gd[t] + maxGoalDiffPerGame * remaining[t]);
+        var maxGF = thirdCandidates.Max(t => gf[t] + maxGoalDiffPerGame * remaining[t]);
+
+        return (maxPts, maxGD, maxGF);
     }
 
     /// <summary>

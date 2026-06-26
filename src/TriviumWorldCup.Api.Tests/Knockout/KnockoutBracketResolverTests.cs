@@ -50,6 +50,26 @@ public class KnockoutBracketResolverTests
     private static Group MakeGroup(string letter, params string[] teamIds) =>
         new() { Id = letter, Letter = letter, TeamIds = [..teamIds] };
 
+    private static Fixture MakeUnplayedFixture(
+        string groupLetter,
+        string homeTeamId,
+        string awayTeamId,
+        int matchNumber = 1) =>
+        new()
+        {
+            Id          = matchNumber.ToString(),
+            MatchNumber = matchNumber,
+            GroupLetter = groupLetter,
+            HomeTeamId  = homeTeamId,
+            AwayTeamId  = awayTeamId,
+            HomeScore   = null,
+            AwayScore   = null,
+            Status      = MatchStatus.Scheduled,
+            KickoffUtc  = DateTimeOffset.UtcNow.AddDays(1),
+            Venue       = "TBD",
+            City        = "TBD"
+        };
+
     private static KnockoutSlot MakeSlot(
         string slotKey,
         Round round,
@@ -1112,5 +1132,174 @@ public class KnockoutBracketResolverTests
         Assert.Equal(4, ranked.Count);
         foreach (var team in new[] { "A","B","C","D" })
             Assert.Contains(team, ranked);
+    }
+
+    // -------------------------------------------------------------------------
+    // SelectBestThirdPlaced — early injection with incomplete groups
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void SelectBestThirdPlaced_EarlyInjection_DefersWhenVirtualCanDisplace()
+    {
+        // 8 completed groups: thirds have 3 pts (linear: t0=9, t1=6, t2=3, t3=0).
+        // 4 incomplete groups: unstarted (all 6 fixtures unplayed).
+        // Virtual max for unstarted groups = (6 pts, +24 GD) which beats real (3 pts) by pts.
+        // → top 8 not yet certain → return empty.
+
+        var groups = Enumerable.Range(0, 12).Select(i =>
+        {
+            var letter = ((char)('A' + i)).ToString();
+            return MakeGroup(letter, $"{letter}1", $"{letter}2", $"{letter}3", $"{letter}4");
+        }).ToList();
+
+        var fixtures = new List<Fixture>();
+        var matchNum = 1;
+
+        // Completed groups: standard linear pattern (third has 3 pts).
+        foreach (var g in groups.Take(8))
+        {
+            var t = g.TeamIds;
+            fixtures.Add(MakeFixture(g.Letter, t[0], t[1], 2, 0, matchNum++));
+            fixtures.Add(MakeFixture(g.Letter, t[0], t[2], 2, 0, matchNum++));
+            fixtures.Add(MakeFixture(g.Letter, t[0], t[3], 2, 0, matchNum++));
+            fixtures.Add(MakeFixture(g.Letter, t[1], t[2], 1, 0, matchNum++));
+            fixtures.Add(MakeFixture(g.Letter, t[1], t[3], 1, 0, matchNum++));
+            fixtures.Add(MakeFixture(g.Letter, t[2], t[3], 1, 0, matchNum++));
+        }
+
+        // Incomplete groups: all 6 fixtures unplayed (simulates a group not yet started).
+        foreach (var g in groups.Skip(8))
+        {
+            var t = g.TeamIds;
+            fixtures.Add(MakeUnplayedFixture(g.Letter, t[0], t[1], matchNum++));
+            fixtures.Add(MakeUnplayedFixture(g.Letter, t[0], t[2], matchNum++));
+            fixtures.Add(MakeUnplayedFixture(g.Letter, t[0], t[3], matchNum++));
+            fixtures.Add(MakeUnplayedFixture(g.Letter, t[1], t[2], matchNum++));
+            fixtures.Add(MakeUnplayedFixture(g.Letter, t[1], t[3], matchNum++));
+            fixtures.Add(MakeUnplayedFixture(g.Letter, t[2], t[3], matchNum++));
+        }
+
+        var completedGroups = groups.Take(8).ToList();
+        var incompleteGroups = groups.Skip(8).ToList();
+
+        var rankings = KnockoutBracketResolver.RankAllGroups(completedGroups, fixtures);
+        var result = KnockoutBracketResolver.SelectBestThirdPlaced(rankings, fixtures, incompleteGroups);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void SelectBestThirdPlaced_EarlyInjection_InjectsWhenVirtualCannotDisplace()
+    {
+        // 8 completed groups: thirds have 6 pts, GD +18 (clear ranking among 3-way 6pt tie).
+        // Cycle pattern: t0 beats t1 3-0, t1 beats t2 3-0, t2 beats t0 3-0.
+        // All beat t3: t0 by 25-0, t1 by 20-0, t2 by 18-0.
+        // GDs: t0=+25, t1=+20, t2=+18 → sorted 1st/2nd/3rd → 3rd place (t2) has GD+18.
+        //
+        // 4 incomplete groups: 5 of 6 fixtures played, 1 unplayed (t1 vs t2 of each group).
+        // The dominant team t0 is definitively top-2, excluded from 3rd-place candidates.
+        // Remaining candidates (t1, t2 with GD=-2, 1 game remaining; t3 with GD=-9, 0 left):
+        //   virtual max GD = max(-2+8, -2+8, -9+0) = +6 < +18 → real 3rd beats virtual.
+        // → Top 8 are all real → inject immediately.
+
+        var groups = Enumerable.Range(0, 12).Select(i =>
+        {
+            var letter = ((char)('A' + i)).ToString();
+            return MakeGroup(letter, $"{letter}1", $"{letter}2", $"{letter}3", $"{letter}4");
+        }).ToList();
+
+        var fixtures = new List<Fixture>();
+        var matchNum = 1;
+
+        // Completed groups: cycle gives clear 1st/2nd/3rd ranking without ties.
+        foreach (var g in groups.Take(8))
+        {
+            var t = g.TeamIds;
+            // Cycle: t0>t1, t1>t2, t2>t0 (equal margins → H2H GD = 0 for all three).
+            fixtures.Add(MakeFixture(g.Letter, t[0], t[1], 3, 0, matchNum++));
+            fixtures.Add(MakeFixture(g.Letter, t[1], t[2], 3, 0, matchNum++));
+            fixtures.Add(MakeFixture(g.Letter, t[2], t[0], 3, 0, matchNum++));
+            // All beat t3 by different margins → determines final GD ranking.
+            fixtures.Add(MakeFixture(g.Letter, t[0], t[3], 25, 0, matchNum++)); // t0: GD +25
+            fixtures.Add(MakeFixture(g.Letter, t[1], t[3], 20, 0, matchNum++)); // t1: GD +20
+            fixtures.Add(MakeFixture(g.Letter, t[2], t[3], 18, 0, matchNum++)); // t2 (3rd): GD +18
+        }
+
+        // Incomplete groups: 5 of 6 played, t[1] vs t[2] still unplayed.
+        // t[0]=9pts GD+9; t[1]=3pts GD=-2, 1 game left; t[2]=3pts GD=-2, 1 game left; t[3]=0pts.
+        foreach (var g in groups.Skip(8))
+        {
+            var t = g.TeamIds;
+            fixtures.Add(MakeFixture(g.Letter, t[0], t[1], 3, 0, matchNum++));  // t[0] 9pts
+            fixtures.Add(MakeFixture(g.Letter, t[0], t[2], 3, 0, matchNum++));
+            fixtures.Add(MakeFixture(g.Letter, t[0], t[3], 3, 0, matchNum++));
+            fixtures.Add(MakeFixture(g.Letter, t[1], t[3], 1, 0, matchNum++));  // t[1] 3pts, GD-2
+            fixtures.Add(MakeFixture(g.Letter, t[2], t[3], 1, 0, matchNum++));  // t[2] 3pts, GD-2
+            fixtures.Add(MakeUnplayedFixture(g.Letter, t[1], t[2], matchNum++)); // this one pending
+        }
+
+        var completedGroups = groups.Take(8).ToList();
+        var incompleteGroups = groups.Skip(8).ToList();
+
+        var rankings = KnockoutBracketResolver.RankAllGroups(completedGroups, fixtures);
+        var result = KnockoutBracketResolver.SelectBestThirdPlaced(rankings, fixtures, incompleteGroups);
+
+        // Real thirds (GD+18) beat virtual max (GD+6) → all 8 inject immediately.
+        Assert.Equal(8, result.Count);
+        var letters = groups.Take(8).Select(g => g.Letter).ToHashSet();
+        Assert.All(result, t => Assert.Contains(t.GroupLetter, letters));
+    }
+
+    [Fact]
+    public void ComputeMaxPossibleThirdStats_NoGamesPlayed_ReturnsSixPtsAndBuffer()
+    {
+        // Unstarted group: all 6 fixtures seeded but unplayed (as they would be in the DB).
+        var fixtures = new List<Fixture>
+        {
+            MakeUnplayedFixture("X", "X1", "X2", 1),
+            MakeUnplayedFixture("X", "X1", "X3", 2),
+            MakeUnplayedFixture("X", "X1", "X4", 3),
+            MakeUnplayedFixture("X", "X2", "X3", 4),
+            MakeUnplayedFixture("X", "X2", "X4", 5),
+            MakeUnplayedFixture("X", "X3", "X4", 6),
+        };
+
+        var (maxPts, maxGD, maxGF) = KnockoutBracketResolver.ComputeMaxPossibleThirdStats(
+            ["X1", "X2", "X3", "X4"], fixtures);
+
+        // No scores yet → each team has pts=0 and 3 remaining games.
+        // No team is definitively top-2 (all have max potential = 9pts and current = 0).
+        // maxPts = min(6, 0+3*3) = 6.
+        Assert.Equal(6, maxPts);
+        // maxGD = max(0 + 8*3) = 24.
+        Assert.Equal(24, maxGD);
+    }
+
+    [Fact]
+    public void ComputeMaxPossibleThirdStats_FinalMatchdayGroup_ReflectsLockedThird()
+    {
+        // X1 and X2 have 6 pts each, 1 remaining game (X1 vs X2) → definitively top-2.
+        // X3 has 3 pts and 0 remaining games → definitively 3rd.
+        // X4 has 0 pts, no remaining games → definitively 4th.
+        // The formula should exclude X1/X2 and report X3's locked stats as the 3rd-place max.
+        var fixtures = new List<Fixture>
+        {
+            MakeFixture("X", "X1", "X3", 2, 0, 1),
+            MakeFixture("X", "X1", "X4", 2, 0, 2),
+            MakeFixture("X", "X2", "X3", 2, 0, 3),
+            MakeFixture("X", "X2", "X4", 2, 0, 4),
+            MakeFixture("X", "X3", "X4", 1, 0, 5),
+            MakeUnplayedFixture("X", "X1", "X2", 6),
+        };
+
+        var (maxPts, maxGD, maxGF) = KnockoutBracketResolver.ComputeMaxPossibleThirdStats(
+            ["X1", "X2", "X3", "X4"], fixtures);
+
+        // X1 and X2 are definitively top-2 (only 1 team — each other — can surpass their 6 pts).
+        // Remaining candidates: X3 (3pts, GD=-3, remaining=0) and X4 (0pts, GD=-5, remaining=0).
+        // maxPts = min(6, max(3+0, 0+0)) = 3.
+        Assert.Equal(3, maxPts);
+        // X3 GD: loses X1(0-2)=-2, loses X2(0-2)=-2, beats X4(1-0)=+1 → GD=-3. maxGD=-3.
+        Assert.Equal(-3, maxGD);
     }
 }
