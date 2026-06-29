@@ -59,7 +59,7 @@ public static class KnockoutSlotEndpoints
                 .ToListAsync(ct);
 
             if (slots.Count == 0)
-                return Results.Ok(Array.Empty<KnockoutSlotResultDto>());
+                return Results.Ok(new KnockoutSlotResultsResponse([], [], [], [], []));
 
             var teams = await session.Query<Team>().ToListAsync(ct);
             var teamMap = teams.ToDictionary(t => t.Id);
@@ -124,7 +124,56 @@ public static class KnockoutSlotEndpoints
                     myPred));
             }
 
-            return Results.Ok(dtos);
+            // Fetch all match events for the completed slots.
+            // Events are stored with FixtureId = slot.SlotKey (e.g. "R32-1").
+            var slotKeys = slots.Select(s => s.SlotKey).ToList();
+
+            var goals = await session.Query<GoalEvent>()
+                .Where(g => g.FixtureId.IsOneOf(slotKeys))
+                .ToListAsync(ct);
+            var cards = await session.Query<CardEvent>()
+                .Where(c => c.FixtureId.IsOneOf(slotKeys))
+                .ToListAsync(ct);
+            var subs = await session.Query<SubstitutionEvent>()
+                .Where(s => s.FixtureId.IsOneOf(slotKeys))
+                .ToListAsync(ct);
+            var vars = await session.Query<VarEvent>()
+                .Where(v => v.FixtureId.IsOneOf(slotKeys))
+                .ToListAsync(ct);
+
+            var allPlayerIds = goals.Select(g => g.PlayerId)
+                .Concat(cards.Select(c => c.PlayerId))
+                .Distinct().ToList();
+            var playerMap = allPlayerIds.Count > 0
+                ? (await session.Query<Player>().Where(p => p.Id.IsOneOf(allPlayerIds)).ToListAsync(ct))
+                    .ToDictionary(p => p.Id)
+                : new Dictionary<Guid, Player>();
+
+            var goalDtos = goals.Select(g =>
+            {
+                playerMap.TryGetValue(g.PlayerId, out var player);
+                return new GoalEventDto(g.FixtureId, g.PlayerId,
+                    player?.Name ?? g.PlayerId.ToString(), player?.TeamId ?? string.Empty,
+                    g.Type.ToString(), g.Minute, g.ExtraMinute);
+            }).OrderBy(g => g.Minute).ToList();
+
+            var cardDtos = cards.Select(c =>
+            {
+                playerMap.TryGetValue(c.PlayerId, out var player);
+                return new CardEventDto(c.FixtureId, c.PlayerId,
+                    player?.Name ?? c.PlayerId.ToString(), player?.TeamId ?? string.Empty,
+                    c.Type.ToString(), c.Minute, c.ExtraMinute);
+            }).OrderBy(c => c.Minute).ToList();
+
+            var subDtos = subs.Select(s => new SubstitutionEventDto(
+                s.FixtureId, s.PlayerInName, s.PlayerOutName, s.TeamId, s.Minute, s.ExtraMinute
+            )).OrderBy(s => s.Minute).ToList();
+
+            var varDtos = vars.Select(v => new VarEventDto(
+                v.FixtureId, v.PlayerName, v.TeamId, v.Type.ToString(), v.Minute, v.ExtraMinute
+            )).OrderBy(v => v.Minute).ToList();
+
+            return Results.Ok(new KnockoutSlotResultsResponse(dtos, goalDtos, cardDtos, subDtos, varDtos));
         })
         .WithName("GetKnockoutSlotResults")
         .WithTags("knockout")
@@ -170,6 +219,14 @@ public sealed record KnockoutSlotResultDto(
     int? PenaltyAwayScore,
     string? WinnerTeamId,
     MyKnockoutPredictionDto? MyPrediction);
+
+/// <summary>Response for GET /knockout-slots/results.</summary>
+public sealed record KnockoutSlotResultsResponse(
+    IReadOnlyList<KnockoutSlotResultDto> Slots,
+    IReadOnlyList<GoalEventDto> Goals,
+    IReadOnlyList<CardEventDto> Cards,
+    IReadOnlyList<SubstitutionEventDto> Substitutions,
+    IReadOnlyList<VarEventDto> VarEvents);
 
 /// <summary>The current user's prediction for one knockout slot, with computed points broken down by component.</summary>
 public sealed record MyKnockoutPredictionDto(

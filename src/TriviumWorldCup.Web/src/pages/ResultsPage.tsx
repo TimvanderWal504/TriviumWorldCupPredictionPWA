@@ -83,10 +83,18 @@ async function fetchAllFixtures(): Promise<FixtureDto[]> {
   return res.json() as Promise<FixtureDto[]>;
 }
 
-async function fetchKnockoutResults(): Promise<KnockoutSlotResultDto[]> {
+interface KnockoutResultsResponse {
+  slots: KnockoutSlotResultDto[];
+  goals: GoalEventDto[];
+  cards: CardEventDto[];
+  substitutions: SubstitutionEventDto[];
+  varEvents: VarEventDto[];
+}
+
+async function fetchKnockoutResults(): Promise<KnockoutResultsResponse> {
   const res = await fetch('/knockout-slots/results', { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to load knockout results (${res.status})`);
-  return res.json() as Promise<KnockoutSlotResultDto[]>;
+  return res.json() as Promise<KnockoutResultsResponse>;
 }
 
 function formatKickoff(kickoffUtc: string): string {
@@ -233,10 +241,22 @@ function ResultFixtureCard({ fixture, goals, cards, substitutions, varEvents, pr
 
 // ── Knockout result card ──────────────────────────────────────────────────────
 
-function KnockoutResultCard({ slot }: { slot: KnockoutSlotResultDto }) {
+interface KnockoutResultCardProps {
+  slot: KnockoutSlotResultDto;
+  goals: GoalEventDto[];
+  cards: CardEventDto[];
+  substitutions: SubstitutionEventDto[];
+  varEvents: VarEventDto[];
+}
+
+function KnockoutResultCard({ slot, goals, cards, substitutions, varEvents }: KnockoutResultCardProps) {
   const homeLead = (slot.homeScore ?? 0) > (slot.awayScore ?? 0);
   const awayLead = (slot.awayScore ?? 0) > (slot.homeScore ?? 0);
   const hasPenalties = slot.penaltyHomeScore !== null || slot.penaltyAwayScore !== null;
+  const [eventsOpen, setEventsOpen] = useState(false);
+
+  const events = buildEventItems(slot.slotKey, goals, cards, substitutions, varEvents);
+  const renderItems = buildRenderList(events, 'Completed');
 
   const pred = slot.myPrediction;
   const correctWinner = pred !== null && pred.predictedWinnerTeamId === slot.winnerTeamId;
@@ -280,17 +300,20 @@ function KnockoutResultCard({ slot }: { slot: KnockoutSlotResultDto }) {
         ))}
       </div>
 
-      {hasPenalties && (
-        <p className="text-[11px] text-fg-muted">Decided on penalties</p>
-      )}
-
-      {/* Winner badge */}
-      {slot.winnerTeamId && (
-        <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--win)' }}>
-          <Trophy size={12} />
-          <span className="font-semibold">
-            {slot.winnerTeamId === slot.homeTeamId ? slot.homeTeamName : slot.awayTeamName} advance
-          </span>
+      {renderItems.length > 0 && (
+        <div className="pt-2.5 border-t border-border">
+          <button
+            onClick={() => setEventsOpen(o => !o)}
+            className="flex items-center gap-1.5 text-[11px] text-fg-muted w-full hover:text-fg transition-colors"
+          >
+            {eventsOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            <span>{eventsOpen ? 'Hide' : 'Show'} match events</span>
+          </button>
+          {eventsOpen && (
+            <div className="mt-2">
+              <MatchEventsList renderItems={renderItems} />
+            </div>
+          )}
         </div>
       )}
 
@@ -377,7 +400,7 @@ interface ResultsPageProps {
 export function ResultsPage({ tab }: ResultsPageProps) {
   const [data, setData] = useState<ResultsResponse | null>(null);
   const [allFixtures, setAllFixtures] = useState<FixtureDto[]>([]);
-  const [knockoutResults, setKnockoutResults] = useState<KnockoutSlotResultDto[]>([]);
+  const [knockoutData, setKnockoutData] = useState<KnockoutResultsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeGroup, setActiveGroup] = useState<string>('A');
@@ -386,10 +409,10 @@ export function ResultsPage({ tab }: ResultsPageProps) {
 
   useEffect(() => {
     Promise.all([fetchResults(), fetchAllFixtures(), fetchKnockoutResults()])
-      .then(([res, fixtureList, knockoutList]) => {
+      .then(([res, fixtureList, knockoutRes]) => {
         setData(res);
         setAllFixtures(fixtureList);
-        setKnockoutResults(knockoutList);
+        setKnockoutData(knockoutRes);
         if (fixtureList.length > 0) {
           const letters = [...new Set(fixtureList.map(f => f.groupLetter))].sort();
           setActiveGroup(letters[0]);
@@ -421,7 +444,8 @@ export function ResultsPage({ tab }: ResultsPageProps) {
 
   // ── Knockouts tab ─────────────────────────────────────────────────────────
   if (tab === 'knockout') {
-    if (knockoutResults.length === 0) {
+    const knockoutSlots = knockoutData?.slots ?? [];
+    if (knockoutSlots.length === 0) {
       return (
         <div className="max-w-3xl mx-auto px-4 py-4">
           <div className="rounded-card bg-surface border border-border px-4 py-16 text-center">
@@ -433,7 +457,7 @@ export function ResultsPage({ tab }: ResultsPageProps) {
 
     const roundOrder = ['R32', 'R16', 'QF', 'SF', 'ThirdPlace', 'Final'];
     const slotsByRound = new Map<string, KnockoutSlotResultDto[]>();
-    for (const slot of knockoutResults) {
+    for (const slot of knockoutSlots) {
       const arr = slotsByRound.get(slot.round) ?? [];
       arr.push(slot);
       slotsByRound.set(slot.round, arr);
@@ -448,7 +472,14 @@ export function ResultsPage({ tab }: ResultsPageProps) {
               {roundLabel(round)}
             </h2>
             {(slotsByRound.get(round) ?? []).map(slot => (
-              <KnockoutResultCard key={slot.slotKey} slot={slot} />
+              <KnockoutResultCard
+                key={slot.slotKey}
+                slot={slot}
+                goals={knockoutData?.goals ?? []}
+                cards={knockoutData?.cards ?? []}
+                substitutions={knockoutData?.substitutions ?? []}
+                varEvents={knockoutData?.varEvents ?? []}
+              />
             ))}
           </div>
         ))}
@@ -464,7 +495,7 @@ export function ResultsPage({ tab }: ResultsPageProps) {
 
     const allItems: DateItem[] = [
       ...playedFixtures.map(f => ({ kind: 'group' as const, fixture: f })),
-      ...knockoutResults.map(s => ({ kind: 'knockout' as const, slot: s })),
+      ...(knockoutData?.slots ?? []).map(s => ({ kind: 'knockout' as const, slot: s })),
     ].sort((a, b) => {
       const at = a.kind === 'group' ? new Date(a.fixture.kickoffUtc).getTime() : (a.slot.kickoffUtc ? new Date(a.slot.kickoffUtc).getTime() : 0);
       const bt = b.kind === 'group' ? new Date(b.fixture.kickoffUtc).getTime() : (b.slot.kickoffUtc ? new Date(b.slot.kickoffUtc).getTime() : 0);
@@ -494,7 +525,14 @@ export function ResultsPage({ tab }: ResultsPageProps) {
                 varEvents={data?.varEvents ?? []}
                 prediction={predMap.get(item.fixture.id)}
               />
-            : <KnockoutResultCard key={item.slot.slotKey} slot={item.slot} />
+            : <KnockoutResultCard
+                key={item.slot.slotKey}
+                slot={item.slot}
+                goals={knockoutData?.goals ?? []}
+                cards={knockoutData?.cards ?? []}
+                substitutions={knockoutData?.substitutions ?? []}
+                varEvents={knockoutData?.varEvents ?? []}
+              />
         )}
       </div>
     );
