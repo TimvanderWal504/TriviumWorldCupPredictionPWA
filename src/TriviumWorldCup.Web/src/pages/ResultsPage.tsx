@@ -341,17 +341,16 @@ function KnockoutResultCard({ slot }: { slot: KnockoutSlotResultDto }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 interface ResultsPageProps {
-  viewMode: 'group' | 'date';
+  tab: 'group-stage' | 'knockout' | 'by-date';
 }
 
-export function ResultsPage({ viewMode }: ResultsPageProps) {
+export function ResultsPage({ tab }: ResultsPageProps) {
   const [data, setData] = useState<ResultsResponse | null>(null);
   const [allFixtures, setAllFixtures] = useState<FixtureDto[]>([]);
   const [knockoutResults, setKnockoutResults] = useState<KnockoutSlotResultDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeGroup, setActiveGroup] = useState<string>('A');
-  const [stageTab, setStageTab] = useState<'group-stage' | 'knockout'>('group-stage');
 
   const tabsRef = useRef<HTMLDivElement>(null);
 
@@ -364,9 +363,6 @@ export function ResultsPage({ viewMode }: ResultsPageProps) {
         if (fixtureList.length > 0) {
           const letters = [...new Set(fixtureList.map(f => f.groupLetter))].sort();
           setActiveGroup(letters[0]);
-        }
-        if (knockoutList.length > 0) {
-          setStageTab('knockout');
         }
       })
       .catch((err: unknown) => setLoadError(err instanceof Error ? err.message : 'Failed to load results.'))
@@ -393,50 +389,18 @@ export function ResultsPage({ viewMode }: ResultsPageProps) {
   const playedFixtures = data?.fixtures ?? [];
   const predMap = new Map((data?.myPredictions ?? []).map(p => [p.fixtureId, p]));
 
-  const hasKnockoutResults = knockoutResults.length > 0;
-
-  // ── Stage tab selector ────────────────────────────────────────────────────
-  const stageTabs = (
-    <div className="max-w-3xl mx-auto px-4 pt-2 pb-1 flex gap-1.5">
-      <button
-        onClick={() => setStageTab('group-stage')}
-        className="px-3.5 py-1.5 rounded-input text-[13px] font-semibold whitespace-nowrap transition-colors"
-        style={stageTab === 'group-stage'
-          ? { background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }
-          : { background: 'var(--surface-3)', color: 'var(--fg-secondary)' }}
-      >
-        Group Stage
-      </button>
-      {hasKnockoutResults && (
-        <button
-          onClick={() => setStageTab('knockout')}
-          className="px-3.5 py-1.5 rounded-input text-[13px] font-semibold whitespace-nowrap transition-colors"
-          style={stageTab === 'knockout'
-            ? { background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }
-            : { background: 'var(--surface-3)', color: 'var(--fg-secondary)' }}
-        >
-          Knockouts
-        </button>
-      )}
-    </div>
-  );
-
   // ── Knockouts tab ─────────────────────────────────────────────────────────
-  if (stageTab === 'knockout') {
-    if (!hasKnockoutResults) {
+  if (tab === 'knockout') {
+    if (knockoutResults.length === 0) {
       return (
-        <>
-          {stageTabs}
-          <div className="max-w-3xl mx-auto px-4 py-4">
-            <div className="rounded-card bg-surface border border-border px-4 py-16 text-center">
-              <p className="text-fg-muted text-sm">No knockout results yet.</p>
-            </div>
+        <div className="max-w-3xl mx-auto px-4 py-4">
+          <div className="rounded-card bg-surface border border-border px-4 py-16 text-center">
+            <p className="text-fg-muted text-sm">No knockout results yet.</p>
           </div>
-        </>
+        </div>
       );
     }
 
-    // Group slots by round for display
     const roundOrder = ['R32', 'R16', 'QF', 'SF', 'ThirdPlace', 'Final'];
     const slotsByRound = new Map<string, KnockoutSlotResultDto[]>();
     for (const slot of knockoutResults) {
@@ -447,27 +411,23 @@ export function ResultsPage({ viewMode }: ResultsPageProps) {
     const rounds = roundOrder.filter(r => slotsByRound.has(r));
 
     return (
-      <>
-        {stageTabs}
-        <div className="max-w-3xl mx-auto px-4 py-4 flex flex-col gap-6">
-          {rounds.map(round => (
-            <div key={round} className="flex flex-col gap-2.5">
-              <h2 className="text-[13px] font-bold text-fg-muted uppercase tracking-wider px-0.5">
-                {roundLabel(round)}
-              </h2>
-              {(slotsByRound.get(round) ?? []).map(slot => (
-                <KnockoutResultCard key={slot.slotKey} slot={slot} />
-              ))}
-            </div>
-          ))}
-        </div>
-      </>
+      <div className="max-w-3xl mx-auto px-4 py-4 flex flex-col gap-6">
+        {rounds.map(round => (
+          <div key={round} className="flex flex-col gap-2.5">
+            <h2 className="text-[13px] font-bold text-fg-muted uppercase tracking-wider px-0.5">
+              {roundLabel(round)}
+            </h2>
+            {(slotsByRound.get(round) ?? []).map(slot => (
+              <KnockoutResultCard key={slot.slotKey} slot={slot} />
+            ))}
+          </div>
+        ))}
+      </div>
     );
   }
 
-  // ── Group Stage tab — date view ───────────────────────────────────────────
-  if (viewMode === 'date') {
-    // Merge group fixtures and knockout slots, sort newest first
+  // ── By Date tab — all results merged ─────────────────────────────────────
+  if (tab === 'by-date') {
     type DateItem =
       | { kind: 'group'; fixture: ResultFixtureDto }
       | { kind: 'knockout'; slot: KnockoutSlotResultDto };
@@ -483,50 +443,41 @@ export function ResultsPage({ viewMode }: ResultsPageProps) {
 
     if (allItems.length === 0) {
       return (
-        <>
-          {stageTabs}
-          <div className="max-w-3xl mx-auto px-4 py-4">
-            <div className="rounded-card bg-surface border border-border px-4 py-16 text-center">
-              <p className="text-fg-muted text-sm">No results yet. Come back after the first match.</p>
-            </div>
+        <div className="max-w-3xl mx-auto px-4 py-4">
+          <div className="rounded-card bg-surface border border-border px-4 py-16 text-center">
+            <p className="text-fg-muted text-sm">No results yet. Come back after the first match.</p>
           </div>
-        </>
+        </div>
       );
     }
 
     return (
-      <>
-        {stageTabs}
-        <div className="max-w-3xl mx-auto px-4 py-4 flex flex-col gap-3">
-          {allItems.map(item =>
-            item.kind === 'group'
-              ? <ResultFixtureCard
-                  key={item.fixture.id}
-                  fixture={item.fixture}
-                  goals={data?.goals ?? []}
-                  cards={data?.cards ?? []}
-                  substitutions={data?.substitutions ?? []}
-                  varEvents={data?.varEvents ?? []}
-                  prediction={predMap.get(item.fixture.id)}
-                />
-              : <KnockoutResultCard key={item.slot.slotKey} slot={item.slot} />
-          )}
-        </div>
-      </>
+      <div className="max-w-3xl mx-auto px-4 py-4 flex flex-col gap-3">
+        {allItems.map(item =>
+          item.kind === 'group'
+            ? <ResultFixtureCard
+                key={item.fixture.id}
+                fixture={item.fixture}
+                goals={data?.goals ?? []}
+                cards={data?.cards ?? []}
+                substitutions={data?.substitutions ?? []}
+                varEvents={data?.varEvents ?? []}
+                prediction={predMap.get(item.fixture.id)}
+              />
+            : <KnockoutResultCard key={item.slot.slotKey} slot={item.slot} />
+        )}
+      </div>
     );
   }
 
   // ── Group Stage tab — by-group view ──────────────────────────────────────
   if (allFixtures.length === 0) {
     return (
-      <>
-        {stageTabs}
-        <div className="max-w-3xl mx-auto px-4 py-4">
-          <div className="rounded-card bg-surface border border-border px-4 py-16 text-center">
-            <p className="text-fg-muted text-sm">No results yet. Come back after the first match.</p>
-          </div>
+      <div className="max-w-3xl mx-auto px-4 py-4">
+        <div className="rounded-card bg-surface border border-border px-4 py-16 text-center">
+          <p className="text-fg-muted text-sm">No results yet. Come back after the first match.</p>
         </div>
-      </>
+      </div>
     );
   }
 
@@ -544,77 +495,72 @@ export function ResultsPage({ viewMode }: ResultsPageProps) {
   const btnBase = 'w-7 h-7 flex items-center justify-center rounded-input text-sm font-bold transition-opacity disabled:opacity-25';
 
   return (
-    <>
-      {stageTabs}
-      <div className="max-w-3xl mx-auto px-4 py-4">
-        {/* Group tab bar */}
-        <div ref={tabsRef} className="flex gap-1.5 overflow-x-auto appscroll pb-1.5" role="tablist">
-          {groupLetters.map(letter => (
-            <button
-              key={letter} role="tab" aria-selected={activeGroup === letter}
-              onClick={() => setActiveGroup(letter)}
-              className={`px-3.5 py-1.5 rounded-input text-[13px] font-semibold whitespace-nowrap transition-colors ${
-                activeGroup !== letter ? 'bg-surface-3 text-fg-secondary' : ''
-              }`}
-              style={activeGroup === letter
-                ? { background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }
-                : undefined}
-            >
-              Group {letter}
+    <div className="max-w-3xl mx-auto px-4 py-4">
+      <div ref={tabsRef} className="flex gap-1.5 overflow-x-auto appscroll pb-1.5" role="tablist">
+        {groupLetters.map(letter => (
+          <button
+            key={letter} role="tab" aria-selected={activeGroup === letter}
+            onClick={() => setActiveGroup(letter)}
+            className={`px-3.5 py-1.5 rounded-input text-[13px] font-semibold whitespace-nowrap transition-colors ${
+              activeGroup !== letter ? 'bg-surface-3 text-fg-secondary' : ''
+            }`}
+            style={activeGroup === letter
+              ? { background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }
+              : undefined}
+          >
+            Group {letter}
+          </button>
+        ))}
+      </div>
+
+      {groupLetters.length > 1 && (() => {
+        const n = groupLetters.length;
+        const activeIdx = groupLetters.indexOf(activeGroup);
+        const windowSize = Math.min(5, n);
+        const windowStart = Math.max(0, Math.min(n - windowSize, activeIdx - Math.floor(windowSize / 2)));
+        const visibleLetters = groupLetters.slice(windowStart, windowStart + windowSize);
+        return (
+          <div className="flex items-center justify-center gap-3 mb-3 mt-1.5">
+            <button onClick={() => setActiveGroup(groupLetters[activeIdx - 1])} disabled={activeIdx === 0} className={btnBase} style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }} aria-label="Previous group">
+              <ChevronLeft size={16} />
             </button>
+            <div className="flex items-center gap-2.5">
+              {visibleLetters.map(letter => {
+                const active = activeGroup === letter;
+                return (
+                  <button key={letter} onClick={() => setActiveGroup(letter)} aria-label={`Group ${letter}`} className="flex flex-col items-center gap-0.5">
+                    <div className="rounded-full transition-all duration-150" style={{ width: active ? 10 : 7, height: active ? 10 : 7, background: active ? 'var(--secondary)' : 'var(--surface-3)' }} />
+                    <span className="text-[9px] font-mono leading-none" style={{ color: active ? 'var(--secondary)' : 'var(--fg-muted)' }}>{letter}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <button onClick={() => setActiveGroup(groupLetters[activeIdx + 1])} disabled={activeIdx === n - 1} className={btnBase} style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }} aria-label="Next group">
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        );
+      })()}
+
+      {activePlayedFixtures.length === 0 ? (
+        <p className="text-fg-muted text-[13px] text-center py-6">No matches played yet in this group.</p>
+      ) : (
+        <div className="flex flex-col gap-2.5">
+          {activePlayedFixtures.map(f => (
+            <ResultFixtureCard
+              key={f.id}
+              fixture={f}
+              goals={data?.goals ?? []}
+              cards={data?.cards ?? []}
+              substitutions={data?.substitutions ?? []}
+              varEvents={data?.varEvents ?? []}
+              prediction={predMap.get(f.id)}
+            />
           ))}
         </div>
+      )}
 
-        {/* Group navigator */}
-        {groupLetters.length > 1 && (() => {
-          const n = groupLetters.length;
-          const activeIdx = groupLetters.indexOf(activeGroup);
-          const windowSize = Math.min(5, n);
-          const windowStart = Math.max(0, Math.min(n - windowSize, activeIdx - Math.floor(windowSize / 2)));
-          const visibleLetters = groupLetters.slice(windowStart, windowStart + windowSize);
-          return (
-            <div className="flex items-center justify-center gap-3 mb-3 mt-1.5">
-              <button onClick={() => setActiveGroup(groupLetters[activeIdx - 1])} disabled={activeIdx === 0} className={btnBase} style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }} aria-label="Previous group">
-                <ChevronLeft size={16} />
-              </button>
-              <div className="flex items-center gap-2.5">
-                {visibleLetters.map(letter => {
-                  const active = activeGroup === letter;
-                  return (
-                    <button key={letter} onClick={() => setActiveGroup(letter)} aria-label={`Group ${letter}`} className="flex flex-col items-center gap-0.5">
-                      <div className="rounded-full transition-all duration-150" style={{ width: active ? 10 : 7, height: active ? 10 : 7, background: active ? 'var(--secondary)' : 'var(--surface-3)' }} />
-                      <span className="text-[9px] font-mono leading-none" style={{ color: active ? 'var(--secondary)' : 'var(--fg-muted)' }}>{letter}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              <button onClick={() => setActiveGroup(groupLetters[activeIdx + 1])} disabled={activeIdx === n - 1} className={btnBase} style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }} aria-label="Next group">
-                <ChevronRight size={16} />
-              </button>
-            </div>
-          );
-        })()}
-
-        {activePlayedFixtures.length === 0 ? (
-          <p className="text-fg-muted text-[13px] text-center py-6">No matches played yet in this group.</p>
-        ) : (
-          <div className="flex flex-col gap-2.5">
-            {activePlayedFixtures.map(f => (
-              <ResultFixtureCard
-                key={f.id}
-                fixture={f}
-                goals={data?.goals ?? []}
-                cards={data?.cards ?? []}
-                substitutions={data?.substitutions ?? []}
-                varEvents={data?.varEvents ?? []}
-                prediction={predMap.get(f.id)}
-              />
-            ))}
-          </div>
-        )}
-
-        <GroupStandingsTable matches={activeGroupStandingsMatches} />
-      </div>
-    </>
+      <GroupStandingsTable matches={activeGroupStandingsMatches} />
+    </div>
   );
 }

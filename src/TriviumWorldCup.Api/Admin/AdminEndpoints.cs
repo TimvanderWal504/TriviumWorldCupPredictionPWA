@@ -812,9 +812,7 @@ public static class AdminEndpoints
 
         // ── POST /admin/fixtures/sync-api-ids ────────────────────────────────
         // Fetches all WC 2026 fixtures from the Football API in one call, matches each to a
-        // Marten Fixture by team pair, and writes the FootballApiFixtureId field.
-        // Also returns the equivalent SQL UPDATE statements so you can run them directly
-        // on the Azure PostgreSQL instance if preferred.
+        // Marten Fixture (group stage) or KnockoutSlot by team pair, and writes FootballApiFixtureId.
         // Safe to call multiple times — already-populated rows are overwritten with the same value.
         group.MapPost("/fixtures/sync-api-ids", async (
             HttpContext context,
@@ -837,10 +835,19 @@ public static class AdminEndpoints
             }
 
             await using var session = store.LightweightSession();
-            var allFixtures = await session.Query<Fixture>().ToListAsync(ct);
+            var allFixtures = await session.Query<Fixture>()
+                .Where(f => f.Status != MatchStatus.Completed && f.Status != MatchStatus.Cancelled)
+                .ToListAsync(ct);
             var fixtureByTeamPair = allFixtures.ToDictionary(f => (f.HomeTeamId, f.AwayTeamId));
 
-            var matched = new List<object>();
+            var knockoutSlots = await session.Query<KnockoutSlot>()
+                .Where(s => s.HomeTeamId != null && s.AwayTeamId != null
+                         && s.Status != MatchStatus.Completed && s.Status != MatchStatus.Cancelled)
+                .ToListAsync(ct);
+            var slotByTeamPair = knockoutSlots.ToDictionary(s => (s.HomeTeamId!, s.AwayTeamId!));
+
+            var matchedFixtures = new List<object>();
+            var matchedKnockout = new List<object>();
             var unresolved = new List<string>();
 
             foreach (var api in apiFixtures)
@@ -854,28 +861,34 @@ public static class AdminEndpoints
                     continue;
                 }
 
-                if (!fixtureByTeamPair.TryGetValue((homeCode, awayCode), out var fixture))
-                    // Knockout fixtures (R32–Final) have no Fixture document — skip silently.
-                    continue;
-
-                fixture.FootballApiFixtureId = api.FixtureId;
-                session.Store(fixture);
-
-                matched.Add(new { fixture.Id, homeCode, awayCode, apiFixtureId = api.FixtureId });
+                if (fixtureByTeamPair.TryGetValue((homeCode, awayCode), out var fixture))
+                {
+                    fixture.FootballApiFixtureId = api.FixtureId;
+                    session.Store(fixture);
+                    matchedFixtures.Add(new { fixture.Id, homeCode, awayCode, apiFixtureId = api.FixtureId });
+                }
+                else if (slotByTeamPair.TryGetValue((homeCode, awayCode), out var slot))
+                {
+                    slot.FootballApiFixtureId = api.FixtureId;
+                    session.Store(slot);
+                    matchedKnockout.Add(new { slot.SlotKey, slot.Round, homeCode, awayCode, apiFixtureId = api.FixtureId });
+                }
             }
 
-            if (matched.Count > 0)
+            if (matchedFixtures.Count > 0 || matchedKnockout.Count > 0)
                 await session.SaveChangesAsync(ct);
 
             return Results.Ok(new
             {
-                matched    = matched.Count,
-                fixtures   = matched,
+                matchedFixtures  = matchedFixtures.Count,
+                fixtures         = matchedFixtures,
+                matchedKnockout  = matchedKnockout.Count,
+                knockoutSlots    = matchedKnockout,
                 unresolved,
             });
         })
         .WithName("SyncApiFixtureIds")
-        .WithSummary("Backfills FootballApiFixtureId on all group-stage Fixture documents from the Football API. Returns equivalent SQL for direct Azure execution.");
+        .WithSummary("Backfills FootballApiFixtureId on group-stage Fixture and KnockoutSlot documents from the Football API.");
 
         // ── POST /admin/fixtures/{fixtureId}/fetch-events ────────────────────
         // Fetches events directly from the Football API for any completed fixture,

@@ -293,11 +293,11 @@ Root cause analysis of Azure 503 errors during live matches identified CPU credi
 ### Knockout results in Results page
 
 - **`Tournament/KnockoutSlotEndpoints.cs`** — new authenticated endpoint `GET /knockout-slots/results` returning completed knockout slots in tournament order (R32 → Final) with team names, 90-min scores, penalty scores, `winnerTeamId`, and the current user's prediction + points. Points computed with the same per-user streak logic as `ScoringRecomputeService` (streak resets on wrong winner, unchanged when no prediction submitted). Two new DTOs: `KnockoutSlotResultDto` and `MyKnockoutPredictionDto`.
-- **`pages/ResultsPage.tsx`** — fetches `/knockout-slots/results` in parallel with existing calls.
-  - New **"Group Stage" / "Knockouts"** stage-tab selector at the top of the page. Knockouts tab only shown when there are completed knockout slots; defaults to Knockouts tab when any exist.
-  - **Knockouts tab**: completed knockout slots grouped by round (Round of 32 → Final), rendered via new `KnockoutResultCard` component showing teams with flags, 90-min score, penalty score (if applicable), winner badge with trophy icon, predicted winner + predicted score + points earned per slot (colour-coded Correct/Wrong badge).
-  - **Date view (Group Stage tab)**: group fixtures and knockout slots merged and sorted newest-first; knockout items render as `KnockoutResultCard` with round label ("Round of 32 · Venue") instead of "Group X".
-  - By-group view (Group Stage tab) unchanged — shows group stage only.
+- **`App.tsx`** — replaced `resultsViewMode: 'group' | 'date'` + 2-button toggle with `resultsTab: 'group-stage' | 'knockout' | 'by-date'` + a single 3-button row ("Group Stage" | "Knockouts" | "By Date"). One control row instead of two.
+- **`pages/ResultsPage.tsx`** — prop changed from `viewMode: 'group' | 'date'` to `tab: 'group-stage' | 'knockout' | 'by-date'`. Internal stage-tab state removed. Three fully exclusive branches:
+  - **Group Stage**: by-group view, group fixtures only — no knockout matches bleed in.
+  - **Knockouts**: completed knockout slots grouped by round (Round of 32 → Final), rendered via new `KnockoutResultCard` showing teams with flags, 90-min score, penalty score (if applicable), winner badge with trophy icon, predicted winner + predicted score + points earned (colour-coded Correct/Wrong badge).
+  - **By Date**: all results (group + knockout) merged and sorted newest-first; knockout items use `KnockoutResultCard` with round label ("Round of 32 · Venue").
 
 ### Admin knockout team override + bracket sticky fix
 
@@ -310,6 +310,10 @@ Root cause analysis of Azure 503 errors during live matches identified CPU credi
 
 ## Unversioned work (main, 29 June 2026)
 
+### Predictions tab — knockout matches show prediction only
+
+- **`pages/KnockoutBracketPage.tsx`** — `SlotCard` read-only rows now always display the user's **predicted** scores and advancing team, regardless of whether the match has a result. The actual result is no longer surfaced in the predictions tab (it belongs exclusively in the Results tab). The AET/penalties footer note was also removed from `SlotCard` as it references actual match data. Locked matches without a prediction still show "No pick made".
+
 ### Leaderboard drill-down — knockout predictions
 
 - **`Leaderboard/LeaderboardEndpoints.cs`** — drill-down endpoint (`GET /leaderboard/{userId}`) now loads `KnockoutPrediction` documents for the target user and the corresponding `KnockoutSlot` documents. Applies the same privacy filter as group predictions (only reveals once the slot's kickoff has passed). Computes points and streak multiplier per slot in tournament order (R32 → R16 → QF → SF → 3rd → Final), matching the same logic as `ScoringRecomputeService`. New `KnockoutPredictionDetailDto` record exposed (SlotKey, Round, teams, predicted winner + optional score, actual winner + result, Multiplier, Points). `MemberDrillDownDto` extended with `KnockoutPredictions` field.
@@ -318,6 +322,19 @@ Root cause analysis of Azure 503 errors during live matches identified CPU credi
 ## Next action
 1. **Deploy B2ms Postgres upgrade** — re-run `az deployment group create` with updated `main.bicep` during a non-match window (Azure requires ~2 min downtime to resize Flexible Server).
 2. **Run `POST /admin/recompute`** after deploying — the startup migration will have corrected stale slot wiring; the recompute repopulates team assignments from the corrected sources.
-3. **Platform generalization Gen-Wave B** — TWC-36 (data-driven structure), TWC-37 (generic outcome model), TWC-38 (competitor generalization), TWC-41 (lock policy + grace removal). All unblocked by TWC-35 ✅.
-4. **TWC-20 (Entra)** — deprioritised; may be marked obsolete. No action until decided.
-5. **Update Confluence Design & Architecture page** — use the prompt in `.docs/confluence-update-prompt.md`.
+3. **Run `POST /admin/fixtures/sync-api-ids`** — now also populates `FootballApiFixtureId` on resolved knockout slots for reliable ingestion.
+4. **Platform generalization Gen-Wave B** — TWC-36 (data-driven structure), TWC-37 (generic outcome model), TWC-38 (competitor generalization), TWC-41 (lock policy + grace removal). All unblocked by TWC-35 ✅.
+5. **TWC-20 (Entra)** — deprioritised; may be marked obsolete. No action until decided.
+6. **Update Confluence Design & Architecture page** — use the prompt in `.docs/confluence-update-prompt.md`.
+
+## Unversioned work (main, 29 June 2026)
+
+### Live Scores page — knockout match support
+
+- **`Tournament/FixtureEndpoints.cs`** — `GET /fixtures/live` now also queries `KnockoutSlot` in the same time-window (InProgress / ExtraTime / PenaltyShootout, kicked off in the last 3 h, or imminent within 30 min). Knockout slot IDs (e.g. "R32-1") are folded into the existing event query — the ingestion job already stores goal/card/sub/VAR events keyed by `SlotKey`, so events flow through automatically. New `LiveKnockoutSlotDto` record (includes resolved team names, penalty scores, winner). `LiveFixturesResponse` extended with `KnockoutSlots`. `liveWindowActive` now considers knockout slot statuses and kickoff times.
+- **`pages/LiveScoresPage.tsx`** — `StatusBadge` extended to render `AET` and `PEN` badges for `ExtraTime` / `PenaltyShootout` statuses. New `LiveKnockoutCard` component: round label + venue in header, penalty scores in parentheses, losing team dimmed once `winnerTeamId` is set. Live knockout matches appear at the top; completed/upcoming appear in "Earlier & upcoming".
+- **`pages/KnockoutBracketPage.tsx`** — removed stale unused variables (`wentToAet`, `wonOnPens`) that were blocking the TypeScript build.
+
+### Admin sync — knockout slot API IDs
+
+- **`Admin/AdminEndpoints.cs`** — `POST /admin/fixtures/sync-api-ids` now matches resolved knockout slots by team pair in addition to group-stage fixtures. Both queries exclude `Completed` and `Cancelled` matches. Response extended with `matchedKnockout` and `knockoutSlots` fields.

@@ -104,9 +104,6 @@ function SlotCard({ slot, prediction, teamNames, onSaved }: SlotCardProps) {
   const isLiveET   = slot.status === 'ExtraTime';
   const isLivePen  = slot.status === 'PenaltyShootout';
   const isLive     = slot.status === 'InProgress' || isLiveET || isLivePen;
-  const wonOnPens  = slot.penaltyHomeScore !== null && slot.penaltyAwayScore !== null;
-  const wentToAet  = hasResult && slot.homeScore === slot.awayScore
-                  && slot.winnerTeamId !== null && !wonOnPens;
   const canPick    = !locked && teamsKnown && !hasResult;
 
   const [homeInput, setHomeInput] = useState(
@@ -253,14 +250,13 @@ function SlotCard({ slot, prediction, teamNames, onSaved }: SlotCardProps) {
         <p className="text-[13px] text-fg-muted italic">Bracket not yet set</p>
       )}
 
-      {/* Read-only rows — actual result (played) or the user's locked-in prediction */}
+      {/* Read-only rows — always shows the user's prediction, never the actual result */}
       {teamsKnown && !canPick && (
         <div className="flex flex-col gap-2">
-          {teams!.map(({ id, score, penScore, isWinner }, idx) => {
-            const predScore   = idx === 0 ? prediction?.predictedHomeScore : prediction?.predictedAwayScore;
-            const scoreToShow = hasResult ? score : (predScore != null ? predScore : null);
-            const advances    = hasResult ? isWinner : prediction?.predictedWinnerTeamId === id;
-            const dimmed      = (hasResult || prediction != null) ? !advances : false;
+          {teams!.map(({ id }, idx) => {
+            const predScore = idx === 0 ? prediction?.predictedHomeScore : prediction?.predictedAwayScore;
+            const advances  = prediction?.predictedWinnerTeamId === id;
+            const dimmed    = prediction != null ? !advances : false;
             const url = flagUrl(id);
             return (
               <div key={id} className={['flex items-center gap-2.5', dimmed ? 'opacity-40' : ''].join(' ')}>
@@ -273,16 +269,13 @@ function SlotCard({ slot, prediction, teamNames, onSaved }: SlotCardProps) {
                 {advances && (
                   <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded shrink-0"
                     style={{ background: 'var(--win-soft)', color: 'var(--win)' }}>
-                    {hasResult ? 'Through' : 'Advances'}
+                    Advances
                   </span>
                 )}
-                {scoreToShow != null && (
+                {predScore != null && (
                   <span className={`font-display font-black tnum text-[22px] w-7 text-right shrink-0 ${advances ? 'text-fg' : 'text-fg-muted'}`}>
-                    {scoreToShow}
+                    {predScore}
                   </span>
-                )}
-                {hasResult && wonOnPens && penScore != null && (
-                  <span className="text-[11px] text-fg-muted tnum shrink-0">({penScore})</span>
                 )}
               </div>
             );
@@ -291,15 +284,8 @@ function SlotCard({ slot, prediction, teamNames, onSaved }: SlotCardProps) {
       )}
 
       {/* Locked with no prediction made */}
-      {locked && !hasResult && !prediction && teamsKnown && (
+      {locked && !prediction && teamsKnown && (
         <p className="text-[12px] text-fg-muted">No pick made</p>
-      )}
-
-      {/* AET / penalties note */}
-      {(wentToAet || wonOnPens) && (
-        <p className="text-[11px] text-fg-muted">
-          {wonOnPens ? 'Won on penalties' : 'After extra time'}
-        </p>
       )}
 
       {/* Editable: mandatory score per team; the higher score advances */}

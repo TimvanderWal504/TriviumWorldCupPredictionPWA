@@ -162,6 +162,18 @@ public static class FixtureEndpoints
                 .ThenBy(f => f.MatchNumber)
                 .ToListAsync(ct);
 
+            // Load knockout slots in the same live window.
+            var knockoutSlots = await session.Query<KnockoutSlot>()
+                .Where(s =>
+                    s.Status == MatchStatus.InProgress ||
+                    s.Status == MatchStatus.ExtraTime ||
+                    s.Status == MatchStatus.PenaltyShootout ||
+                    (s.KickoffUtc >= recentCutoff && s.KickoffUtc <= now) ||
+                    (s.KickoffUtc > now && s.KickoffUtc <= imminentCutoff))
+                .OrderBy(s => s.KickoffUtc)
+                .ThenBy(s => s.SlotNumber)
+                .ToListAsync(ct);
+
             var teams = await session.Query<Team>().ToListAsync(ct);
             var teamMap = teams.ToDictionary(t => t.Id);
 
@@ -183,8 +195,30 @@ public static class FixtureEndpoints
                 ElapsedExtra:  f.ElapsedExtra
             )).ToList();
 
+            var knockoutDtos = knockoutSlots.Select(s => new LiveKnockoutSlotDto(
+                SlotKey:          s.SlotKey,
+                Round:            s.Round.ToString(),
+                SlotNumber:       s.SlotNumber,
+                HomeTeamId:       s.HomeTeamId,
+                HomeTeamName:     s.HomeTeamId != null && teamMap.TryGetValue(s.HomeTeamId, out var kht) ? kht.Name : s.HomeTeamId,
+                AwayTeamId:       s.AwayTeamId,
+                AwayTeamName:     s.AwayTeamId != null && teamMap.TryGetValue(s.AwayTeamId, out var kat) ? kat.Name : s.AwayTeamId,
+                KickoffUtc:       s.KickoffUtc,
+                Venue:            s.Venue,
+                City:             s.City,
+                Status:           s.Status.ToString(),
+                HomeScore:        s.HomeScore,
+                AwayScore:        s.AwayScore,
+                PenaltyHomeScore: s.PenaltyHomeScore,
+                PenaltyAwayScore: s.PenaltyAwayScore,
+                WinnerTeamId:     s.WinnerTeamId
+            )).ToList();
+
             // Load goal, card, substitution, and VAR events for all fixtures in the response.
-            var fixtureIds = fixtures.Select(f => f.Id).ToList();
+            // Knockout slot events are keyed by SlotKey (e.g. "R32-1") — same query handles both.
+            var fixtureIds = fixtures.Select(f => f.Id)
+                .Concat(knockoutSlots.Select(s => s.SlotKey))
+                .ToList();
             List<GoalEventDto> goalDtos;
             List<CardEventDto> cardDtos;
             List<SubstitutionEventDto> subDtos;
@@ -245,26 +279,34 @@ public static class FixtureEndpoints
             }
 
             // liveWindowActive = true when polling should continue:
-            // - any fixture is InProgress / ExtraTime / PenaltyShootout
-            // - any fixture kicks off within the next 30 min
+            // - any fixture/slot is InProgress / ExtraTime / PenaltyShootout
+            // - any fixture/slot kicks off within the next 30 min
             // - any non-completed fixture kicked off in the last 30 min (covers the
             //   Scheduled→InProgress gap between kickoff and the first job cycle)
             var liveWindowActive =
                 fixtures.Any(f => f.Status is MatchStatus.InProgress
                                            or MatchStatus.ExtraTime
                                            or MatchStatus.PenaltyShootout) ||
+                knockoutSlots.Any(s => s.Status is MatchStatus.InProgress
+                                                or MatchStatus.ExtraTime
+                                                or MatchStatus.PenaltyShootout) ||
                 fixtures.Any(f => f.KickoffUtc > now && f.KickoffUtc <= imminentCutoff) ||
+                knockoutSlots.Any(s => s.KickoffUtc > now && s.KickoffUtc <= imminentCutoff) ||
                 fixtures.Any(f => f.KickoffUtc > now.AddMinutes(-30) && f.KickoffUtc <= now &&
                                   f.Status != MatchStatus.Completed &&
-                                  f.Status != MatchStatus.Cancelled);
+                                  f.Status != MatchStatus.Cancelled) ||
+                knockoutSlots.Any(s => s.KickoffUtc > now.AddMinutes(-30) && s.KickoffUtc <= now &&
+                                  s.Status != MatchStatus.Completed &&
+                                  s.Status != MatchStatus.Cancelled);
 
             return Results.Ok(new LiveFixturesResponse(
-                Fixtures:         fixtureDtos,
-                Goals:            goalDtos,
-                Cards:            cardDtos,
-                Substitutions:    subDtos,
-                VarEvents:        varDtos,
-                LiveWindowActive: liveWindowActive
+                Fixtures:       fixtureDtos,
+                Goals:          goalDtos,
+                Cards:          cardDtos,
+                Substitutions:  subDtos,
+                VarEvents:      varDtos,
+                LiveWindowActive: liveWindowActive,
+                KnockoutSlots:  knockoutDtos
             ));
         })
         .WithName("GetLiveFixtures")
@@ -396,6 +438,25 @@ public sealed record VarEventDto(
     int Minute,
     int? ExtraMinute);
 
+/// <summary>Knockout slot DTO embedded in the live fixtures response (includes resolved team names).</summary>
+public sealed record LiveKnockoutSlotDto(
+    string SlotKey,
+    string Round,
+    int SlotNumber,
+    string? HomeTeamId,
+    string? HomeTeamName,
+    string? AwayTeamId,
+    string? AwayTeamName,
+    DateTimeOffset? KickoffUtc,
+    string? Venue,
+    string? City,
+    string Status,
+    int? HomeScore,
+    int? AwayScore,
+    int? PenaltyHomeScore,
+    int? PenaltyAwayScore,
+    string? WinnerTeamId);
+
 /// <summary>Response for GET /fixtures/live.</summary>
 public sealed record LiveFixturesResponse(
     IReadOnlyList<FixtureDto> Fixtures,
@@ -403,7 +464,8 @@ public sealed record LiveFixturesResponse(
     IReadOnlyList<CardEventDto> Cards,
     IReadOnlyList<SubstitutionEventDto> Substitutions,
     IReadOnlyList<VarEventDto> VarEvents,
-    bool LiveWindowActive);
+    bool LiveWindowActive,
+    IReadOnlyList<LiveKnockoutSlotDto> KnockoutSlots);
 
 /// <summary>Per-fixture prediction result for the current user, returned by GET /fixtures/results.</summary>
 public sealed record MyFixturePredictionDto(

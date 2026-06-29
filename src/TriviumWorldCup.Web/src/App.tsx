@@ -80,7 +80,7 @@ function AppShell() {
   const [subPage, setSubPage] = useState<SubPage>(null);
   const [predictView, setPredictView] = useState<PredictView>('group');
   const [groupViewMode, setGroupViewMode] = useState<'group' | 'date'>('group');
-  const [resultsViewMode, setResultsViewMode] = useState<'group' | 'date'>('date');
+  const [resultsTab, setResultsTab] = useState<'group-stage' | 'knockout' | 'by-date'>('group-stage');
 
   // Visibility gates for Live, Results, and Bracket tabs
   const [liveActive, setLiveActive] = useState(false);
@@ -185,23 +185,21 @@ function AppShell() {
 
         ) : tab === 'results' ? (
           <div>
-            <div className="max-w-3xl mx-auto px-4 pt-4 pb-2 flex items-center justify-end gap-2">
-              <div className="flex gap-0.5 bg-surface-3 rounded-input p-0.5">
-                {(['group', 'date'] as const).map(mode => (
-                  <button
-                    key={mode}
-                    onClick={() => setResultsViewMode(mode)}
-                    className="px-3 py-1.5 rounded-input text-[12px] font-semibold whitespace-nowrap transition-colors"
-                    style={resultsViewMode === mode
-                      ? { background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }
-                      : { color: 'var(--fg-secondary)' }}
-                  >
-                    {mode === 'group' ? 'By Group' : 'By Date'}
-                  </button>
-                ))}
-              </div>
+            <div className="max-w-3xl mx-auto px-4 pt-4 pb-2 flex gap-1.5">
+              {(['group-stage', 'knockout', 'by-date'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setResultsTab(t)}
+                  className="px-3.5 py-1.5 rounded-input text-[13px] font-semibold whitespace-nowrap transition-colors"
+                  style={resultsTab === t
+                    ? { background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }
+                    : { background: 'var(--surface-3)', color: 'var(--fg-secondary)' }}
+                >
+                  {t === 'group-stage' ? 'Group Stage' : t === 'knockout' ? 'Knockouts' : 'By Date'}
+                </button>
+              ))}
             </div>
-            <ResultsPage viewMode={resultsViewMode} />
+            <ResultsPage tab={resultsTab} />
           </div>
 
         ) : tab === 'predict' ? (
