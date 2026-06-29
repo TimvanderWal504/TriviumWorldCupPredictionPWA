@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Clock, ChevronDown, ChevronUp, Trophy } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { flagUrl } from '../utils/flagUrl.ts';
 import { Spinner } from '../components/ui/Spinner.tsx';
 import {
