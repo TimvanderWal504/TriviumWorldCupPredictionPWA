@@ -14,6 +14,7 @@ interface MyStandings {
   userId: string;
   totalPoints: number;
   groupMatchPoints: number;
+  knockoutPoints: number;
   championPoints: number;
   goldenSixPoints: number;
   rank: number;
@@ -77,6 +78,7 @@ export function StandingsPage() {
         <div className="divide-y divide-border">
           {[
             ['Group matches', standings.groupMatchPoints],
+            ['Knockout phase', standings.knockoutPoints],
             ['Champion prediction', standings.championPoints],
             ['Golden Six', standings.goldenSixPoints],
           ].map(([label, pts]) => (
