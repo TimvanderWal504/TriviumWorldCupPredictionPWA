@@ -1,17 +1,18 @@
 using Marten;
+using TriviumWorldCup.Api.Auth;
 using TriviumWorldCup.Api.Domain;
+using TriviumWorldCup.Api.Scoring;
 
 namespace TriviumWorldCup.Api.Tournament;
 
 /// <summary>
 /// Read-only knockout bracket endpoints.
-/// No authentication required — bracket data is public.
 /// </summary>
 public static class KnockoutSlotEndpoints
 {
     public static IEndpointRouteBuilder MapKnockoutSlotEndpoints(this IEndpointRouteBuilder routes)
     {
-        // GET /knockout/slots — all 32 bracket slots with current status.
+        // GET /knockout/slots — all 32 bracket slots with current status. Public.
         routes.MapGet("/knockout/slots", async (IDocumentSession session, CancellationToken ct) =>
         {
             var slots = await session.Query<KnockoutSlot>()
@@ -43,6 +44,86 @@ public static class KnockoutSlotEndpoints
         .WithSummary("Returns all 32 knockout bracket slots with current team assignments and results.")
         .CacheOutput("knockout-slots");
 
+        // GET /knockout-slots/results — completed knockout slots with the current user's
+        // prediction and points (streak-aware, tournament order). Requires auth.
+        routes.MapGet("/knockout-slots/results", async (HttpContext context, IDocumentSession session, CancellationToken ct) =>
+        {
+            var user = context.GetAppUser();
+            if (!user.IsAuthenticated)
+                return Results.Unauthorized();
+
+            var slots = await session.Query<KnockoutSlot>()
+                .Where(s => s.Status == MatchStatus.Completed && s.WinnerTeamId != null)
+                .OrderBy(s => s.Round)
+                .ThenBy(s => s.SlotNumber)
+                .ToListAsync(ct);
+
+            if (slots.Count == 0)
+                return Results.Ok(Array.Empty<KnockoutSlotResultDto>());
+
+            var teams = await session.Query<Team>().ToListAsync(ct);
+            var teamMap = teams.ToDictionary(t => t.Id);
+
+            var predictions = await session.Query<KnockoutPrediction>()
+                .Where(p => p.UserId == user.UserId)
+                .ToListAsync(ct);
+            var predBySlot = predictions.ToDictionary(p => p.SlotKey);
+
+            var streak = 0;
+            var dtos = new List<KnockoutSlotResultDto>(slots.Count);
+
+            foreach (var slot in slots)
+            {
+                MyKnockoutPredictionDto? myPred = null;
+
+                if (predBySlot.TryGetValue(slot.SlotKey, out var pred))
+                {
+                    var pts = KnockoutMatchScorer.Compute(
+                        pred.PredictedWinnerTeamId,
+                        pred.PredictedHomeScore, pred.PredictedAwayScore,
+                        slot.WinnerTeamId!,
+                        slot.HomeScore, slot.AwayScore,
+                        streak);
+
+                    myPred = new MyKnockoutPredictionDto(
+                        pred.PredictedWinnerTeamId,
+                        pred.PredictedHomeScore,
+                        pred.PredictedAwayScore,
+                        pts);
+
+                    // Streak only updates when the user submitted a prediction.
+                    streak = pred.PredictedWinnerTeamId == slot.WinnerTeamId ? streak + 1 : 0;
+                }
+
+                teamMap.TryGetValue(slot.HomeTeamId ?? string.Empty, out var homeTeam);
+                teamMap.TryGetValue(slot.AwayTeamId ?? string.Empty, out var awayTeam);
+
+                dtos.Add(new KnockoutSlotResultDto(
+                    slot.SlotKey,
+                    slot.Round.ToString(),
+                    slot.SlotNumber,
+                    slot.HomeTeamId,
+                    homeTeam?.Name,
+                    slot.AwayTeamId,
+                    awayTeam?.Name,
+                    slot.KickoffUtc,
+                    slot.Venue,
+                    slot.City,
+                    slot.Status.ToString(),
+                    slot.HomeScore,
+                    slot.AwayScore,
+                    slot.PenaltyHomeScore,
+                    slot.PenaltyAwayScore,
+                    slot.WinnerTeamId,
+                    myPred));
+            }
+
+            return Results.Ok(dtos);
+        })
+        .WithName("GetKnockoutSlotResults")
+        .WithTags("knockout")
+        .WithSummary("Returns completed knockout slots with the current user's prediction and points.");
+
         return routes;
     }
 }
@@ -63,3 +144,30 @@ public sealed record KnockoutSlotDto(
     int? PenaltyHomeScore,
     int? PenaltyAwayScore,
     string? WinnerTeamId);
+
+/// <summary>Response DTO for a completed knockout slot including user prediction.</summary>
+public sealed record KnockoutSlotResultDto(
+    string SlotKey,
+    string Round,
+    int SlotNumber,
+    string? HomeTeamId,
+    string? HomeTeamName,
+    string? AwayTeamId,
+    string? AwayTeamName,
+    DateTimeOffset? KickoffUtc,
+    string? Venue,
+    string? City,
+    string Status,
+    int? HomeScore,
+    int? AwayScore,
+    int? PenaltyHomeScore,
+    int? PenaltyAwayScore,
+    string? WinnerTeamId,
+    MyKnockoutPredictionDto? MyPrediction);
+
+/// <summary>The current user's prediction for one knockout slot, with computed points.</summary>
+public sealed record MyKnockoutPredictionDto(
+    string PredictedWinnerTeamId,
+    int? PredictedHomeScore,
+    int? PredictedAwayScore,
+    int Points);

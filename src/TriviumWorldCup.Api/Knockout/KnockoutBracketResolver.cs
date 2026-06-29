@@ -521,13 +521,13 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
                 ? btAllocation.GetValueOrDefault(slot.SlotKey)
                 : ResolveGroupSource(slot.AwaySlotSource, rankings);
 
-            if (newHome is not null && slot.HomeTeamId != newHome)
+            if (newHome is not null && slot.HomeTeamId != newHome && !slot.HomeTeamOverridden)
             {
                 slot.HomeTeamId = newHome;
                 changed++;
             }
 
-            if (newAway is not null && slot.AwayTeamId != newAway)
+            if (newAway is not null && slot.AwayTeamId != newAway && !slot.AwayTeamOverridden)
             {
                 slot.AwayTeamId = newAway;
                 changed++;
@@ -685,7 +685,8 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
         {
             // Check Home slot source
             if (downstream.HomeSlotSource.Type == SlotSourceType.MatchWinner &&
-                downstream.HomeSlotSource.Reference == completed.SlotKey)
+                downstream.HomeSlotSource.Reference == completed.SlotKey &&
+                !downstream.HomeTeamOverridden)
             {
                 if (downstream.HomeTeamId != completed.WinnerTeamId)
                 {
@@ -696,7 +697,8 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
             }
 
             if (downstream.HomeSlotSource.Type == SlotSourceType.MatchLoser &&
-                downstream.HomeSlotSource.Reference == completed.SlotKey)
+                downstream.HomeSlotSource.Reference == completed.SlotKey &&
+                !downstream.HomeTeamOverridden)
             {
                 if (downstream.HomeTeamId != loserTeamId)
                 {
@@ -708,7 +710,8 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
 
             // Check Away slot source
             if (downstream.AwaySlotSource.Type == SlotSourceType.MatchWinner &&
-                downstream.AwaySlotSource.Reference == completed.SlotKey)
+                downstream.AwaySlotSource.Reference == completed.SlotKey &&
+                !downstream.AwayTeamOverridden)
             {
                 if (downstream.AwayTeamId != completed.WinnerTeamId)
                 {
@@ -719,7 +722,8 @@ public class KnockoutBracketResolver(IDocumentStore store, ILogger<KnockoutBrack
             }
 
             if (downstream.AwaySlotSource.Type == SlotSourceType.MatchLoser &&
-                downstream.AwaySlotSource.Reference == completed.SlotKey)
+                downstream.AwaySlotSource.Reference == completed.SlotKey &&
+                !downstream.AwayTeamOverridden)
             {
                 if (downstream.AwayTeamId != loserTeamId)
                 {

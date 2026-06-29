@@ -115,7 +115,9 @@ function AppShell() {
     fetch('/knockout/slots', { credentials: 'include' })
       .then(r => r.json())
       .then((slots: { homeTeamId: string | null }[]) => {
-        setBracketOpen(slots.some(s => s.homeTeamId !== null));
+        const open = slots.some(s => s.homeTeamId !== null);
+        setBracketOpen(open);
+        if (open) setPredictView(prev => prev === 'group' ? 'knockout' : prev);
       })
       .catch(() => {});
   }, [user]);

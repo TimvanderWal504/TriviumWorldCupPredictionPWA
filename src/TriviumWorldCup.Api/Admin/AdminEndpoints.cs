@@ -490,6 +490,18 @@ public static class AdminEndpoints
                         session.Store(slot);
                     }
                     break;
+
+                case "knockoutslot-teams":
+                    var teamsSlot = await session.LoadAsync<KnockoutSlot>(record.TargetId, ct);
+                    if (teamsSlot is not null)
+                    {
+                        teamsSlot.HomeTeamId       = null;
+                        teamsSlot.HomeTeamOverridden = false;
+                        teamsSlot.AwayTeamId       = null;
+                        teamsSlot.AwayTeamOverridden = false;
+                        session.Store(teamsSlot);
+                    }
+                    break;
             }
 
             session.Delete(record);
@@ -1476,11 +1488,13 @@ public static class AdminEndpoints
             if (!string.IsNullOrWhiteSpace(request.HomeTeamId))
             {
                 slot.HomeTeamId = request.HomeTeamId.Trim().ToUpperInvariant();
+                slot.HomeTeamOverridden = true;
                 parts.Add($"home={slot.HomeTeamId}");
             }
             if (!string.IsNullOrWhiteSpace(request.AwayTeamId))
             {
                 slot.AwayTeamId = request.AwayTeamId.Trim().ToUpperInvariant();
+                slot.AwayTeamOverridden = true;
                 parts.Add($"away={slot.AwayTeamId}");
             }
             session.Store(slot);
@@ -1491,7 +1505,7 @@ public static class AdminEndpoints
                 AdminUserId      = user.UserId,
                 AdminDisplayName = user.DisplayName,
                 OverriddenAt     = DateTimeOffset.UtcNow,
-                TargetType       = "knockoutslot",
+                TargetType       = "knockoutslot-teams",
                 TargetId         = slotKey,
                 Description      = $"Manual team override: {string.Join(", ", parts)}",
             });

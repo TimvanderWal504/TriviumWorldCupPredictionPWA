@@ -37,11 +37,29 @@ interface GoldenSixDetail {
   points: number;
 }
 
+interface KnockoutPredictionDetail {
+  slotKey: string;
+  round: string;
+  homeTeamId: string | null;
+  awayTeamId: string | null;
+  predictedWinnerTeamId: string;
+  predictedHomeScore: number | null;
+  predictedAwayScore: number | null;
+  actualHomeScore: number | null;
+  actualAwayScore: number | null;
+  actualWinnerTeamId: string | null;
+  kickoffUtc: string | null;
+  locked: boolean;
+  multiplier: number;
+  points: number | null;
+}
+
 interface MemberDrillDown {
   userId: string;
   displayName: string;
   totalPoints: number;
   groupPredictions: GroupPredictionDetail[];
+  knockoutPredictions: KnockoutPredictionDetail[];
   goldenSix: GoldenSixDetail[];
   championTeamId: string | null;
   championTeamName: string | null;
@@ -260,6 +278,83 @@ function DrillDownPanel({ drillDown, isOwnProfile, onClose }: DrillDownPanelProp
             );
           })()}
         </div>
+
+        {/* Knockout predictions */}
+        {drillDown.knockoutPredictions.length > 0 && (
+          <div>
+            <SectionLabel>Knockout predictions <span className="text-fg-muted font-normal normal-case">(started &amp; finished)</span></SectionLabel>
+            <div className="space-y-1.5">
+              {drillDown.knockoutPredictions.map(pred => {
+                const correct = pred.actualWinnerTeamId !== null && pred.predictedWinnerTeamId === pred.actualWinnerTeamId;
+                const wrong   = pred.actualWinnerTeamId !== null && pred.predictedWinnerTeamId !== pred.actualWinnerTeamId;
+                return (
+                  <div key={pred.slotKey} className="rounded-input bg-surface-2 px-4 py-3 text-sm space-y-1.5">
+                    {/* Slot header */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono text-[10px] text-fg-muted uppercase tracking-wider">{pred.slotKey}</span>
+                        {pred.homeTeamId && pred.awayTeamId && (
+                          <span className="text-[12px] text-fg font-semibold">
+                            {pred.homeTeamId} <span className="text-fg-muted font-normal">vs</span> {pred.awayTeamId}
+                          </span>
+                        )}
+                      </div>
+                      {/* Points badge */}
+                      <span className={`text-[12px] font-bold tnum px-2 py-0.5 rounded-full ${
+                        pred.points === null
+                          ? 'bg-surface text-fg-muted'
+                          : pred.points > 0
+                            ? 'bg-green-500/15 text-green-400'
+                            : 'bg-surface text-fg-muted'
+                      }`}>
+                        {pred.points === null ? '—' : `+${pred.points} pts`}
+                      </span>
+                    </div>
+                    {/* Prediction row */}
+                    <div className="flex items-center gap-4 flex-wrap">
+                      <div>
+                        <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Predicted winner</p>
+                        <p className={`font-semibold text-[13px] ${correct ? 'text-green-400' : wrong ? 'text-red-400' : 'text-fg'}`}>
+                          {pred.predictedWinnerTeamId}
+                          {pred.multiplier > 1 && (
+                            <span className="ml-1.5 text-[10px] font-bold px-1 py-0.5 rounded" style={{ background: 'var(--primary-soft, rgba(99,102,241,0.15))', color: 'var(--primary)' }}>
+                              ×{pred.multiplier}
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                      {pred.predictedHomeScore !== null && pred.predictedAwayScore !== null && (
+                        <div>
+                          <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Score pred.</p>
+                          <p className="font-semibold text-[13px] text-fg tnum">{pred.predictedHomeScore}–{pred.predictedAwayScore}</p>
+                        </div>
+                      )}
+                      {pred.actualWinnerTeamId !== null ? (
+                        <>
+                          <div>
+                            <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Actual winner</p>
+                            <p className="font-semibold text-[13px] text-fg-secondary">{pred.actualWinnerTeamId}</p>
+                          </div>
+                          {pred.actualHomeScore !== null && pred.actualAwayScore !== null && (
+                            <div>
+                              <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Result</p>
+                              <p className="font-semibold text-[13px] text-fg-secondary tnum">{pred.actualHomeScore}–{pred.actualAwayScore}</p>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div>
+                          <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Actual winner</p>
+                          <p className="text-fg-muted text-xs">TBD</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <p className="text-[12px] text-fg-muted">Predictions are shown once a match has started, newest first.</p>
       </div>

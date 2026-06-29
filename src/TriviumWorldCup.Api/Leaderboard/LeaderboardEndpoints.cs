@@ -120,6 +120,12 @@ public static class LeaderboardEndpoints
                 .Where(p => p.UserId == targetUserId)
                 .ToListAsync(ct);
 
+            // Load all knockout predictions for the target user.
+            var allKnockoutPredictions = await session
+                .Query<KnockoutPrediction>()
+                .Where(p => p.UserId == targetUserId)
+                .ToListAsync(ct);
+
             // Privacy filter — if the viewer is NOT the target, only show locked fixtures.
             var now = DateTimeOffset.UtcNow;
             bool isSelf = string.Equals(viewer.UserId, targetUserId, StringComparison.Ordinal);
@@ -170,6 +176,83 @@ public static class LeaderboardEndpoints
                     ActualAway:    fixture?.AwayScore,
                     KickoffUtc:    fixture?.KickoffUtc ?? DateTimeOffset.MinValue,
                     Locked:        fixture is not null && (fixture.KickoffUtc <= now || fixture.Status == MatchStatus.Completed)));
+            }
+
+            // ── Knockout predictions ──────────────────────────────────────────
+
+            var knockoutSlotIds = allKnockoutPredictions.Select(p => p.SlotKey).Distinct().ToList();
+            IReadOnlyList<KnockoutSlot> knockoutSlots;
+            if (knockoutSlotIds.Count > 0)
+            {
+                knockoutSlots = await session
+                    .Query<KnockoutSlot>()
+                    .Where(s => s.Id.IsOneOf(knockoutSlotIds))
+                    .ToListAsync(ct);
+            }
+            else
+            {
+                knockoutSlots = [];
+            }
+
+            var knockoutSlotByKey = knockoutSlots.ToDictionary(s => s.SlotKey);
+
+            // Privacy filter: only reveal knockout predictions once the slot has kicked off.
+            var visibleKnockoutPredictions = isSelf
+                ? allKnockoutPredictions
+                : allKnockoutPredictions.Where(p =>
+                    knockoutSlotByKey.TryGetValue(p.SlotKey, out var ks)
+                    && ks.KickoffUtc.HasValue
+                    && (ks.KickoffUtc.Value <= now || ks.Status == MatchStatus.Completed));
+
+            // Compute per-prediction points + streak multiplier in tournament order.
+            var orderedVisibleSlots = knockoutSlots
+                .Where(s => visibleKnockoutPredictions.Any(p => p.SlotKey == s.SlotKey))
+                .OrderBy(s => s.Round)
+                .ThenBy(s => s.SlotNumber)
+                .ToList();
+
+            var predBySlotKey = allKnockoutPredictions.ToDictionary(p => p.SlotKey);
+            var streakBefore  = 0;
+            var knockoutPredictionDtos = new List<KnockoutPredictionDetailDto>();
+
+            // Build DTOs in tournament order so streak is correct; non-visible ones skipped.
+            foreach (var slot in orderedVisibleSlots)
+            {
+                if (!predBySlotKey.TryGetValue(slot.SlotKey, out var kpred))
+                    continue;
+
+                var multiplier = streakBefore + 1;
+                int? points    = null;
+
+                if (slot.WinnerTeamId is not null)
+                {
+                    points = KnockoutMatchScorer.Compute(
+                        kpred.PredictedWinnerTeamId,
+                        kpred.PredictedHomeScore, kpred.PredictedAwayScore,
+                        slot.WinnerTeamId,
+                        slot.HomeScore, slot.AwayScore,
+                        streakBefore);
+
+                    streakBefore = kpred.PredictedWinnerTeamId == slot.WinnerTeamId
+                        ? streakBefore + 1
+                        : 0;
+                }
+
+                knockoutPredictionDtos.Add(new KnockoutPredictionDetailDto(
+                    SlotKey:                slot.SlotKey,
+                    Round:                  slot.Round.ToString(),
+                    HomeTeamId:             slot.HomeTeamId,
+                    AwayTeamId:             slot.AwayTeamId,
+                    PredictedWinnerTeamId:  kpred.PredictedWinnerTeamId,
+                    PredictedHomeScore:     kpred.PredictedHomeScore,
+                    PredictedAwayScore:     kpred.PredictedAwayScore,
+                    ActualHomeScore:        slot.HomeScore,
+                    ActualAwayScore:        slot.AwayScore,
+                    ActualWinnerTeamId:     slot.WinnerTeamId,
+                    KickoffUtc:             slot.KickoffUtc,
+                    Locked:                 slot.KickoffUtc.HasValue && (slot.KickoffUtc.Value <= now || slot.Status == MatchStatus.Completed),
+                    Multiplier:             multiplier,
+                    Points:                 points));
             }
 
             // ── Golden Six detail ─────────────────────────────────────────────
@@ -230,13 +313,14 @@ public static class LeaderboardEndpoints
             }
 
             var response = new MemberDrillDownDto(
-                UserId:           targetUserId,
-                DisplayName:      targetProfile.DisplayName,
-                TotalPoints:      memberScore?.TotalPoints ?? 0,
-                GroupPredictions: groupPredictionDtos,
-                GoldenSix:        goldenSixDtos,
-                ChampionTeamId:   championTeamId,
-                ChampionTeamName: championTeamName);
+                UserId:                targetUserId,
+                DisplayName:           targetProfile.DisplayName,
+                TotalPoints:           memberScore?.TotalPoints ?? 0,
+                GroupPredictions:      groupPredictionDtos,
+                KnockoutPredictions:   knockoutPredictionDtos,
+                GoldenSix:             goldenSixDtos,
+                ChampionTeamId:        championTeamId,
+                ChampionTeamName:      championTeamName);
 
             return Results.Ok(response);
         })
@@ -282,12 +366,30 @@ public sealed record GoldenSixDetailDto(
     int Goals,
     int Points);
 
+/// <summary>A user's knockout bracket prediction for a single slot.</summary>
+public sealed record KnockoutPredictionDetailDto(
+    string SlotKey,
+    string Round,
+    string? HomeTeamId,
+    string? AwayTeamId,
+    string PredictedWinnerTeamId,
+    int? PredictedHomeScore,
+    int? PredictedAwayScore,
+    int? ActualHomeScore,
+    int? ActualAwayScore,
+    string? ActualWinnerTeamId,
+    DateTimeOffset? KickoffUtc,
+    bool Locked,
+    int Multiplier,
+    int? Points);
+
 /// <summary>Full drill-down response for a single member.</summary>
 public sealed record MemberDrillDownDto(
     string UserId,
     string DisplayName,
     int TotalPoints,
     IReadOnlyList<GroupPredictionDetailDto> GroupPredictions,
+    IReadOnlyList<KnockoutPredictionDetailDto> KnockoutPredictions,
     IReadOnlyList<GoldenSixDetailDto> GoldenSix,
     string? ChampionTeamId,
     string? ChampionTeamName);

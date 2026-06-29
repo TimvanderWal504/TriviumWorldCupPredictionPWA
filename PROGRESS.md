@@ -288,6 +288,33 @@ Root cause analysis of Azure 503 errors during live matches identified CPU credi
 
 **406 tests pass.**
 
+## Unversioned work (main, 29 June 2026)
+
+### Knockout results in Results page
+
+- **`Tournament/KnockoutSlotEndpoints.cs`** — new authenticated endpoint `GET /knockout-slots/results` returning completed knockout slots in tournament order (R32 → Final) with team names, 90-min scores, penalty scores, `winnerTeamId`, and the current user's prediction + points. Points computed with the same per-user streak logic as `ScoringRecomputeService` (streak resets on wrong winner, unchanged when no prediction submitted). Two new DTOs: `KnockoutSlotResultDto` and `MyKnockoutPredictionDto`.
+- **`pages/ResultsPage.tsx`** — fetches `/knockout-slots/results` in parallel with existing calls.
+  - New **"Group Stage" / "Knockouts"** stage-tab selector at the top of the page. Knockouts tab only shown when there are completed knockout slots; defaults to Knockouts tab when any exist.
+  - **Knockouts tab**: completed knockout slots grouped by round (Round of 32 → Final), rendered via new `KnockoutResultCard` component showing teams with flags, 90-min score, penalty score (if applicable), winner badge with trophy icon, predicted winner + predicted score + points earned per slot (colour-coded Correct/Wrong badge).
+  - **Date view (Group Stage tab)**: group fixtures and knockout slots merged and sorted newest-first; knockout items render as `KnockoutResultCard` with round label ("Round of 32 · Venue") instead of "Group X".
+  - By-group view (Group Stage tab) unchanged — shows group stage only.
+
+### Admin knockout team override + bracket sticky fix
+
+**Context:** The bipartite matching in `AllocateBestThirds` assigned Bosnia-Herzegovina (Group B third) to R32-3 instead of R32-10 (USA vs BIH), causing that match to show "Bracket not yet set." Groups I/J/K/L were also incomplete at the time, deferring BestThirdPlace injection entirely.
+
+- **`Admin/AdminEndpoints.cs`** — `POST /admin/knockout/{slotKey}/teams` accepts `{ homeTeamId?, awayTeamId? }` and manually sets `HomeTeamId`/`AwayTeamId` on a `KnockoutSlot`. Sets `HomeTeamOverridden`/`AwayTeamOverridden` flags so the bracket resolver cannot overwrite the admin values on subsequent recomputes. Logs to override history with `TargetType = "knockoutslot-teams"`. `DELETE /admin/overrides/{id}` handles `"knockoutslot-teams"` by clearing the team IDs and lock flags, allowing the resolver to repopulate on the next recompute.
+- **`Domain/KnockoutSlot.cs`** — added `HomeTeamOverridden` and `AwayTeamOverridden` bool properties.
+- **`Knockout/KnockoutBracketResolver.cs`** — `PopulateR32Slots` and all four `PropagateSlotResult` assignment branches now skip the write when the corresponding `*Overridden` flag is set.
+- **`pages/AdminPage.tsx`** — "Knockout Team Override" section added between the result override and goal event override forms: slot dropdown, home/away team ID inputs (auto-uppercase), success/error feedback, slot list refresh on success.
+
+## Unversioned work (main, 29 June 2026)
+
+### Leaderboard drill-down — knockout predictions
+
+- **`Leaderboard/LeaderboardEndpoints.cs`** — drill-down endpoint (`GET /leaderboard/{userId}`) now loads `KnockoutPrediction` documents for the target user and the corresponding `KnockoutSlot` documents. Applies the same privacy filter as group predictions (only reveals once the slot's kickoff has passed). Computes points and streak multiplier per slot in tournament order (R32 → R16 → QF → SF → 3rd → Final), matching the same logic as `ScoringRecomputeService`. New `KnockoutPredictionDetailDto` record exposed (SlotKey, Round, teams, predicted winner + optional score, actual winner + result, Multiplier, Points). `MemberDrillDownDto` extended with `KnockoutPredictions` field.
+- **`pages/LeaderboardPage.tsx`** — `KnockoutPredictionDetail` interface and `knockoutPredictions` field added to `MemberDrillDown`. `DrillDownPanel` now renders a "Knockout predictions" section showing each slot's matchup, predicted winner (green/red on correct/wrong), optional score prediction, actual result, streak multiplier badge (×N when > 1), and a points badge. Hidden when the user has no visible knockout predictions yet.
+
 ## Next action
 1. **Deploy B2ms Postgres upgrade** — re-run `az deployment group create` with updated `main.bicep` during a non-match window (Azure requires ~2 min downtime to resize Flexible Server).
 2. **Run `POST /admin/recompute`** after deploying — the startup migration will have corrected stale slot wiring; the recompute repopulates team assignments from the corrected sources.

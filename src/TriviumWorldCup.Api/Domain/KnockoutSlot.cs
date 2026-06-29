@@ -62,4 +62,18 @@ public class KnockoutSlot
     /// which is more reliable if team-name resolution is ambiguous.
     /// </summary>
     public int? FootballApiFixtureId { get; set; }
+
+    /// <summary>
+    /// When true, the bracket resolver skips automatic resolution of HomeTeamId so that
+    /// an admin-supplied value is not overwritten on the next recompute.
+    /// Cleared when the override is reverted via DELETE /admin/overrides/{id}.
+    /// </summary>
+    public bool HomeTeamOverridden { get; set; }
+
+    /// <summary>
+    /// When true, the bracket resolver skips automatic resolution of AwayTeamId so that
+    /// an admin-supplied value is not overwritten on the next recompute.
+    /// Cleared when the override is reverted via DELETE /admin/overrides/{id}.
+    /// </summary>
+    public bool AwayTeamOverridden { get; set; }
 }
