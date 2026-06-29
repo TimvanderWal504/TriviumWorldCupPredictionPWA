@@ -347,6 +347,11 @@ Root cause analysis of Azure 503 errors during live matches identified CPU credi
 
 - **`Admin/AdminEndpoints.cs`** — `POST /admin/fixtures/sync-api-ids` now matches resolved knockout slots by team pair in addition to group-stage fixtures. Both queries exclude `Completed` and `Cancelled` matches. Response extended with `matchedKnockout` and `knockoutSlots` fields.
 
+### Admin event backfill — knockout slot support
+
+- **`Admin/AdminEndpoints.cs`** — `POST /admin/fixtures/{fixtureId}/fetch-events` and `POST /admin/fixtures/{fixtureId}/reset-events` both now accept a knockout slot key (e.g. `R32-1`) in addition to a group-stage fixture ID. Both endpoints try `LoadAsync<Fixture>` first; if not found, fall back to `LoadAsync<KnockoutSlot>`. `FootballApiFixtureId` is resolved from whichever document matched. `EventsIngested` flag management is skipped for knockout slots (field only exists on `Fixture`). Event writing, deterministic GUIDs, player resolution, and scoring recompute are unchanged.
+- **`pages/AdminPage.tsx`** — "Reset Fixture Events" section label updated to "Fixture / Slot ID", placeholder changed to `e.g. 1 or R32-1`, input widened, description updated to mention knockout slot keys.
+
 ### Leaderboard drill-down — knockout predictions redesign
 
 - **`Leaderboard/LeaderboardEndpoints.cs`** — `GroupPredictionDetailDto` extended with `Points: int?` (computed via `GroupMatchScorer.Compute` when the actual result is available). `KnockoutPredictionDetailDto.Points` split into `ScorePoints: int?` (90-min score component, same tiers as group phase) and `WinnerPoints: int?` (5 × streak multiplier, 0 when wrong).

@@ -910,19 +910,24 @@ public static class AdminEndpoints
             await using var session = store.LightweightSession();
 
             var fixture = await session.LoadAsync<Fixture>(fixtureId, ct);
+            KnockoutSlot? knockoutSlot = null;
             if (fixture is null)
-                return Results.NotFound(new { error = $"Fixture '{fixtureId}' not found." });
+                knockoutSlot = await session.LoadAsync<KnockoutSlot>(fixtureId, ct);
 
-            if (fixture.FootballApiFixtureId is null)
+            if (fixture is null && knockoutSlot is null)
+                return Results.NotFound(new { error = $"No fixture or knockout slot found with ID '{fixtureId}'." });
+
+            var apiId = fixture?.FootballApiFixtureId ?? knockoutSlot?.FootballApiFixtureId;
+            if (apiId is null)
                 return Results.UnprocessableEntity(new
                 {
-                    error = "Fixture has no FootballApiFixtureId — call POST /admin/fixtures/sync-api-ids first."
+                    error = "No FootballApiFixtureId — call POST /admin/fixtures/sync-api-ids first."
                 });
 
             IReadOnlyList<ApiMatchEvent> allEvents;
             try
             {
-                allEvents = await apiClient.GetAllEventsAsync(fixture.FootballApiFixtureId.Value, ct);
+                allEvents = await apiClient.GetAllEventsAsync(apiId.Value, ct);
             }
             catch (Exception ex)
             {
@@ -957,7 +962,7 @@ public static class AdminEndpoints
                 }
                 var goalType = evt.IsOwnGoal ? GoalType.OwnGoal : evt.IsPenalty ? GoalType.PenaltyInMatch : GoalType.OpenPlay;
                 var goalId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                    $"{fixture.FootballApiFixtureId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                    $"{apiId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
                 session.Store(new GoalEvent
                 {
                     Id          = goalId,
@@ -982,7 +987,7 @@ public static class AdminEndpoints
                 }
                 var cardType = evt.IsSecondYellow ? CardType.SecondYellow : evt.IsRed ? CardType.Red : CardType.Yellow;
                 var cardId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                    $"card:{fixture.FootballApiFixtureId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                    $"card:{apiId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
                 session.Store(new CardEvent
                 {
                     Id          = cardId,
@@ -1007,7 +1012,7 @@ public static class AdminEndpoints
                     ? FootballApiTeamMap.Resolve(evt.Team.Id, tn) ?? string.Empty
                     : string.Empty;
                 var subId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                    $"sub:{fixture.FootballApiFixtureId}:{playerOutName}:{playerInName}:{evt.Time?.Elapsed ?? 0}");
+                    $"sub:{apiId}:{playerOutName}:{playerInName}:{evt.Time?.Elapsed ?? 0}");
                 session.Store(new SubstitutionEvent
                 {
                     Id            = subId,
@@ -1035,7 +1040,7 @@ public static class AdminEndpoints
                     ? FootballApiTeamMap.Resolve(evt.Team.Id, vtn) ?? string.Empty
                     : string.Empty;
                 var varId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                    $"var:{fixture.FootballApiFixtureId}:{decType}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                    $"var:{apiId}:{decType}:{playerName}:{evt.Time?.Elapsed ?? 0}");
                 session.Store(new VarEvent
                 {
                     Id          = varId,
@@ -1048,15 +1053,18 @@ public static class AdminEndpoints
                 });
             }
 
-            fixture.EventsIngested = true;
-            session.Store(fixture);
+            if (fixture is not null)
+            {
+                fixture.EventsIngested = true;
+                session.Store(fixture);
+            }
             await session.SaveChangesAsync(ct);
             await scoringService.RecomputeAllAsync(ct);
 
             return Results.Ok(new
             {
                 fixtureId,
-                footballApiFixtureId = fixture.FootballApiFixtureId,
+                footballApiFixtureId = apiId,
                 totalEvents          = allEvents.Count,
                 goalsStored,
                 cardsStored,
@@ -1065,7 +1073,7 @@ public static class AdminEndpoints
             });
         })
         .WithName("FetchFixtureEvents")
-        .WithSummary("Fetches events from the Football API for any completed fixture and writes them. Backfills matches missed by the date-window ingestion job. Idempotent.");
+        .WithSummary("Fetches events from the Football API for any completed fixture or knockout slot and writes them. Idempotent.");
 
         // ── POST /admin/fixtures/{fixtureId}/reset-events ───────────────────
         // Wipes ALL existing goal, card, and substitution events for the fixture,
@@ -1086,13 +1094,18 @@ public static class AdminEndpoints
             await using var session = store.LightweightSession();
 
             var fixture = await session.LoadAsync<Fixture>(fixtureId, ct);
+            KnockoutSlot? knockoutSlot = null;
             if (fixture is null)
-                return Results.NotFound(new { error = $"Fixture '{fixtureId}' not found." });
+                knockoutSlot = await session.LoadAsync<KnockoutSlot>(fixtureId, ct);
 
-            if (fixture.FootballApiFixtureId is null)
+            if (fixture is null && knockoutSlot is null)
+                return Results.NotFound(new { error = $"No fixture or knockout slot found with ID '{fixtureId}'." });
+
+            var apiId = fixture?.FootballApiFixtureId ?? knockoutSlot?.FootballApiFixtureId;
+            if (apiId is null)
                 return Results.UnprocessableEntity(new
                 {
-                    error = "Fixture has no FootballApiFixtureId — call POST /admin/fixtures/sync-api-ids first."
+                    error = "No FootballApiFixtureId — call POST /admin/fixtures/sync-api-ids first."
                 });
 
             var existingGoals = await session.Query<GoalEvent>()
@@ -1109,14 +1122,17 @@ public static class AdminEndpoints
             foreach (var s in existingSubs) session.Delete(s);
             foreach (var v in existingVars) session.Delete(v);
 
-            fixture.EventsIngested = false;
-            session.Store(fixture);
+            if (fixture is not null)
+            {
+                fixture.EventsIngested = false;
+                session.Store(fixture);
+            }
             await session.SaveChangesAsync(ct);
 
             IReadOnlyList<ApiMatchEvent> allEvents;
             try
             {
-                allEvents = await apiClient.GetAllEventsAsync(fixture.FootballApiFixtureId.Value, ct);
+                allEvents = await apiClient.GetAllEventsAsync(apiId.Value, ct);
             }
             catch (Exception ex)
             {
@@ -1153,7 +1169,7 @@ public static class AdminEndpoints
                 }
                 var goalType = evt.IsOwnGoal ? GoalType.OwnGoal : evt.IsPenalty ? GoalType.PenaltyInMatch : GoalType.OpenPlay;
                 var goalId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                    $"{fixture.FootballApiFixtureId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                    $"{apiId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
                 session.Store(new GoalEvent
                 {
                     Id          = goalId,
@@ -1178,7 +1194,7 @@ public static class AdminEndpoints
                 }
                 var cardType = evt.IsSecondYellow ? CardType.SecondYellow : evt.IsRed ? CardType.Red : CardType.Yellow;
                 var cardId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                    $"card:{fixture.FootballApiFixtureId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                    $"card:{apiId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
                 session.Store(new CardEvent
                 {
                     Id          = cardId,
@@ -1202,7 +1218,7 @@ public static class AdminEndpoints
                     ? FootballApiTeamMap.Resolve(evt.Team.Id, tn) ?? string.Empty
                     : string.Empty;
                 var subId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                    $"sub:{fixture.FootballApiFixtureId}:{playerOutName}:{playerInName}:{evt.Time?.Elapsed ?? 0}");
+                    $"sub:{apiId}:{playerOutName}:{playerInName}:{evt.Time?.Elapsed ?? 0}");
                 session.Store(new SubstitutionEvent
                 {
                     Id            = subId,
@@ -1230,7 +1246,7 @@ public static class AdminEndpoints
                     ? FootballApiTeamMap.Resolve(evt.Team.Id, vtn) ?? string.Empty
                     : string.Empty;
                 var varId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                    $"var:{fixture.FootballApiFixtureId}:{decType}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                    $"var:{apiId}:{decType}:{playerName}:{evt.Time?.Elapsed ?? 0}");
                 session.Store(new VarEvent
                 {
                     Id          = varId,
@@ -1243,15 +1259,18 @@ public static class AdminEndpoints
                 });
             }
 
-            fixture.EventsIngested = true;
-            session.Store(fixture);
+            if (fixture is not null)
+            {
+                fixture.EventsIngested = true;
+                session.Store(fixture);
+            }
             await session.SaveChangesAsync(ct);
             await scoringService.RecomputeAllAsync(ct);
 
             return Results.Ok(new
             {
                 fixtureId,
-                footballApiFixtureId = fixture.FootballApiFixtureId,
+                footballApiFixtureId = apiId,
                 deletedGoals  = existingGoals.Count,
                 deletedCards  = existingCards.Count,
                 deletedSubs   = existingSubs.Count,

@@ -746,16 +746,16 @@ export function AdminPage() {
       <section className="rounded-card bg-surface border border-border p-5 space-y-4">
         <h2 className="font-display font-bold text-lg tracking-tight">Reset Fixture Events</h2>
         <p className="text-sm text-fg-muted">
-          Deletes <strong>all</strong> goals, cards, and substitutions for a fixture, then re-fetches them fresh from the
-          Football API. Use when events appear duplicated or are incorrect.
+          Deletes <strong>all</strong> goals, cards, and substitutions for a group fixture or knockout slot, then re-fetches them fresh from the
+          Football API. Use when events appear duplicated, are incorrect, or are missing. Accepts a group-stage fixture ID (e.g. <code>1</code>) or a knockout slot key (e.g. <code>R32-1</code>).
         </p>
         <form onSubmit={handleResetEvents} className="flex gap-2 items-end flex-wrap">
           <div>
-            <label htmlFor="resetFixtureId" className={labelCls}>Fixture ID</label>
+            <label htmlFor="resetFixtureId" className={labelCls}>Fixture / Slot ID</label>
             <input
               id="resetFixtureId" type="text" value={resetFixtureId}
               onChange={e => setResetFixtureId(e.target.value)}
-              placeholder="e.g. 1" className={`${inputCls} w-28`}
+              placeholder="e.g. 1 or R32-1" className={`${inputCls} w-36`}
             />
           </div>
           <button type="submit" disabled={resetBusy}
