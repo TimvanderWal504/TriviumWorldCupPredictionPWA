@@ -46,7 +46,9 @@ interface MyKnockoutPredictionDto {
   predictedWinnerTeamId: string;
   predictedHomeScore: number | null;
   predictedAwayScore: number | null;
-  points: number;
+  scorePoints: number;
+  advancingPoints: number;
+  streakMultiplier: number;
 }
 
 interface KnockoutSlotResultDto {
@@ -292,26 +294,47 @@ function KnockoutResultCard({ slot }: { slot: KnockoutSlotResultDto }) {
         </div>
       )}
 
-      {/* User prediction + points */}
+      {/* User prediction + points breakdown */}
       <div className="pt-2.5 border-t border-border">
         {pred !== null ? (
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-1.5 text-[12px]">
-                <span className="text-fg-muted">Your pick:</span>
-                {pred.predictedWinnerTeamId === slot.homeTeamId
-                  ? (slot.homeTeamId && flagUrl(slot.homeTeamId) && <img src={flagUrl(slot.homeTeamId)} alt="" width={16} height={11} className="flag shrink-0" />)
-                  : (slot.awayTeamId && flagUrl(slot.awayTeamId) && <img src={flagUrl(slot.awayTeamId)} alt="" width={16} height={11} className="flag shrink-0" />)
-                }
-                <span className="font-semibold text-fg">
-                  {pred.predictedWinnerTeamId === slot.homeTeamId ? slot.homeTeamName : slot.awayTeamName}
+          <div className="flex flex-col gap-2">
+            {/* Predicted winner + optional score */}
+            <div className="flex items-center gap-1.5 text-[12px]">
+              <span className="text-fg-muted">Your pick:</span>
+              {pred.predictedWinnerTeamId === slot.homeTeamId
+                ? (slot.homeTeamId && flagUrl(slot.homeTeamId) && <img src={flagUrl(slot.homeTeamId)} alt="" width={16} height={11} className="flag shrink-0" />)
+                : (slot.awayTeamId && flagUrl(slot.awayTeamId) && <img src={flagUrl(slot.awayTeamId)} alt="" width={16} height={11} className="flag shrink-0" />)
+              }
+              <span className="font-semibold text-fg">
+                {pred.predictedWinnerTeamId === slot.homeTeamId ? slot.homeTeamName : slot.awayTeamName}
+              </span>
+              {pred.predictedHomeScore !== null && pred.predictedAwayScore !== null && (
+                <span className="text-fg-muted font-display tnum">
+                  ({pred.predictedHomeScore}–{pred.predictedAwayScore})
                 </span>
-                {pred.predictedHomeScore !== null && pred.predictedAwayScore !== null && (
-                  <span className="text-fg-muted font-display tnum">
-                    ({pred.predictedHomeScore}–{pred.predictedAwayScore})
+              )}
+            </div>
+
+            {/* Score component */}
+            {pred.predictedHomeScore !== null && pred.predictedAwayScore !== null && (
+              <div className="flex items-center justify-between gap-2 text-[12px]">
+                <span className="text-fg-muted">Score</span>
+                <div className="flex items-center gap-2">
+                  {pred.scorePoints > 0 && (
+                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-md" style={pointsStyle(pred.scorePoints)}>
+                      {pointsLabel(pred.scorePoints)}
+                    </span>
+                  )}
+                  <span className="font-display font-black text-[14px] tnum" style={{ color: pred.scorePoints > 0 ? 'var(--primary)' : 'var(--fg-muted)' }}>
+                    +{pred.scorePoints}
                   </span>
-                )}
+                </div>
               </div>
+            )}
+
+            {/* Advancing-team component */}
+            <div className="flex items-center justify-between gap-2 text-[12px]">
+              <span className="text-fg-muted">Winner</span>
               <div className="flex items-center gap-2">
                 <span
                   className="text-[10px] font-extrabold px-2 py-0.5 rounded-md"
@@ -319,15 +342,22 @@ function KnockoutResultCard({ slot }: { slot: KnockoutSlotResultDto }) {
                     ? { background: 'var(--win-soft)', color: 'var(--win)' }
                     : { background: 'var(--live-soft)', color: 'var(--loss)' }}
                 >
-                  {correctWinner ? 'Correct' : 'Wrong'}
+                  {correctWinner
+                    ? pred.streakMultiplier > 1 ? `Correct ×${pred.streakMultiplier}` : 'Correct'
+                    : 'Wrong'}
                 </span>
-                <span
-                  className="font-display font-black text-[15px] tnum"
-                  style={{ color: pred.points > 0 ? 'var(--primary)' : 'var(--fg-muted)' }}
-                >
-                  +{pred.points}
+                <span className="font-display font-black text-[14px] tnum" style={{ color: pred.advancingPoints > 0 ? 'var(--primary)' : 'var(--fg-muted)' }}>
+                  +{pred.advancingPoints}
                 </span>
               </div>
+            </div>
+
+            {/* Total */}
+            <div className="flex items-center justify-between gap-2 text-[12px] pt-1 border-t border-border">
+              <span className="text-fg-muted font-semibold">Total</span>
+              <span className="font-display font-black text-[15px] tnum" style={{ color: (pred.scorePoints + pred.advancingPoints) > 0 ? 'var(--primary)' : 'var(--fg-muted)' }}>
+                +{pred.scorePoints + pred.advancingPoints}
+              </span>
             </div>
           </div>
         ) : (

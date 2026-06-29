@@ -26,6 +26,7 @@ interface GroupPredictionDetail {
   actualAway: number | null;
   kickoffUtc: string;
   locked: boolean;
+  points: number | null;
 }
 
 interface GoldenSixDetail {
@@ -51,7 +52,8 @@ interface KnockoutPredictionDetail {
   kickoffUtc: string | null;
   locked: boolean;
   multiplier: number;
-  points: number | null;
+  scorePoints: number | null;
+  winnerPoints: number | null;
 }
 
 interface MemberDrillDown {
@@ -234,6 +236,103 @@ function DrillDownPanel({ drillDown, isOwnProfile, onClose }: DrillDownPanelProp
           </div>
         )}
 
+        {/* Knockout predictions */}
+        {drillDown.knockoutPredictions.length > 0 && (
+          <div>
+            <SectionLabel>Knockout predictions <span className="text-fg-muted font-normal normal-case">(started &amp; finished)</span></SectionLabel>
+            <div className="space-y-1.5">
+              {drillDown.knockoutPredictions.map(pred => {
+                const correct      = pred.actualWinnerTeamId !== null && pred.predictedWinnerTeamId === pred.actualWinnerTeamId;
+                const wrong        = pred.actualWinnerTeamId !== null && pred.predictedWinnerTeamId !== pred.actualWinnerTeamId;
+                const hasResult    = pred.actualWinnerTeamId !== null;
+                const totalPoints  = pred.scorePoints !== null && pred.winnerPoints !== null ? pred.scorePoints + pred.winnerPoints : null;
+                return (
+                  <div key={pred.slotKey} className="rounded-input bg-surface-2 text-sm overflow-hidden">
+                    {/* Slot key label */}
+                    <div className="flex items-center gap-1.5 px-4 pt-2.5 pb-1">
+                      <span className="font-mono text-[10px] text-fg-muted uppercase tracking-wider">{pred.slotKey}</span>
+                    </div>
+
+                    {/* Score row — same layout as group phase */}
+                    <div className="flex items-center justify-between px-4 pb-2.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-mono font-semibold text-fg text-xs">{pred.homeTeamId ?? '?'}</span>
+                        <span className="text-fg-muted text-xs">vs</span>
+                        <span className="font-mono font-semibold text-fg text-xs">{pred.awayTeamId ?? '?'}</span>
+                      </div>
+                      <div className="flex items-center gap-4 shrink-0 ml-4">
+                        <div className="text-center">
+                          <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Predicted</p>
+                          {pred.predictedHomeScore !== null && pred.predictedAwayScore !== null
+                            ? <p className="font-semibold text-fg tnum">{pred.predictedHomeScore}–{pred.predictedAwayScore}</p>
+                            : <p className="text-fg-muted text-xs">—</p>}
+                        </div>
+                        <div className="text-center">
+                          <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Result</p>
+                          {pred.actualHomeScore !== null && pred.actualAwayScore !== null
+                            ? <p className="font-semibold text-fg-secondary tnum">{pred.actualHomeScore}–{pred.actualAwayScore}</p>
+                            : <p className="text-fg-muted text-xs">TBD</p>}
+                        </div>
+                        {/* Score pts — same slot as group phase Pts column */}
+                        <div className="text-center">
+                          <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Pts</p>
+                          {pred.scorePoints !== null
+                            ? <p className={`font-bold text-[13px] tnum ${pred.scorePoints > 0 ? 'text-green-400' : 'text-fg-muted'}`}>+{pred.scorePoints}</p>
+                            : <p className="text-fg-muted text-xs">—</p>}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Winner row + winner pts breakdown */}
+                    <div className="flex items-center justify-between border-t border-border px-4 py-2.5 gap-4">
+                      {/* Predicted winner | Actual winner side by side */}
+                      <div className="flex items-center gap-4">
+                        <div className="text-center">
+                          <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Pred. winner</p>
+                          <p className={`font-semibold text-[13px] ${correct ? 'text-green-400' : wrong ? 'text-red-400' : 'text-fg'}`}>
+                            {pred.predictedWinnerTeamId}
+                            {pred.multiplier > 1 && (
+                              <span className="ml-1 text-[10px] font-bold px-1 py-0.5 rounded" style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--primary)' }}>
+                                ×{pred.multiplier}
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Actual winner</p>
+                          {hasResult
+                            ? <p className="font-semibold text-[13px] text-fg-secondary">{pred.actualWinnerTeamId}</p>
+                            : <p className="text-fg-muted text-xs">TBD</p>}
+                        </div>
+                      </div>
+
+                      {/* Winner pts + total */}
+                      {totalPoints !== null && (
+                        <div className="flex items-center gap-2 shrink-0">
+                          <div className="text-center">
+                            <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">
+                              Winner{pred.multiplier > 1 ? ` ×${pred.multiplier}` : ''}
+                            </p>
+                            <p className={`font-semibold text-[13px] tnum ${pred.winnerPoints! > 0 ? 'text-green-400' : 'text-fg-muted'}`}>
+                              +{pred.winnerPoints}
+                            </p>
+                          </div>
+                          <div className="text-center border-l border-border pl-2">
+                            <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Total</p>
+                            <p className={`font-bold text-[13px] tnum ${totalPoints > 0 ? 'text-green-400' : 'text-fg-muted'}`}>
+                              +{totalPoints}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Group predictions — locked matches only, most recent first */}
         <div>
           <SectionLabel>Match predictions <span className="text-fg-muted font-normal normal-case">(started &amp; finished)</span></SectionLabel>
@@ -270,6 +369,12 @@ function DrillDownPanel({ drillDown, isOwnProfile, onClose }: DrillDownPanelProp
                             <p className="text-fg-muted text-xs">TBD</p>
                           </div>
                         )}
+                        {hasResult && pred.points !== null && (
+                          <div className="text-center">
+                            <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Pts</p>
+                            <p className={`font-bold text-[13px] tnum ${pred.points > 0 ? 'text-green-400' : 'text-fg-muted'}`}>+{pred.points}</p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -278,83 +383,6 @@ function DrillDownPanel({ drillDown, isOwnProfile, onClose }: DrillDownPanelProp
             );
           })()}
         </div>
-
-        {/* Knockout predictions */}
-        {drillDown.knockoutPredictions.length > 0 && (
-          <div>
-            <SectionLabel>Knockout predictions <span className="text-fg-muted font-normal normal-case">(started &amp; finished)</span></SectionLabel>
-            <div className="space-y-1.5">
-              {drillDown.knockoutPredictions.map(pred => {
-                const correct = pred.actualWinnerTeamId !== null && pred.predictedWinnerTeamId === pred.actualWinnerTeamId;
-                const wrong   = pred.actualWinnerTeamId !== null && pred.predictedWinnerTeamId !== pred.actualWinnerTeamId;
-                return (
-                  <div key={pred.slotKey} className="rounded-input bg-surface-2 px-4 py-3 text-sm space-y-1.5">
-                    {/* Slot header */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-mono text-[10px] text-fg-muted uppercase tracking-wider">{pred.slotKey}</span>
-                        {pred.homeTeamId && pred.awayTeamId && (
-                          <span className="text-[12px] text-fg font-semibold">
-                            {pred.homeTeamId} <span className="text-fg-muted font-normal">vs</span> {pred.awayTeamId}
-                          </span>
-                        )}
-                      </div>
-                      {/* Points badge */}
-                      <span className={`text-[12px] font-bold tnum px-2 py-0.5 rounded-full ${
-                        pred.points === null
-                          ? 'bg-surface text-fg-muted'
-                          : pred.points > 0
-                            ? 'bg-green-500/15 text-green-400'
-                            : 'bg-surface text-fg-muted'
-                      }`}>
-                        {pred.points === null ? '—' : `+${pred.points} pts`}
-                      </span>
-                    </div>
-                    {/* Prediction row */}
-                    <div className="flex items-center gap-4 flex-wrap">
-                      <div>
-                        <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Predicted winner</p>
-                        <p className={`font-semibold text-[13px] ${correct ? 'text-green-400' : wrong ? 'text-red-400' : 'text-fg'}`}>
-                          {pred.predictedWinnerTeamId}
-                          {pred.multiplier > 1 && (
-                            <span className="ml-1.5 text-[10px] font-bold px-1 py-0.5 rounded" style={{ background: 'var(--primary-soft, rgba(99,102,241,0.15))', color: 'var(--primary)' }}>
-                              ×{pred.multiplier}
-                            </span>
-                          )}
-                        </p>
-                      </div>
-                      {pred.predictedHomeScore !== null && pred.predictedAwayScore !== null && (
-                        <div>
-                          <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Score pred.</p>
-                          <p className="font-semibold text-[13px] text-fg tnum">{pred.predictedHomeScore}–{pred.predictedAwayScore}</p>
-                        </div>
-                      )}
-                      {pred.actualWinnerTeamId !== null ? (
-                        <>
-                          <div>
-                            <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Actual winner</p>
-                            <p className="font-semibold text-[13px] text-fg-secondary">{pred.actualWinnerTeamId}</p>
-                          </div>
-                          {pred.actualHomeScore !== null && pred.actualAwayScore !== null && (
-                            <div>
-                              <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Result</p>
-                              <p className="font-semibold text-[13px] text-fg-secondary tnum">{pred.actualHomeScore}–{pred.actualAwayScore}</p>
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <div>
-                          <p className="text-[10px] text-fg-muted mb-0.5 uppercase tracking-wider font-display font-bold">Actual winner</p>
-                          <p className="text-fg-muted text-xs">TBD</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         <p className="text-[12px] text-fg-muted">Predictions are shown once a match has started, newest first.</p>
       </div>

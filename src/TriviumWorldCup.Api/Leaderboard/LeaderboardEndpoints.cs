@@ -166,6 +166,9 @@ public static class LeaderboardEndpoints
             foreach (var pred in visiblePredictions)
             {
                 fixtureById.TryGetValue(pred.FixtureId, out var fixture);
+                int? groupPoints = fixture?.HomeScore is not null && fixture.AwayScore is not null
+                    ? GroupMatchScorer.Compute(pred.HomeScore, pred.AwayScore, fixture.HomeScore.Value, fixture.AwayScore.Value)
+                    : null;
                 groupPredictionDtos.Add(new GroupPredictionDetailDto(
                     FixtureId:     pred.FixtureId,
                     HomeTeamId:    fixture?.HomeTeamId ?? string.Empty,
@@ -175,7 +178,8 @@ public static class LeaderboardEndpoints
                     ActualHome:    fixture?.HomeScore,
                     ActualAway:    fixture?.AwayScore,
                     KickoffUtc:    fixture?.KickoffUtc ?? DateTimeOffset.MinValue,
-                    Locked:        fixture is not null && (fixture.KickoffUtc <= now || fixture.Status == MatchStatus.Completed)));
+                    Locked:        fixture is not null && (fixture.KickoffUtc <= now || fixture.Status == MatchStatus.Completed),
+                    Points:        groupPoints));
             }
 
             // ── Knockout predictions ──────────────────────────────────────────
@@ -221,17 +225,22 @@ public static class LeaderboardEndpoints
                 if (!predBySlotKey.TryGetValue(slot.SlotKey, out var kpred))
                     continue;
 
-                var multiplier = streakBefore + 1;
-                int? points    = null;
+                var multiplier       = streakBefore + 1;
+                int? scorePoints    = null;
+                int? winnerPoints   = null;
 
                 if (slot.WinnerTeamId is not null)
                 {
-                    points = KnockoutMatchScorer.Compute(
-                        kpred.PredictedWinnerTeamId,
-                        kpred.PredictedHomeScore, kpred.PredictedAwayScore,
-                        slot.WinnerTeamId,
-                        slot.HomeScore, slot.AwayScore,
-                        streakBefore);
+                    scorePoints = kpred.PredictedHomeScore.HasValue && kpred.PredictedAwayScore.HasValue
+                                  && slot.HomeScore.HasValue && slot.AwayScore.HasValue
+                        ? GroupMatchScorer.Compute(
+                            kpred.PredictedHomeScore.Value, kpred.PredictedAwayScore.Value,
+                            slot.HomeScore.Value, slot.AwayScore.Value)
+                        : 0;
+
+                    winnerPoints = kpred.PredictedWinnerTeamId == slot.WinnerTeamId
+                        ? 5 * multiplier
+                        : 0;
 
                     streakBefore = kpred.PredictedWinnerTeamId == slot.WinnerTeamId
                         ? streakBefore + 1
@@ -252,7 +261,8 @@ public static class LeaderboardEndpoints
                     KickoffUtc:             slot.KickoffUtc,
                     Locked:                 slot.KickoffUtc.HasValue && (slot.KickoffUtc.Value <= now || slot.Status == MatchStatus.Completed),
                     Multiplier:             multiplier,
-                    Points:                 points));
+                    ScorePoints:            scorePoints,
+                    WinnerPoints:           winnerPoints));
             }
 
             // ── Golden Six detail ─────────────────────────────────────────────
@@ -355,7 +365,8 @@ public sealed record GroupPredictionDetailDto(
     int? ActualHome,
     int? ActualAway,
     DateTimeOffset KickoffUtc,
-    bool Locked);
+    bool Locked,
+    int? Points);
 
 /// <summary>Per-player detail in the drill-down Golden Six section.</summary>
 public sealed record GoldenSixDetailDto(
@@ -381,7 +392,8 @@ public sealed record KnockoutPredictionDetailDto(
     DateTimeOffset? KickoffUtc,
     bool Locked,
     int Multiplier,
-    int? Points);
+    int? ScorePoints,
+    int? WinnerPoints);
 
 /// <summary>Full drill-down response for a single member.</summary>
 public sealed record MemberDrillDownDto(

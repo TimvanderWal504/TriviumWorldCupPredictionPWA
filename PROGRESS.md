@@ -299,6 +299,14 @@ Root cause analysis of Azure 503 errors during live matches identified CPU credi
   - **Knockouts**: completed knockout slots grouped by round (Round of 32 → Final), rendered via new `KnockoutResultCard` showing teams with flags, 90-min score, penalty score (if applicable), winner badge with trophy icon, predicted winner + predicted score + points earned (colour-coded Correct/Wrong badge).
   - **By Date**: all results (group + knockout) merged and sorted newest-first; knockout items use `KnockoutResultCard` with round label ("Round of 32 · Venue").
 
+### Knockout result card — per-component points breakdown
+
+- **`Tournament/KnockoutSlotEndpoints.cs`** — `MyKnockoutPredictionDto` extended with `ScorePoints` (group-style 90-min score, 0–10), `AdvancingPoints` (5 × streak multiplier when winner correct, 0 when wrong), and `StreakMultiplier` (1 = no streak, 2 = one consecutive correct, …). Endpoint computes the two components separately via `GroupMatchScorer.Compute` + the existing streak counter; total is still `ScorePoints + AdvancingPoints`.
+- **`pages/ResultsPage.tsx`** — `KnockoutResultCard` prediction section replaced with a three-row breakdown:
+  - **Score row** — hidden when no score was submitted; shows group-stage label chip (Exact score / Correct diff / Right outcome / Wrong) + points.
+  - **Winner row** — Correct/Wrong badge; badge reads "Correct ×N" when streak multiplier > 1; points shown alongside.
+  - **Total row** — separated by a thin border, sums both components.
+
 ### Admin knockout team override + bracket sticky fix
 
 **Context:** The bipartite matching in `AllocateBestThirds` assigned Bosnia-Herzegovina (Group B third) to R32-3 instead of R32-10 (USA vs BIH), causing that match to show "Bracket not yet set." Groups I/J/K/L were also incomplete at the time, deferring BestThirdPlace injection entirely.
@@ -338,3 +346,11 @@ Root cause analysis of Azure 503 errors during live matches identified CPU credi
 ### Admin sync — knockout slot API IDs
 
 - **`Admin/AdminEndpoints.cs`** — `POST /admin/fixtures/sync-api-ids` now matches resolved knockout slots by team pair in addition to group-stage fixtures. Both queries exclude `Completed` and `Cancelled` matches. Response extended with `matchedKnockout` and `knockoutSlots` fields.
+
+### Leaderboard drill-down — knockout predictions redesign
+
+- **`Leaderboard/LeaderboardEndpoints.cs`** — `GroupPredictionDetailDto` extended with `Points: int?` (computed via `GroupMatchScorer.Compute` when the actual result is available). `KnockoutPredictionDetailDto.Points` split into `ScorePoints: int?` (90-min score component, same tiers as group phase) and `WinnerPoints: int?` (5 × streak multiplier, 0 when wrong).
+- **`pages/LeaderboardPage.tsx`** — drill-down UI reworked so knockout and group prediction cards share the exact same column alignment:
+  - **Group phase row**: `[Home vs Away] | [Predicted] | [Result] | [Pts]` — points column added at the far right.
+  - **Knockout score row**: identical `[Home vs Away] | [Predicted] | [Result] | [Pts]` layout, with `Pts` showing the score component only.
+  - **Knockout winner row** (below, separated by a divider): `[Pred. winner ×N] | [Actual winner]` on the left; `[Winner ×N pts] | [Total]` on the right.

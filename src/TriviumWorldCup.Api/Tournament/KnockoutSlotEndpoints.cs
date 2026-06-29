@@ -78,18 +78,24 @@ public static class KnockoutSlotEndpoints
 
                 if (predBySlot.TryGetValue(slot.SlotKey, out var pred))
                 {
-                    var pts = KnockoutMatchScorer.Compute(
-                        pred.PredictedWinnerTeamId,
-                        pred.PredictedHomeScore, pred.PredictedAwayScore,
-                        slot.WinnerTeamId!,
-                        slot.HomeScore, slot.AwayScore,
-                        streak);
+                    var correctWinner = pred.PredictedWinnerTeamId == slot.WinnerTeamId;
+
+                    var scorePoints = pred.PredictedHomeScore.HasValue && pred.PredictedAwayScore.HasValue
+                                      && slot.HomeScore.HasValue && slot.AwayScore.HasValue
+                        ? GroupMatchScorer.Compute(
+                              pred.PredictedHomeScore.Value, pred.PredictedAwayScore.Value,
+                              slot.HomeScore.Value, slot.AwayScore.Value)
+                        : 0;
+
+                    var advancingPoints = correctWinner ? 5 * (streak + 1) : 0;
 
                     myPred = new MyKnockoutPredictionDto(
                         pred.PredictedWinnerTeamId,
                         pred.PredictedHomeScore,
                         pred.PredictedAwayScore,
-                        pts);
+                        scorePoints,
+                        advancingPoints,
+                        streak + 1);
 
                     // Streak only updates when the user submitted a prediction.
                     streak = pred.PredictedWinnerTeamId == slot.WinnerTeamId ? streak + 1 : 0;
@@ -165,9 +171,14 @@ public sealed record KnockoutSlotResultDto(
     string? WinnerTeamId,
     MyKnockoutPredictionDto? MyPrediction);
 
-/// <summary>The current user's prediction for one knockout slot, with computed points.</summary>
+/// <summary>The current user's prediction for one knockout slot, with computed points broken down by component.</summary>
 public sealed record MyKnockoutPredictionDto(
     string PredictedWinnerTeamId,
     int? PredictedHomeScore,
     int? PredictedAwayScore,
-    int Points);
+    /// <summary>Group-style points for the 90-minute score (0–10).</summary>
+    int ScorePoints,
+    /// <summary>Advancing-team bonus: 5 × streak multiplier when correct, 0 when wrong.</summary>
+    int AdvancingPoints,
+    /// <summary>Streak multiplier applied to the advancing-team bonus (1 = no streak, 2 = one previous correct, …).</summary>
+    int StreakMultiplier);
