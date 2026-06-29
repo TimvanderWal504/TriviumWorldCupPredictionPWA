@@ -10,7 +10,7 @@ interface ChampionPick {
 
 interface GoldenSixPick {
   playerId: string; playerName: string; teamName: string; teamId: string;
-  countryCode: string | null; position: string; pickCount: number;
+  countryCode: string | null; position: string; pickCount: number; goals: number;
 }
 
 interface FixtureOutcome {
@@ -20,6 +20,7 @@ interface FixtureOutcome {
   kickoffUtc: string; totalPredictions: number;
   homeWinCount: number; drawCount: number; awayWinCount: number;
   avgHomeScore: number | null; avgAwayScore: number | null;
+  actualHomeScore: number | null; actualAwayScore: number | null;
 }
 
 interface SlotTeamCount { teamId: string; teamName: string; countryCode: string | null; count: number; }
@@ -29,6 +30,8 @@ interface SlotDistribution {
   homeTeamId: string | null; homeTeamName: string | null; homeCountryCode: string | null;
   awayTeamId: string | null; awayTeamName: string | null; awayCountryCode: string | null;
   totalPredictions: number; teamCounts: SlotTeamCount[];
+  actualHomeScore: number | null; actualAwayScore: number | null; actualWinnerTeamId: string | null;
+  avgPredictedHomeScore: number | null; avgPredictedAwayScore: number | null;
 }
 
 interface FinalistPair {
@@ -58,6 +61,7 @@ interface AdminStats {
   groupPredictions: {
     fixtureOutcomes: FixtureOutcome[];
     topScorelinesOverall: { homeScore: number; awayScore: number; count: number }[];
+    topKnockoutScorelinesOverall: { homeScore: number; awayScore: number; count: number }[];
   };
   knockoutPredictions: {
     slotDistributions: SlotDistribution[];
@@ -68,6 +72,7 @@ interface AdminStats {
     avgTotal: number; avgGroupPoints: number; avgKnockoutPoints: number;
     avgChampionPoints: number; avgGoldenSixPoints: number;
     avgExactScorelinesCount: number;
+    avgCorrectOutcomeCount: number;
     maxTotalPoints: number; minTotalPoints: number;
   };
 }
@@ -242,6 +247,7 @@ export function StatsPage() {
                       <th className="pb-2 text-left">Player</th>
                       <th className="pb-2 text-left">Team</th>
                       <th className="pb-2 text-left">Pos</th>
+                      <th className="pb-2 text-right">Goals</th>
                       <th className="pb-2 text-right">Picks</th>
                       <th className="pb-2 w-24"></th>
                     </tr>
@@ -265,6 +271,7 @@ export function StatsPage() {
                               {pick.position}
                             </span>
                           </td>
+                          <td className="py-1.5 pr-3 text-right font-semibold">{pick.goals}</td>
                           <td className="py-1.5 text-right font-semibold">{pick.pickCount}</td>
                           <td className="py-1.5 pl-2">
                             <div className="h-2 rounded-sm overflow-hidden" style={{ background: 'var(--surface-2)' }}>
@@ -315,11 +322,11 @@ export function StatsPage() {
         </div>
       </section>
 
-      {/* ── Group Stage Predictions ────────────────────────────────────────── */}
+      {/* ── Match Predictions ─────────────────────────────────────────────── */}
       <section className="rounded-card bg-surface border border-border p-5 space-y-5">
         <div className="flex items-center justify-between">
-          <h2 className="font-display font-bold text-lg tracking-tight">Group Stage Predictions</h2>
-          <span className="text-xs text-fg-muted">{groupFixtures.length} fixtures</span>
+          <h2 className="font-display font-bold text-lg tracking-tight">Match Predictions</h2>
+          <span className="text-xs text-fg-muted">{groupFixtures.length} group fixtures</span>
         </div>
 
         {/* Outcome distribution per fixture */}
@@ -331,6 +338,12 @@ export function StatsPage() {
               const hwPct  = pct(f.homeWinCount, total);
               const drPct  = pct(f.drawCount,    total);
               const awPct  = pct(f.awayWinCount, total);
+              const hasResult = f.actualHomeScore != null && f.actualAwayScore != null;
+              const actualOutcome = hasResult
+                ? f.actualHomeScore! > f.actualAwayScore! ? 'H' : f.actualHomeScore! < f.actualAwayScore! ? 'A' : 'D'
+                : null;
+              const correctCount = actualOutcome === 'H' ? f.homeWinCount : actualOutcome === 'D' ? f.drawCount : actualOutcome === 'A' ? f.awayWinCount : null;
+              const accuracyPct  = correctCount != null && total > 0 ? pct(correctCount, total) : null;
               return (
                 <div key={f.fixtureId} className="rounded-input border border-border p-3 space-y-2"
                   style={{ background: 'var(--surface-2)' }}>
@@ -363,14 +376,26 @@ export function StatsPage() {
                           {drPct > 0 && <div style={{ width: `${drPct}%`, background: 'var(--fg-muted)' }} title={`Draw ${drPct}%`} />}
                           {awPct > 0 && <div style={{ width: `${awPct}%`, background: 'var(--loss)' }} title={`Away win ${awPct}%`} />}
                         </div>
-                        <div className="flex gap-3 text-[11px]">
+                        <div className="flex gap-3 text-[11px] flex-wrap">
                           <span style={{ color: 'var(--win)' }}>H {hwPct}% ({f.homeWinCount})</span>
                           <span className="text-fg-muted">D {drPct}% ({f.drawCount})</span>
                           <span style={{ color: 'var(--loss)' }}>A {awPct}% ({f.awayWinCount})</span>
                           {f.avgHomeScore != null && f.avgAwayScore != null && (
-                            <span className="text-fg-secondary ml-auto">avg {f.avgHomeScore}–{f.avgAwayScore}</span>
+                            <span className="text-fg-secondary">avg {f.avgHomeScore}–{f.avgAwayScore}</span>
                           )}
                           <span className="text-fg-muted">{total} pred.</span>
+                          {hasResult && (
+                            <span className="ml-auto flex items-center gap-1.5">
+                              <span className="font-mono font-bold" style={{ color: 'var(--fg)' }}>
+                                {f.actualHomeScore}–{f.actualAwayScore}
+                              </span>
+                              {accuracyPct != null && (
+                                <span style={{ color: accuracyPct >= 50 ? 'var(--win)' : 'var(--fg-muted)' }}>
+                                  {accuracyPct}% correct
+                                </span>
+                              )}
+                            </span>
+                          )}
                         </div>
                       </div>
                     )}
@@ -401,7 +426,7 @@ export function StatsPage() {
 
         {/* Top scorelines */}
         <div>
-          <p className={`${labelCls} mb-3`}>Most-predicted scorelines (all fixtures)</p>
+          <p className={`${labelCls} mb-3`}>Most-predicted scorelines — group stage (90 min)</p>
           {groupPredictions.topScorelinesOverall.length === 0
             ? <p className="text-sm text-fg-muted">No predictions yet.</p>
             : (
@@ -416,6 +441,22 @@ export function StatsPage() {
               </div>
             )}
         </div>
+
+        {/* Knockout scorelines */}
+        {groupPredictions.topKnockoutScorelinesOverall.length > 0 && (
+          <div>
+            <p className={`${labelCls} mb-3`}>Most-predicted scorelines — knockout stage (90 min)</p>
+            <div className="flex flex-wrap gap-2">
+              {groupPredictions.topKnockoutScorelinesOverall.map((s, i) => (
+                <div key={i} className="rounded-input px-3 py-1.5 flex items-center gap-2"
+                  style={{ background: 'var(--surface-2)' }}>
+                  <span className="font-mono font-bold text-sm text-fg">{s.homeScore}–{s.awayScore}</span>
+                  <span className="text-xs text-fg-muted">{s.count}×</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* ── Knockout Predictions ───────────────────────────────────────────── */}
@@ -459,7 +500,7 @@ export function StatsPage() {
                                 <span className="text-xs font-medium w-20 truncate shrink-0">{tc.teamName}</span>
                                 <div className="flex-1 h-3 rounded-sm overflow-hidden" style={{ background: 'var(--surface-3)' }}>
                                   <div className="h-full rounded-sm"
-                                    style={{ width: `${(tc.count / maxCount) * 100}%`, background: 'var(--secondary-fill)' }} />
+                                    style={{ width: `${(tc.count / maxCount) * 100}%`, background: tc.teamId === slot.actualWinnerTeamId ? 'var(--win)' : 'var(--secondary-fill)' }} />
                                 </div>
                                 <span className="text-xs text-fg-secondary w-6 text-right shrink-0">{tc.count}</span>
                                 <span className="text-[10px] text-fg-muted w-8 text-right shrink-0">
@@ -467,7 +508,19 @@ export function StatsPage() {
                                 </span>
                               </div>
                             ))}
-                            <p className="text-[10px] text-fg-muted">{slot.totalPredictions} prediction{slot.totalPredictions !== 1 ? 's' : ''}</p>
+                            <div className="flex items-center justify-between flex-wrap gap-1">
+                              <p className="text-[10px] text-fg-muted">{slot.totalPredictions} prediction{slot.totalPredictions !== 1 ? 's' : ''}</p>
+                              <div className="flex items-center gap-2">
+                                {slot.avgPredictedHomeScore != null && slot.avgPredictedAwayScore != null && (
+                                  <p className="text-[10px] text-fg-secondary">avg {slot.avgPredictedHomeScore}–{slot.avgPredictedAwayScore}</p>
+                                )}
+                                {slot.actualWinnerTeamId && slot.actualHomeScore != null && slot.actualAwayScore != null && (
+                                  <p className="text-[10px] font-mono font-bold" style={{ color: 'var(--win)' }}>
+                                    {slot.actualHomeScore}–{slot.actualAwayScore}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
                           </div>
                         )}
                     </div>
@@ -521,6 +574,7 @@ export function StatsPage() {
           <StatCard label="Avg champion points"  value={scores.avgChampionPoints} />
           <StatCard label="Avg Golden Six pts"   value={scores.avgGoldenSixPoints} />
           <StatCard label="Avg exact scorelines" value={scores.avgExactScorelinesCount} />
+          <StatCard label="Avg correct outcomes" value={scores.avgCorrectOutcomeCount} />
           <StatCard label="Top score"            value={scores.maxTotalPoints} />
           <StatCard label="Lowest score"         value={scores.minTotalPoints} />
         </div>

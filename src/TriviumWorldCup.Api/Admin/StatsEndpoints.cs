@@ -29,9 +29,14 @@ public static class StatsEndpoints
                 var players         = await session.Query<Player>().ToListAsync(ct);
                 var teams           = await session.Query<Team>().ToListAsync(ct);
                 var knockoutSlots   = await session.Query<KnockoutSlot>().ToListAsync(ct);
+                var goalEvents      = await session.Query<GoalEvent>().ToListAsync(ct);
 
-                var teamById   = teams.ToDictionary(t => t.Id);
-                var playerById = players.ToDictionary(p => p.Id);
+                var teamById      = teams.ToDictionary(t => t.Id);
+                var playerById    = players.ToDictionary(p => p.Id);
+                var goalsByPlayer = goalEvents
+                    .Where(g => g.Type != GoalType.OwnGoal && g.Type != GoalType.Shootout)
+                    .GroupBy(g => g.PlayerId)
+                    .ToDictionary(g => g.Key, g => g.Count());
 
                 // ── Participation ──────────────────────────────────────────────
                 var submissionTimeline = tournamentPreds
@@ -81,6 +86,7 @@ public static class StatsEndpoints
                             countryCode = t?.CountryCode,
                             position    = p?.Position.ToString() ?? "?",
                             pickCount   = g.Count(),
+                            goals       = goalsByPlayer.GetValueOrDefault(g.Key, 0),
                         };
                     })
                     .OrderByDescending(x => x.pickCount)
@@ -137,6 +143,8 @@ public static class StatsEndpoints
                             awayWinCount     = preds.Count(p => p.HomeScore < p.AwayScore),
                             avgHomeScore     = preds.Count > 0 ? Math.Round(preds.Average(p => (double)p.HomeScore), 1) : (double?)null,
                             avgAwayScore     = preds.Count > 0 ? Math.Round(preds.Average(p => (double)p.AwayScore), 1) : (double?)null,
+                            actualHomeScore  = f.HomeScore,
+                            actualAwayScore  = f.AwayScore,
                         };
                     })
                     .ToList();
@@ -148,7 +156,15 @@ public static class StatsEndpoints
                     .Take(10)
                     .ToList();
 
-                var groupPredictions = new { fixtureOutcomes, topScorelinesOverall };
+                var topKnockoutScorelinesOverall = knockoutPreds
+                    .Where(p => p.PredictedHomeScore.HasValue && p.PredictedAwayScore.HasValue)
+                    .GroupBy(p => (home: p.PredictedHomeScore!.Value, away: p.PredictedAwayScore!.Value))
+                    .Select(g => new { homeScore = g.Key.home, awayScore = g.Key.away, count = g.Count() })
+                    .OrderByDescending(x => x.count)
+                    .Take(10)
+                    .ToList();
+
+                var groupPredictions = new { fixtureOutcomes, topScorelinesOverall, topKnockoutScorelinesOverall };
 
                 // ── Knockout Predictions ───────────────────────────────────────
                 var knockoutPredsBySlot = knockoutPreds.GroupBy(p => p.SlotKey)
@@ -182,6 +198,7 @@ public static class StatsEndpoints
                             .OrderByDescending(x => x.count)
                             .Take(5)
                             .ToList();
+                        var predsWithScore = preds.Where(p => p.PredictedHomeScore.HasValue && p.PredictedAwayScore.HasValue).ToList();
                         return new
                         {
                             slotKey          = slot.SlotKey,
@@ -193,7 +210,12 @@ public static class StatsEndpoints
                             awayTeamId       = slot.AwayTeamId,
                             awayTeamName     = awayTeam?.Name,
                             awayCountryCode  = awayTeam?.CountryCode,
-                            totalPredictions = preds.Count,
+                            totalPredictions      = preds.Count,
+                            actualHomeScore       = slot.HomeScore,
+                            actualAwayScore       = slot.AwayScore,
+                            actualWinnerTeamId    = slot.WinnerTeamId,
+                            avgPredictedHomeScore = predsWithScore.Count > 0 ? Math.Round(predsWithScore.Average(p => (double)p.PredictedHomeScore!.Value), 1) : (double?)null,
+                            avgPredictedAwayScore = predsWithScore.Count > 0 ? Math.Round(predsWithScore.Average(p => (double)p.PredictedAwayScore!.Value), 1) : (double?)null,
                             teamCounts,
                         };
                     })
@@ -256,7 +278,8 @@ public static class StatsEndpoints
                     avgKnockoutPoints   = memberScores.Count > 0 ? Math.Round(memberScores.Average(s => (double)s.KnockoutPoints), 1)      : 0,
                     avgChampionPoints   = memberScores.Count > 0 ? Math.Round(memberScores.Average(s => (double)s.ChampionPoints), 1)      : 0,
                     avgGoldenSixPoints  = memberScores.Count > 0 ? Math.Round(memberScores.Average(s => (double)s.GoldenSixPoints), 1)     : 0,
-                    avgExactScorelinesCount = memberScores.Count > 0 ? Math.Round(memberScores.Average(s => (double)s.ExactScorelineCount), 1) : 0,
+                    avgExactScorelinesCount  = memberScores.Count > 0 ? Math.Round(memberScores.Average(s => (double)s.ExactScorelineCount),  1) : 0,
+                    avgCorrectOutcomeCount   = memberScores.Count > 0 ? Math.Round(memberScores.Average(s => (double)s.CorrectOutcomeCount),   1) : 0,
                     maxTotalPoints      = scoreValues.Count > 0 ? scoreValues.Max() : 0,
                     minTotalPoints      = scoreValues.Count > 0 ? scoreValues.Min() : 0,
                 };
