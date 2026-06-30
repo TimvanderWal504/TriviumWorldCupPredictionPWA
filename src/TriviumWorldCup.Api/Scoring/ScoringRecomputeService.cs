@@ -237,43 +237,37 @@ public class ScoringRecomputeService(IDocumentStore store, IOutputCacheStore out
             goldenSixPointsByUser[tp.UserId] = gs6Pts;
         }
 
-        // ── Step 3: Knockout match points (streak-multiplied) ─────────────────
+        // ── Step 3: Knockout match points (streak per advancing TEAM along its path) ──
         //
-        // Process each user's predictions in tournament order (R32 → R16 → QF → SF →
-        // ThirdPlace → Final). A running per-user streak tracks consecutive correct
-        // advancing-team predictions; a wrong prediction resets the streak to 0.
-        // The advancing-team bonus for match N in a user's streak is 5 × (streak + 1).
+        // The streak follows a team along its bracket path, not the user's global run of
+        // correct picks. R32 always starts fresh: the feeder is a group placement, not an
+        // earlier knockout match. See KnockoutStreakCalculator for the derivation.
 
         var slotByKey = completedKnockoutSlots.ToDictionary(s => s.SlotKey);
-
-        // Canonical slot order: Round enum values ascend in tournament order;
-        // within a round, ordered by SlotNumber.
-        var orderedSlotKeys = completedKnockoutSlots
-            .OrderBy(s => s.Round)
-            .ThenBy(s => s.SlotNumber)
-            .Select(s => s.SlotKey)
-            .ToList();
 
         // Group each user's predictions by slot key for O(1) lookup.
         var predsByUserAndSlot = allKnockoutPredictions
             .GroupBy(p => p.UserId)
             .ToDictionary(
                 g => g.Key,
-                g => g.ToDictionary(p => p.SlotKey));
+                g => (IReadOnlyDictionary<string, KnockoutPrediction>)g.ToDictionary(p => p.SlotKey));
 
         var knockoutPointsByUser = new Dictionary<string, int>();
-        var streakByUser         = new Dictionary<string, int>();
 
-        foreach (var slotKey in orderedSlotKeys)
+        // Shared memo across all (user, slot) pairs for this recompute run.
+        var streakMemo = new Dictionary<(string UserId, string SlotKey), int>();
+
+        foreach (var slot in completedKnockoutSlots)
         {
-            var slot = slotByKey[slotKey];
-
             foreach (var (userId, predsBySlot) in predsByUserAndSlot)
             {
-                if (!predsBySlot.TryGetValue(slotKey, out var pred))
-                    continue; // no prediction for this slot — skip (streak unchanged)
+                if (!predsBySlot.TryGetValue(slot.SlotKey, out var pred))
+                    continue;
 
-                var streakBefore = streakByUser.GetValueOrDefault(userId, 0);
+                // Derive streakBefore from the bracket feeder chain, not a global counter.
+                var streakBefore = pred.PredictedWinnerTeamId == slot.WinnerTeamId
+                    ? KnockoutStreakCalculator.FullStreak(userId, slot.SlotKey, slotByKey, predsByUserAndSlot, streakMemo) - 1
+                    : 0;
 
                 var pts = KnockoutMatchScorer.Compute(
                     pred.PredictedWinnerTeamId,
@@ -283,10 +277,6 @@ public class ScoringRecomputeService(IDocumentStore store, IOutputCacheStore out
                     streakBefore);
 
                 knockoutPointsByUser[userId] = knockoutPointsByUser.GetValueOrDefault(userId) + pts;
-
-                streakByUser[userId] = pred.PredictedWinnerTeamId == slot.WinnerTeamId
-                    ? streakBefore + 1
-                    : 0;
             }
         }
 

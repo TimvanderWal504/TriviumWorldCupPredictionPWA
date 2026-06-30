@@ -218,6 +218,14 @@ public sealed class ApiMatchEvent
     [JsonPropertyName("detail")]
     public string? Detail { get; set; }
 
+    /// <summary>
+    /// Free-text qualifier from API-Football. For penalty shootout kicks this is
+    /// "Penalty Shootout" — the ONLY field that distinguishes a shootout kick from a
+    /// regulation penalty (both arrive as type:"Goal", detail:"Penalty").
+    /// </summary>
+    [JsonPropertyName("comments")]
+    public string? Comments { get; set; }
+
     // ── Type discriminators ──────────────────────────────────────────────────
     public bool IsGoal => string.Equals(Type, "Goal",  StringComparison.OrdinalIgnoreCase);
     public bool IsCard => string.Equals(Type, "Card",  StringComparison.OrdinalIgnoreCase);
@@ -230,6 +238,9 @@ public sealed class ApiMatchEvent
     // API-Football reports a missed penalty under type:"Goal" distinguished only by this detail value.
     // A missed penalty must never reach goal storage — the shooter didn't score.
     public bool IsMissedPenalty => string.Equals(Detail, "Missed Penalty", StringComparison.OrdinalIgnoreCase);
+    // A scored shootout kick: type:"Goal", detail:"Penalty", comments:"Penalty Shootout".
+    // (Missed shootout kicks are caught by IsMissedPenalty and never reach goal storage.)
+    public bool IsShootout => string.Equals(Comments, "Penalty Shootout", StringComparison.OrdinalIgnoreCase);
 
     // ── Card detail helpers ──────────────────────────────────────────────────
     public bool IsYellow       => string.Equals(Detail, "Yellow Card",   StringComparison.OrdinalIgnoreCase);

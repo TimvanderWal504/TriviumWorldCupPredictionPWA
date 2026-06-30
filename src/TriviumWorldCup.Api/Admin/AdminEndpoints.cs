@@ -941,7 +941,7 @@ public static class AdminEndpoints
             var playersByLastName = allPlayers
                 .ToLookup(p => ResultIngestionJob.LastWord(p.Name), StringComparer.OrdinalIgnoreCase);
 
-            var goalEvents = allEvents.Where(e => e.IsGoal).ToList();
+            var goalEvents = allEvents.Where(e => e.IsGoal && !e.IsMissedPenalty).ToList();
             var varEvents  = allEvents.Where(e => e.IsVar).ToList();
             var cardEvents = allEvents.Where(e => e.IsCard).ToList();
             var subEvents  = allEvents.Where(e => e.IsSub).ToList();
@@ -960,7 +960,7 @@ public static class AdminEndpoints
                     playerMisses.Add($"goal: {playerName}");
                     continue;
                 }
-                var goalType = evt.IsOwnGoal ? GoalType.OwnGoal : evt.IsPenalty ? GoalType.PenaltyInMatch : GoalType.OpenPlay;
+                var goalType = ResultIngestionJob.ResolveGoalType(evt);
                 var goalId = ResultIngestionJob.CreateDeterministicGuid(ns,
                     $"{apiId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
                 session.Store(new GoalEvent
@@ -1148,7 +1148,7 @@ public static class AdminEndpoints
             var playersByLastName = allPlayers
                 .ToLookup(p => ResultIngestionJob.LastWord(p.Name), StringComparer.OrdinalIgnoreCase);
 
-            var goalEvents = allEvents.Where(e => e.IsGoal).ToList();
+            var goalEvents = allEvents.Where(e => e.IsGoal && !e.IsMissedPenalty).ToList();
             var varEvents  = allEvents.Where(e => e.IsVar).ToList();
             var cardEvents = allEvents.Where(e => e.IsCard).ToList();
             var subEvents  = allEvents.Where(e => e.IsSub).ToList();
@@ -1167,7 +1167,7 @@ public static class AdminEndpoints
                     playerMisses.Add($"goal: {playerName}");
                     continue;
                 }
-                var goalType = evt.IsOwnGoal ? GoalType.OwnGoal : evt.IsPenalty ? GoalType.PenaltyInMatch : GoalType.OpenPlay;
+                var goalType = ResultIngestionJob.ResolveGoalType(evt);
                 var goalId = ResultIngestionJob.CreateDeterministicGuid(ns,
                     $"{apiId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
                 session.Store(new GoalEvent
@@ -1357,7 +1357,7 @@ public static class AdminEndpoints
                     continue;
                 }
 
-                var goalEvents = allEvents.Where(e => e.IsGoal).ToList();
+                var goalEvents = allEvents.Where(e => e.IsGoal && !e.IsMissedPenalty).ToList();
                 var varEvents  = allEvents.Where(e => e.IsVar).ToList();
                 var cardEvents = allEvents.Where(e => e.IsCard).ToList();
                 var subEvents  = allEvents.Where(e => e.IsSub).ToList();
@@ -1371,7 +1371,7 @@ public static class AdminEndpoints
                         playerMisses.Add($"{fixture.Id}/goal: {playerName}");
                         continue;
                     }
-                    var goalType = evt.IsOwnGoal ? GoalType.OwnGoal : evt.IsPenalty ? GoalType.PenaltyInMatch : GoalType.OpenPlay;
+                    var goalType = ResultIngestionJob.ResolveGoalType(evt);
                     var goalId   = ResultIngestionJob.CreateDeterministicGuid(ns,
                         $"{fixture.FootballApiFixtureId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
                     session.Store(new GoalEvent

@@ -328,9 +328,9 @@ Root cause analysis of Azure 503 errors during live matches identified CPU credi
 - **`pages/LeaderboardPage.tsx`** — `KnockoutPredictionDetail` interface and `knockoutPredictions` field added to `MemberDrillDown`. `DrillDownPanel` now renders a "Knockout predictions" section showing each slot's matchup, predicted winner (green/red on correct/wrong), optional score prediction, actual result, streak multiplier badge (×N when > 1), and a points badge. Hidden when the user has no visible knockout predictions yet.
 
 ## Next action
-1. **Deploy B2ms Postgres upgrade** — re-run `az deployment group create` with updated `main.bicep` during a non-match window (Azure requires ~2 min downtime to resize Flexible Server).
-2. **Run `POST /admin/recompute`** after deploying — the startup migration will have corrected stale slot wiring; the recompute repopulates team assignments from the corrected sources.
-3. **Run `POST /admin/fixtures/sync-api-ids`** — now also populates `FootballApiFixtureId` on resolved knockout slots for reliable ingestion.
+1. **Run `POST /admin/recompute`** (urgent) — two bugs now corrected require a full recompute: the penalty-shootout goal type fix (30 June) and the knockout streak-multiplier fix (30 June). Both change existing `MemberScore` documents; the recompute is the only remediation step needed.
+2. **Deploy B2ms Postgres upgrade** — re-run `az deployment group create` with updated `main.bicep` during a non-match window (Azure requires ~2 min downtime to resize Flexible Server).
+3. **Run `POST /admin/fixtures/sync-api-ids`** — also populates `FootballApiFixtureId` on resolved knockout slots for reliable ingestion.
 4. **Platform generalization Gen-Wave B** — TWC-36 (data-driven structure), TWC-37 (generic outcome model), TWC-38 (competitor generalization), TWC-41 (lock policy + grace removal). All unblocked by TWC-35 ✅.
 5. **TWC-20 (Entra)** — deprioritised; may be marked obsolete. No action until decided.
 6. **Update Confluence Design & Architecture page** — use the prompt in `.docs/confluence-update-prompt.md`.
@@ -359,3 +359,34 @@ Root cause analysis of Azure 503 errors during live matches identified CPU credi
   - **Group phase row**: `[Home vs Away] | [Predicted] | [Result] | [Pts]` — points column added at the far right.
   - **Knockout score row**: identical `[Home vs Away] | [Predicted] | [Result] | [Pts]` layout, with `Pts` showing the score component only.
   - **Knockout winner row** (below, separated by a divider): `[Pred. winner ×N] | [Actual winner]` on the left; `[Winner ×N pts] | [Total]` on the right.
+
+## Unversioned hotfix (main, 30 June 2026)
+
+### Penalty shootout goals stored as in-match goals — bugfix
+
+Root cause: admin re-ingest endpoints (`reset-events`, `fetch-events`, `fetch-all-events`) never distinguished shootout kicks from regulation penalties. API-Football emits both as `type:"Goal", detail:"Penalty"`; the only discriminator is `comments:"Penalty Shootout"`, which was never mapped. Result: every scored shootout kick was stored as `GoalType.PenaltyInMatch` and inflated Golden Six tallies, top-scorer counts, team goal totals, and standings. Missed shootout kicks were also missing the `!e.IsMissedPenalty` filter present in the live job, so they fell through as `GoalType.OpenPlay` (a miss counted as a goal).
+
+**Changes:**
+
+- **`Ingestion/FootballApiClient.cs`** — added `Comments` JSON property to `ApiMatchEvent`; added `IsShootout` bool discriminator (`Comments == "Penalty Shootout"`). The `comments` field is the sole API-Football marker separating a shootout kick from a regulation penalty.
+- **`Ingestion/ResultIngestionJob.cs`** — added `public static GoalType ResolveGoalType(ApiMatchEvent evt)`: checks `IsShootout` first (shootout kicks also satisfy `IsPenalty`, so order matters), then `IsOwnGoal`, then `IsPenalty`, else `OpenPlay`. Replaced the inline ternary at all three job call sites (group FT, group live, slot live) with `ResolveGoalType(evt)`.
+- **`Admin/AdminEndpoints.cs`** — all three admin re-ingest endpoints: added `&& !e.IsMissedPenalty` to the goal-event filter (now matches the live job); replaced the inline `IsOwnGoal ? … : IsPenalty ? … : OpenPlay` mapping with `ResultIngestionJob.ResolveGoalType(evt)`.
+
+**After deploy:** re-run `POST /admin/fixtures/{slotKey}/reset-events` on each knockout slot that was already synced during or after a shootout. The endpoint deletes and re-stores all events with corrected types, then calls `RecomputeAllAsync` — no manual DB surgery required.
+
+## Unversioned hotfix (main, 30 June 2026)
+
+### Knockout streak-multiplier bug fix
+
+**Root cause:** `ScoringRecomputeService` Step 3 tracked the streak as a global per-user counter that incremented with every consecutive correct pick regardless of which team advanced. Two different R32 matches, both winners correct, yielded `5×1` then `5×2` — both should be `5×1` because R32 is the start of each team's bracket path.
+
+**Changes:**
+
+- **`Scoring/KnockoutStreakCalculator.cs`** (new) — static class implementing the correct team-path streak model. `FeederSlotKeyFor` resolves the `HomeSlotSource`/`AwaySlotSource` of the advancing team to find the preceding knockout match; returns `null` when the source is not `MatchWinner` (i.e. R32 and third-place play-off). `FullStreak` recurses through the feeder chain with memoization (depth ≤ 6, so bounded). Extracted into its own class for testability without a database.
+- **`Scoring/ScoringRecomputeService.cs`** — Step 3 rewritten: removed the buggy `orderedSlotKeys` / `streakByUser` global counter; now calls `KnockoutStreakCalculator.FullStreak` per (user, slot) pair with a shared memo dictionary for the recompute run.
+- **`Scoring/KnockoutMatchScorer.cs`** — updated `streakBefore` XML doc comment and class summary to reflect team-path semantics (function body unchanged).
+- **`Tests/Scoring/KnockoutStreakCalculatorTests.cs`** (new) — 6 unit tests covering all scenarios from the bug report: two R32 teams both correct (the reported failure case), growing streak R32→R16→QF, chain broken at R16, skipped round, third-place play-off (MatchLoser feeder → no extension), and score component correctness via the scorer. All run in memory — no database required.
+
+**412 tests pass.**
+
+**After deploy:** run `POST /admin/recompute` — existing `MemberScore` documents contain inflated knockout points for any user who had two or more correct picks in the same round. The recompute corrects all scores.

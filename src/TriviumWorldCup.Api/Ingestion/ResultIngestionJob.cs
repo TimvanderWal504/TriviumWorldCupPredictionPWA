@@ -405,9 +405,7 @@ public class ResultIngestionJob(
                     continue;
                 }
 
-                var goalType = evt.IsOwnGoal     ? GoalType.OwnGoal :
-                               evt.IsPenalty     ? GoalType.PenaltyInMatch :
-                                                   GoalType.OpenPlay;
+                var goalType = ResolveGoalType(evt);
 
                 var goalId = CreateDeterministicGuid(GoalEventNamespace,
                     $"{apiFixture.FixtureId}:{player.Id}:{evt.Time?.Elapsed ?? 0}");
@@ -575,7 +573,7 @@ public class ResultIngestionJob(
                     var liveGoalMinute = evt.Time?.Elapsed ?? 0;
                     var player = ResolvePlayer(pName, playerByName, playersByLastName);
                     if (player == null) { statusStore.RecordUnmatched(liveDbFixture.Id, "goal", pName, liveGoalMinute); continue; }
-                    var gt = evt.IsOwnGoal ? GoalType.OwnGoal : evt.IsPenalty ? GoalType.PenaltyInMatch : GoalType.OpenPlay;
+                    var gt = ResolveGoalType(evt);
                     session.Store(new GoalEvent
                     {
                         Id          = CreateDeterministicGuid(GoalEventNamespace, $"{apiFixture.FixtureId}:{player.Id}:{liveGoalMinute}"),
@@ -773,7 +771,7 @@ public class ResultIngestionJob(
                                 var slotGoalMinute = evt.Time?.Elapsed ?? 0;
                                 var slotPlayer = ResolvePlayer(pName, playerByName, playersByLastName);
                                 if (slotPlayer == null) { statusStore.RecordUnmatched(slot.SlotKey, "goal", pName, slotGoalMinute); continue; }
-                                var slotGt = evt.IsOwnGoal ? GoalType.OwnGoal : evt.IsPenalty ? GoalType.PenaltyInMatch : GoalType.OpenPlay;
+                                var slotGt = ResolveGoalType(evt);
                                 session.Store(new GoalEvent
                                 {
                                     Id          = CreateDeterministicGuid(GoalEventNamespace, $"{apiFixture.FixtureId}:{slotPlayer.Id}:{slotGoalMinute}"),
@@ -1094,6 +1092,17 @@ public class ResultIngestionJob(
             id, apiFixture.StatusShort);
         return true;
     }
+
+    /// <summary>
+    /// Maps an API goal event to its scoring category. Order matters: a shootout kick
+    /// also satisfies IsPenalty, so it must be tested before IsPenalty. Callers must
+    /// have already excluded missed penalties (e.IsGoal &amp;&amp; !e.IsMissedPenalty).
+    /// </summary>
+    public static GoalType ResolveGoalType(ApiMatchEvent evt) =>
+        evt.IsShootout ? GoalType.Shootout      :
+        evt.IsOwnGoal  ? GoalType.OwnGoal       :
+        evt.IsPenalty  ? GoalType.PenaltyInMatch :
+                         GoalType.OpenPlay;
 
     /// <summary>
     /// Creates a deterministic Version 5 UUID (SHA-1 based) from a namespace GUID and a name string.
