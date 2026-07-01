@@ -185,6 +185,7 @@ public class ScoringRecomputeService(IDocumentStore store, IOutputCacheStore out
         var groupMatchPoints    = new Dictionary<string, int>();
         var exactCount          = new Dictionary<string, int>();
         var correctOutcomeCount = new Dictionary<string, int>();
+        var groupBreakdown      = new Dictionary<string, List<GroupPredictionScore>>();
 
         foreach (var pred in allGroupPredictions)
         {
@@ -194,11 +195,16 @@ public class ScoringRecomputeService(IDocumentStore store, IOutputCacheStore out
             var actualHome = fixture.HomeScore!.Value;
             var actualAway = fixture.AwayScore!.Value;
 
-            var pts = GroupMatchScorer.Compute(pred.HomeScore, pred.AwayScore, actualHome, actualAway);
+            var pts     = GroupMatchScorer.Compute(pred.HomeScore, pred.AwayScore, actualHome, actualAway);
+            var isExact = GroupMatchScorer.IsExact(pred.HomeScore, pred.AwayScore, actualHome, actualAway);
 
             groupMatchPoints[pred.UserId]    = groupMatchPoints.GetValueOrDefault(pred.UserId)    + pts;
-            exactCount[pred.UserId]          = exactCount.GetValueOrDefault(pred.UserId)          + (GroupMatchScorer.IsExact(pred.HomeScore, pred.AwayScore, actualHome, actualAway) ? 1 : 0);
+            exactCount[pred.UserId]          = exactCount.GetValueOrDefault(pred.UserId)          + (isExact ? 1 : 0);
             correctOutcomeCount[pred.UserId] = correctOutcomeCount.GetValueOrDefault(pred.UserId) + (pts >= 3 ? 1 : 0);
+
+            if (!groupBreakdown.TryGetValue(pred.UserId, out var userGroup))
+                groupBreakdown[pred.UserId] = userGroup = [];
+            userGroup.Add(new GroupPredictionScore(pred.FixtureId, pts, isExact, pts >= 3));
         }
 
         // ── Step 2: Tournament predictions — champion + Golden Six ────────────
@@ -223,6 +229,7 @@ public class ScoringRecomputeService(IDocumentStore store, IOutputCacheStore out
 
         var championPointsByUser  = new Dictionary<string, int>();
         var goldenSixPointsByUser = new Dictionary<string, int>();
+        var goldenSixBreakdown    = new Dictionary<string, List<GoldenSixPlayerScore>>();
 
         foreach (var tp in tournamentPredictions)
         {
@@ -235,6 +242,17 @@ public class ScoringRecomputeService(IDocumentStore store, IOutputCacheStore out
 
             var gs6Pts = GoldenSixScorer.ComputeTotal(playerStats, tp.GoldenSixPlayerIds);
             goldenSixPointsByUser[tp.UserId] = gs6Pts;
+
+            var userGs6Breakdown = tp.GoldenSixPlayerIds
+                .Where(id => playerStats.ContainsKey(id))
+                .Select(id =>
+                {
+                    var (_, goals) = playerStats[id];
+                    var pts = GoldenSixScorer.ComputeForPlayer(playerStats[id].position, goals);
+                    return new GoldenSixPlayerScore(id, goals, pts);
+                })
+                .ToList();
+            goldenSixBreakdown[tp.UserId] = userGs6Breakdown;
         }
 
         // ── Step 3: Knockout match points (streak per advancing TEAM along its path) ──
@@ -252,7 +270,8 @@ public class ScoringRecomputeService(IDocumentStore store, IOutputCacheStore out
                 g => g.Key,
                 g => (IReadOnlyDictionary<string, KnockoutPrediction>)g.ToDictionary(p => p.SlotKey));
 
-        var knockoutPointsByUser = new Dictionary<string, int>();
+        var knockoutPointsByUser  = new Dictionary<string, int>();
+        var knockoutBreakdown     = new Dictionary<string, List<KnockoutPredictionScore>>();
 
         // Shared memo across all (user, slot) pairs for this recompute run.
         var streakMemo = new Dictionary<(string UserId, string SlotKey), int>();
@@ -264,19 +283,28 @@ public class ScoringRecomputeService(IDocumentStore store, IOutputCacheStore out
                 if (!predsBySlot.TryGetValue(slot.SlotKey, out var pred))
                     continue;
 
+                var correctWinner = pred.PredictedWinnerTeamId == slot.WinnerTeamId;
+
                 // Derive streakBefore from the bracket feeder chain, not a global counter.
-                var streakBefore = pred.PredictedWinnerTeamId == slot.WinnerTeamId
+                var streakBefore = correctWinner
                     ? KnockoutStreakCalculator.FullStreak(userId, slot.SlotKey, slotByKey, predsByUserAndSlot, streakMemo) - 1
                     : 0;
 
-                var pts = KnockoutMatchScorer.Compute(
-                    pred.PredictedWinnerTeamId,
-                    pred.PredictedHomeScore, pred.PredictedAwayScore,
-                    slot.WinnerTeamId!,
-                    slot.HomeScore, slot.AwayScore,
-                    streakBefore);
+                var scorePoints = pred.PredictedHomeScore.HasValue && pred.PredictedAwayScore.HasValue
+                                  && slot.HomeScore.HasValue && slot.AwayScore.HasValue
+                    ? GroupMatchScorer.Compute(
+                        pred.PredictedHomeScore.Value, pred.PredictedAwayScore.Value,
+                        slot.HomeScore.Value, slot.AwayScore.Value)
+                    : 0;
 
-                knockoutPointsByUser[userId] = knockoutPointsByUser.GetValueOrDefault(userId) + pts;
+                var advancingPoints   = correctWinner ? 5 * (streakBefore + 1) : 0;
+                var streakMultiplier  = correctWinner ? streakBefore + 1 : 0;
+
+                knockoutPointsByUser[userId] = knockoutPointsByUser.GetValueOrDefault(userId) + scorePoints + advancingPoints;
+
+                if (!knockoutBreakdown.TryGetValue(userId, out var userKo))
+                    knockoutBreakdown[userId] = userKo = [];
+                userKo.Add(new KnockoutPredictionScore(slot.SlotKey, scorePoints, advancingPoints, streakMultiplier));
             }
         }
 
@@ -311,6 +339,9 @@ public class ScoringRecomputeService(IDocumentStore store, IOutputCacheStore out
                     KnockoutPoints      = knockoutPointsByUser.GetValueOrDefault(userId),
                     ExactScorelineCount = exactCount.GetValueOrDefault(userId),
                     CorrectOutcomeCount = correctOutcomeCount.GetValueOrDefault(userId),
+                    GroupBreakdown      = groupBreakdown.GetValueOrDefault(userId) ?? [],
+                    KnockoutBreakdown   = knockoutBreakdown.GetValueOrDefault(userId) ?? [],
+                    GoldenSixBreakdown  = goldenSixBreakdown.GetValueOrDefault(userId) ?? [],
                     LastComputedAt      = now,
                 };
 

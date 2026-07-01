@@ -1,7 +1,6 @@
 using Marten;
 using TriviumWorldCup.Api.Auth;
 using TriviumWorldCup.Api.Domain;
-using TriviumWorldCup.Api.Scoring;
 
 namespace TriviumWorldCup.Api.Standings;
 
@@ -45,7 +44,7 @@ public static class StandingsEndpoints
             {
                 var playerIds = tournamentPrediction.GoldenSixPlayerIds;
 
-                // Load all 6 player documents.
+                // Load all 6 player documents for name, teamId, and position.
                 var players = await session
                     .Query<Player>()
                     .Where(p => p.Id.IsOneOf(playerIds))
@@ -53,33 +52,23 @@ public static class StandingsEndpoints
 
                 var playerById = players.ToDictionary(p => p.Id);
 
-                // Count countable goals per player (exclude Shootout and OwnGoal).
-                var goalEvents = await session
-                    .Query<GoalEvent>()
-                    .Where(g => g.Type != GoalType.Shootout
-                             && g.Type != GoalType.OwnGoal
-                             && g.PlayerId.IsOneOf(playerIds))
-                    .ToListAsync(ct);
-
-                var goalCountByPlayer = goalEvents
-                    .GroupBy(g => g.PlayerId)
-                    .ToDictionary(grp => grp.Key, grp => grp.Count());
+                var gs6BreakdownById = myScore?.GoldenSixBreakdown.ToDictionary(b => b.PlayerId)
+                                        ?? new Dictionary<Guid, GoldenSixPlayerScore>();
 
                 foreach (var playerId in playerIds)
                 {
                     if (!playerById.TryGetValue(playerId, out var player))
                         continue; // player document missing — skip
 
-                    var goals = goalCountByPlayer.GetValueOrDefault(playerId);
-                    var points = GoldenSixScorer.ComputeForPlayer(player.Position, goals);
+                    gs6BreakdownById.TryGetValue(playerId, out var gs6);
 
                     goldenSixItems.Add(new GoldenSixPlayerDto(
                         PlayerId: playerId,
-                        Name: player.Name,
-                        TeamId: player.TeamId,
+                        Name:     player.Name,
+                        TeamId:   player.TeamId,
                         Position: player.Position.ToString(),
-                        Goals: goals,
-                        Points: points));
+                        Goals:    gs6?.Goals ?? 0,
+                        Points:   gs6?.Points ?? 0));
                 }
             }
 

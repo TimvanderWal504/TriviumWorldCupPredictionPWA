@@ -2,7 +2,6 @@ using Marten;
 using TriviumWorldCup.Api.Auth;
 using TriviumWorldCup.Api.Domain;
 using TriviumWorldCup.Api.Predictions;
-using TriviumWorldCup.Api.Scoring;
 
 namespace TriviumWorldCup.Api.Tournament;
 
@@ -113,7 +112,7 @@ public static class FixtureEndpoints
                 varDtos = new List<VarEventDto>();
             }
 
-            // Load the current user's predictions for completed fixtures and compute points.
+            // Load the current user's predictions for completed fixtures with points from MemberScore.
             List<MyFixturePredictionDto> myPredictions;
             if (fixtureIds.Count > 0)
             {
@@ -121,13 +120,16 @@ public static class FixtureEndpoints
                     .Where(p => p.UserId == user.UserId && p.FixtureId.IsOneOf(fixtureIds))
                     .ToListAsync(ct);
 
+                var memberScore = await session.LoadAsync<MemberScore>(user.UserId, ct);
+                var breakdownByFixture = memberScore?.GroupBreakdown.ToDictionary(b => b.FixtureId)
+                                          ?? new Dictionary<string, GroupPredictionScore>();
+
                 var fixtureById = fixtures.ToDictionary(f => f.Id);
                 myPredictions = predictions
                     .Where(p => fixtureById.TryGetValue(p.FixtureId, out var f) && f.HomeScore.HasValue && f.AwayScore.HasValue)
                     .Select(p =>
                     {
-                        var f = fixtureById[p.FixtureId];
-                        var points = GroupMatchScorer.Compute(p.HomeScore, p.AwayScore, f.HomeScore!.Value, f.AwayScore!.Value);
+                        var points = breakdownByFixture.GetValueOrDefault(p.FixtureId)?.Points ?? 0;
                         return new MyFixturePredictionDto(p.FixtureId, p.HomeScore, p.AwayScore, points);
                     })
                     .ToList();

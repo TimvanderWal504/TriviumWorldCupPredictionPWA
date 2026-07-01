@@ -2,7 +2,6 @@ using Marten;
 using TriviumWorldCup.Api.Auth;
 using TriviumWorldCup.Api.Auth.Link;
 using TriviumWorldCup.Api.Domain;
-using TriviumWorldCup.Api.Scoring;
 
 namespace TriviumWorldCup.Api.Leaderboard;
 
@@ -161,13 +160,16 @@ public static class LeaderboardEndpoints
                                 && (f.KickoffUtc <= now || f.Status == MatchStatus.Completed));
             }
 
+            var groupBreakdownByFixture = memberScore?.GroupBreakdown.ToDictionary(b => b.FixtureId)
+                                           ?? new Dictionary<string, GroupPredictionScore>();
+
             // Build group prediction DTOs.
             var groupPredictionDtos = new List<GroupPredictionDetailDto>();
             foreach (var pred in visiblePredictions)
             {
                 fixtureById.TryGetValue(pred.FixtureId, out var fixture);
                 int? groupPoints = fixture?.HomeScore is not null && fixture.AwayScore is not null
-                    ? GroupMatchScorer.Compute(pred.HomeScore, pred.AwayScore, fixture.HomeScore.Value, fixture.AwayScore.Value)
+                    ? groupBreakdownByFixture.GetValueOrDefault(pred.FixtureId)?.Points
                     : null;
                 groupPredictionDtos.Add(new GroupPredictionDetailDto(
                     FixtureId:     pred.FixtureId,
@@ -208,7 +210,6 @@ public static class LeaderboardEndpoints
                     && ks.KickoffUtc.HasValue
                     && (ks.KickoffUtc.Value <= now || ks.Status == MatchStatus.Completed));
 
-            // Compute per-prediction points + streak multiplier in tournament order.
             var orderedVisibleSlots = knockoutSlots
                 .Where(s => visibleKnockoutPredictions.Any(p => p.SlotKey == s.SlotKey))
                 .OrderBy(s => s.Round)
@@ -216,35 +217,26 @@ public static class LeaderboardEndpoints
                 .ToList();
 
             var predBySlotKey = allKnockoutPredictions.ToDictionary(p => p.SlotKey);
-            var streakBefore  = 0;
+            var knockoutBreakdownBySlot = memberScore?.KnockoutBreakdown.ToDictionary(b => b.SlotKey)
+                                           ?? new Dictionary<string, KnockoutPredictionScore>();
             var knockoutPredictionDtos = new List<KnockoutPredictionDetailDto>();
 
-            // Build DTOs in tournament order so streak is correct; non-visible ones skipped.
+            // Build DTOs in tournament order; non-visible ones skipped.
             foreach (var slot in orderedVisibleSlots)
             {
                 if (!predBySlotKey.TryGetValue(slot.SlotKey, out var kpred))
                     continue;
 
-                var multiplier       = streakBefore + 1;
-                int? scorePoints    = null;
-                int? winnerPoints   = null;
+                int? scorePoints  = null;
+                int? winnerPoints = null;
+                var  multiplier   = 1;
 
                 if (slot.WinnerTeamId is not null)
                 {
-                    scorePoints = kpred.PredictedHomeScore.HasValue && kpred.PredictedAwayScore.HasValue
-                                  && slot.HomeScore.HasValue && slot.AwayScore.HasValue
-                        ? GroupMatchScorer.Compute(
-                            kpred.PredictedHomeScore.Value, kpred.PredictedAwayScore.Value,
-                            slot.HomeScore.Value, slot.AwayScore.Value)
-                        : 0;
-
-                    winnerPoints = kpred.PredictedWinnerTeamId == slot.WinnerTeamId
-                        ? 5 * multiplier
-                        : 0;
-
-                    streakBefore = kpred.PredictedWinnerTeamId == slot.WinnerTeamId
-                        ? streakBefore + 1
-                        : 0;
+                    knockoutBreakdownBySlot.TryGetValue(slot.SlotKey, out var b);
+                    scorePoints  = b?.ScorePoints ?? 0;
+                    winnerPoints = b?.AdvancingPoints ?? 0;
+                    multiplier   = b?.StreakMultiplier > 0 ? b.StreakMultiplier : 1;
                 }
 
                 knockoutPredictionDtos.Add(new KnockoutPredictionDetailDto(
@@ -284,33 +276,23 @@ public static class LeaderboardEndpoints
 
                     var playerById = players.ToDictionary(p => p.Id);
 
-                    // Count countable goals per picked player.
-                    var goalEvents = await session
-                        .Query<GoalEvent>()
-                        .Where(g => g.Type != GoalType.Shootout
-                                 && g.Type != GoalType.OwnGoal
-                                 && g.PlayerId.IsOneOf(playerIds))
-                        .ToListAsync(ct);
-
-                    var goalCountByPlayer = goalEvents
-                        .GroupBy(g => g.PlayerId)
-                        .ToDictionary(grp => grp.Key, grp => grp.Count());
+                    var gs6BreakdownById = memberScore?.GoldenSixBreakdown.ToDictionary(b => b.PlayerId)
+                                           ?? new Dictionary<Guid, GoldenSixPlayerScore>();
 
                     foreach (var playerId in playerIds)
                     {
                         if (!playerById.TryGetValue(playerId, out var player))
                             continue;
 
-                        var goals  = goalCountByPlayer.GetValueOrDefault(playerId);
-                        var points = GoldenSixScorer.ComputeForPlayer(player.Position, goals);
+                        gs6BreakdownById.TryGetValue(playerId, out var gs6);
 
                         goldenSixDtos.Add(new GoldenSixDetailDto(
                             PlayerId: playerId,
                             Name:     player.Name,
                             TeamId:   player.TeamId,
                             Position: player.Position.ToString(),
-                            Goals:    goals,
-                            Points:   points));
+                            Goals:    gs6?.Goals ?? 0,
+                            Points:   gs6?.Points ?? 0));
                     }
                 }
 

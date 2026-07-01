@@ -36,8 +36,21 @@ permissions:
   contents: read
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.x'
+
+      - name: Run API tests
+        run: dotnet test TriviumWorldCup.sln --configuration Release --verbosity normal
+
   build-and-deploy:
     runs-on: ubuntu-latest
+    needs: test
     # Resolves environment-specific secrets and variables automatically.
     # staging branch → "staging" environment; main branch → "production" environment.
     environment: ${{ github.ref_name == 'main' && 'production' || 'staging' }}

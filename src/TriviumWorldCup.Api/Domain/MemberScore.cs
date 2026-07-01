@@ -33,6 +33,27 @@ public class MemberScore
     /// <summary>Count of predictions that earned any tier >= 3 pts (tiebreaker 2, TWC-11).</summary>
     public int CorrectOutcomeCount { get; set; }
 
+    /// <summary>Per-prediction breakdown for group-stage fixtures, keyed by FixtureId.</summary>
+    public List<GroupPredictionScore> GroupBreakdown { get; set; } = [];
+
+    /// <summary>Per-prediction breakdown for knockout slots, keyed by SlotKey.</summary>
+    public List<KnockoutPredictionScore> KnockoutBreakdown { get; set; } = [];
+
+    /// <summary>Per-player breakdown for the Golden Six picks.</summary>
+    public List<GoldenSixPlayerScore> GoldenSixBreakdown { get; set; } = [];
+
     /// <summary>Timestamp of the last recompute run.</summary>
     public DateTimeOffset LastComputedAt { get; set; }
 }
+
+/// <summary>Points for one user's group-stage prediction, keyed by FixtureId.</summary>
+public record GroupPredictionScore(string FixtureId, int Points, bool IsExact, bool IsCorrectOutcome);
+
+/// <summary>
+/// Points for one user's knockout prediction, keyed by SlotKey.
+/// StreakMultiplier is 0 when the predicted winner was wrong (AdvancingPoints will also be 0).
+/// </summary>
+public record KnockoutPredictionScore(string SlotKey, int ScorePoints, int AdvancingPoints, int StreakMultiplier);
+
+/// <summary>Points for one of the user's six picked Golden Six players.</summary>
+public record GoldenSixPlayerScore(Guid PlayerId, int Goals, int Points);

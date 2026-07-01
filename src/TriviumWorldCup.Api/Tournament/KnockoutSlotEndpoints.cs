@@ -1,7 +1,6 @@
 using Marten;
 using TriviumWorldCup.Api.Auth;
 using TriviumWorldCup.Api.Domain;
-using TriviumWorldCup.Api.Scoring;
 
 namespace TriviumWorldCup.Api.Tournament;
 
@@ -69,7 +68,10 @@ public static class KnockoutSlotEndpoints
                 .ToListAsync(ct);
             var predBySlot = predictions.ToDictionary(p => p.SlotKey);
 
-            var streak = 0;
+            var memberScore = await session.LoadAsync<MemberScore>(user.UserId, ct);
+            var breakdownBySlot = memberScore?.KnockoutBreakdown.ToDictionary(b => b.SlotKey)
+                                   ?? new Dictionary<string, KnockoutPredictionScore>();
+
             var dtos = new List<KnockoutSlotResultDto>(slots.Count);
 
             foreach (var slot in slots)
@@ -78,27 +80,15 @@ public static class KnockoutSlotEndpoints
 
                 if (predBySlot.TryGetValue(slot.SlotKey, out var pred))
                 {
-                    var correctWinner = pred.PredictedWinnerTeamId == slot.WinnerTeamId;
-
-                    var scorePoints = pred.PredictedHomeScore.HasValue && pred.PredictedAwayScore.HasValue
-                                      && slot.HomeScore.HasValue && slot.AwayScore.HasValue
-                        ? GroupMatchScorer.Compute(
-                              pred.PredictedHomeScore.Value, pred.PredictedAwayScore.Value,
-                              slot.HomeScore.Value, slot.AwayScore.Value)
-                        : 0;
-
-                    var advancingPoints = correctWinner ? 5 * (streak + 1) : 0;
+                    breakdownBySlot.TryGetValue(slot.SlotKey, out var b);
 
                     myPred = new MyKnockoutPredictionDto(
                         pred.PredictedWinnerTeamId,
                         pred.PredictedHomeScore,
                         pred.PredictedAwayScore,
-                        scorePoints,
-                        advancingPoints,
-                        streak + 1);
-
-                    // Streak only updates when the user submitted a prediction.
-                    streak = pred.PredictedWinnerTeamId == slot.WinnerTeamId ? streak + 1 : 0;
+                        ScorePoints:      b?.ScorePoints ?? 0,
+                        AdvancingPoints:  b?.AdvancingPoints ?? 0,
+                        StreakMultiplier: b?.StreakMultiplier > 0 ? b.StreakMultiplier : 1);
                 }
 
                 teamMap.TryGetValue(slot.HomeTeamId ?? string.Empty, out var homeTeam);

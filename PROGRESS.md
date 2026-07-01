@@ -327,8 +327,40 @@ Root cause analysis of Azure 503 errors during live matches identified CPU credi
 - **`Leaderboard/LeaderboardEndpoints.cs`** — drill-down endpoint (`GET /leaderboard/{userId}`) now loads `KnockoutPrediction` documents for the target user and the corresponding `KnockoutSlot` documents. Applies the same privacy filter as group predictions (only reveals once the slot's kickoff has passed). Computes points and streak multiplier per slot in tournament order (R32 → R16 → QF → SF → 3rd → Final), matching the same logic as `ScoringRecomputeService`. New `KnockoutPredictionDetailDto` record exposed (SlotKey, Round, teams, predicted winner + optional score, actual winner + result, Multiplier, Points). `MemberDrillDownDto` extended with `KnockoutPredictions` field.
 - **`pages/LeaderboardPage.tsx`** — `KnockoutPredictionDetail` interface and `knockoutPredictions` field added to `MemberDrillDown`. `DrillDownPanel` now renders a "Knockout predictions" section showing each slot's matchup, predicted winner (green/red on correct/wrong), optional score prediction, actual result, streak multiplier badge (×N when > 1), and a points badge. Hidden when the user has no visible knockout predictions yet.
 
+## Unversioned work (main, 1 July 2026)
+
+### Scoring centralisation refactor
+
+**Root cause addressed:** `MemberScore` stored only per-category totals; four endpoints recomputed per-prediction point breakdowns live from raw predictions + results, each using the pure scorer classes directly. This is structurally the same bug surface as the streak-multiplier bug: fix a scoring rule in one place and the other three endpoints don't get the memo.
+
+**Changes:**
+
+- **`Domain/MemberScore.cs`** — added three new record types (`GroupPredictionScore`, `KnockoutPredictionScore`, `GoldenSixPlayerScore`) and three corresponding `List<T>` breakdown properties on `MemberScore` (`GroupBreakdown`, `KnockoutBreakdown`, `GoldenSixBreakdown`). Marten stores them inline in the same JSON document — no schema migration; missing arrays deserialise as empty lists.
+
+- **`Scoring/ScoringRecomputeService.cs`** — breakdown collection dictionaries added to Steps 1–3. Step 1 (group) collects `GroupPredictionScore` entries per user alongside the existing total. Step 2 (Golden Six) collects `GoldenSixPlayerScore` per player per user. Step 3 (knockout) decomposes the `KnockoutMatchScorer.Compute` call into separate `scorePoints` / `advancingPoints` / `streakMultiplier` values and collects `KnockoutPredictionScore` entries. Step 4 assigns all three lists to the `MemberScore` document. No change to totals logic or existing behaviour.
+
+- **`Tournament/KnockoutSlotEndpoints.cs`** — removed `using TriviumWorldCup.Api.Scoring`. `GET /knockout-slots/results` no longer calls `GroupMatchScorer.Compute` or `KnockoutStreakCalculator.StreakBefore`; reads `MemberScore.KnockoutBreakdown` dictionary instead. `KnockoutPrediction` documents still loaded for predicted scores/winner IDs.
+
+- **`Leaderboard/LeaderboardEndpoints.cs`** — removed `using TriviumWorldCup.Api.Scoring`. Drill-down endpoint replaced all three live scorer calls: group points now from `MemberScore.GroupBreakdown`; knockout streak/score from `MemberScore.KnockoutBreakdown`; Golden Six points from `MemberScore.GoldenSixBreakdown`. Player documents still loaded for name/teamId/position. Removed `predsByUserAndSlot` / `KnockoutStreakCalculator` setup.
+
+- **`Tournament/FixtureEndpoints.cs`** — removed `using TriviumWorldCup.Api.Scoring`. `GET /fixtures/results` reads `MemberScore.GroupBreakdown` for per-fixture points instead of calling `GroupMatchScorer.Compute` inline.
+
+- **`Standings/StandingsEndpoints.cs`** — removed `using TriviumWorldCup.Api.Scoring`. `GET /scores/me` reads `MemberScore.GoldenSixBreakdown` instead of querying `GoalEvent` and calling `GoldenSixScorer.ComputeForPlayer`. Player documents still loaded for name/teamId/position.
+
+- **`Tests/Scoring/MemberScoreBreakdownTests.cs`** (new) — 8 tests: breakdown-total invariant for all three categories (group, knockout, Golden Six); idempotency tests; and a guardrail test (`ScoringFormulas_NotReferencedOutsideScoringNamespace`) that scans all `.cs` files under `src/TriviumWorldCup.Api/` and fails the build if `GroupMatchScorer.`, `KnockoutMatchScorer.`, `KnockoutStreakCalculator.`, or `GoldenSixScorer.` appear outside the `Scoring/` folder.
+
+**⚠️ Required after deploy:** run `POST /admin/recompute` once to backfill the breakdown lists on all existing `MemberScore` documents. Until then, the migrated endpoints return `0` points for already-scored predictions.
+
+**419 tests pass.**
+
+## Unversioned work (main, 1 July 2026)
+
+### GitHub Actions — unit tests gating deployment
+
+- **`.github/workflows/deploy-azure.yml`** — added a `test` job that runs before `build-and-deploy`. Checks out the repo, sets up .NET 8, and runs `dotnet test TriviumWorldCup.sln --configuration Release`. The `build-and-deploy` job now has `needs: test`, so pushes to `staging` or `main` are blocked if any test fails.
+
 ## Next action
-1. **Run `POST /admin/recompute`** (urgent) — two bugs now corrected require a full recompute: the penalty-shootout goal type fix (30 June) and the knockout streak-multiplier fix (30 June). Both change existing `MemberScore` documents; the recompute is the only remediation step needed.
+1. **Run `POST /admin/recompute`** (urgent) — three fixes now require a full recompute: the penalty-shootout goal type fix (30 June), the knockout streak-multiplier fix (30 June), and the scoring centralisation refactor (1 July, which backfills the new breakdown fields). A single recompute covers all three.
 2. **Deploy B2ms Postgres upgrade** — re-run `az deployment group create` with updated `main.bicep` during a non-match window (Azure requires ~2 min downtime to resize Flexible Server).
 3. **Run `POST /admin/fixtures/sync-api-ids`** — also populates `FootballApiFixtureId` on resolved knockout slots for reliable ingestion.
 4. **Platform generalization Gen-Wave B** — TWC-36 (data-driven structure), TWC-37 (generic outcome model), TWC-38 (competitor generalization), TWC-41 (lock policy + grace removal). All unblocked by TWC-35 ✅.
