@@ -331,12 +331,26 @@ public class ResultIngestionJob(
                 continue;
             }
 
-            // Update fixture scores, status, and API fixture ID
-            dbFixture.HomeScore            = apiFixture.HomeGoals;
-            dbFixture.AwayScore            = apiFixture.AwayGoals;
-            dbFixture.Status               = MatchStatus.Completed;
-            dbFixture.ElapsedMinute        = null;
-            dbFixture.ElapsedExtra         = null;
+            // An admin has manually set this fixture's result (POST /admin/fixtures/{id}/result).
+            // Never let a subsequent poll overwrite the admin-authoritative score/status — only
+            // an admin reverting the override (DELETE /admin/overrides/{id}) clears this flag.
+            // Events are still fetched/backfilled below (EventsIngested is independent), since
+            // suppressing the whole fixture would also block a legitimate event backfill.
+            if (ShouldSkipScoreUpdateForOverride(dbFixture))
+            {
+                logger.LogDebug(
+                    "ResultIngestionJob: fixture {Id} has an admin result override — skipping score/status update",
+                    dbFixture.Id);
+            }
+            else
+            {
+                // Update fixture scores, status, and API fixture ID
+                dbFixture.HomeScore     = apiFixture.HomeGoals;
+                dbFixture.AwayScore     = apiFixture.AwayGoals;
+                dbFixture.Status        = MatchStatus.Completed;
+                dbFixture.ElapsedMinute = null;
+                dbFixture.ElapsedExtra  = null;
+            }
             // Once set, FootballApiFixtureId is never overwritten. A reschedule that bypasses
             // the postponed-recheck path could leave it pointing at a stale API ID.
             dbFixture.FootballApiFixtureId ??= apiFixture.FixtureId;
@@ -542,6 +556,9 @@ public class ResultIngestionJob(
             if (liveHomeCode == null || liveAwayCode == null) continue;
             if (!fixtureByTeamPair.TryGetValue((liveHomeCode, liveAwayCode), out var liveDbFixture)) continue;
             if (completedSet.Contains(liveDbFixture.Id)) continue;
+            // Admin result override (e.g. MarkAsLive with a manual placeholder score) is
+            // authoritative — same guard as the FT branch above.
+            if (ShouldSkipScoreUpdateForOverride(liveDbFixture)) continue;
 
             liveDbFixture.Status               = MatchStatus.InProgress;
             liveDbFixture.HomeScore            = apiFixture.HomeGoals;
@@ -1382,6 +1399,15 @@ public class ResultIngestionJob(
     /// </summary>
     internal static string PlayerKey(string rawName) =>
         NormalizeName(rawName).Trim().ToLowerInvariant();
+
+    /// <summary>
+    /// True when the ingestion job must NOT overwrite a fixture's score/status from the API
+    /// because an admin has set it manually via POST /admin/fixtures/{fixtureId}/result.
+    /// Mirrors the HomeTeamOverridden/AwayTeamOverridden pattern used for knockout slot team
+    /// resolution. Cleared only via DELETE /admin/overrides/{id}. Pure function — testable
+    /// without any infrastructure.
+    /// </summary>
+    internal static bool ShouldSkipScoreUpdateForOverride(Fixture fixture) => fixture.ResultOverridden;
 
     /// <summary>
     /// Returns true when goal events should be purged and rewritten on a live-poll cycle.

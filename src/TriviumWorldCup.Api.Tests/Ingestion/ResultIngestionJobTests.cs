@@ -792,4 +792,106 @@ public class ResultIngestionJobTests
         Assert.Equal(GoalType.Shootout, ResultIngestionJob.ResolveGoalType(shootoutKick));
         Assert.Equal(GoalType.PenaltyInMatch, ResultIngestionJob.ResolveGoalType(inMatchPenalty));
     }
+
+    // ── TWC-56: admin fixture result override survives subsequent ingestion polls ──
+    //
+    // Regression coverage for the bug where POST /admin/fixtures/{id}/result set the score
+    // and wrote a ResultOverride audit record but never marked the fixture as overridden, so
+    // the next ingestion poll's FT/live branches silently overwrote the admin's score with
+    // whatever the API reported. ShouldSkipScoreUpdateForOverride is the guard both the FT
+    // branch and the live-clock-update branch now check before touching HomeScore/AwayScore/
+    // Status — mirroring the existing HomeTeamOverridden/AwayTeamOverridden pattern used for
+    // knockout slot team resolution.
+
+    [Fact]
+    public void ShouldSkipScoreUpdateForOverride_ResultOverridden_ReturnsTrue()
+    {
+        var fixture = new Fixture { Id = "5", ResultOverridden = true };
+
+        Assert.True(ResultIngestionJob.ShouldSkipScoreUpdateForOverride(fixture));
+    }
+
+    [Fact]
+    public void ShouldSkipScoreUpdateForOverride_NotOverridden_ReturnsFalse()
+    {
+        var fixture = new Fixture { Id = "5", ResultOverridden = false };
+
+        Assert.False(ResultIngestionJob.ShouldSkipScoreUpdateForOverride(fixture));
+    }
+
+    [Fact]
+    public void AdminOverriddenFixture_IngestionPollWithDifferentApiScore_ScoreUnchanged()
+    {
+        // Simulates: admin sets fixture 5 to 2-1 via POST /admin/fixtures/5/result (which now
+        // sets ResultOverridden = true), then the next poll's FT loop sees the API reporting a
+        // different score (3-1). Before applying dbFixture.HomeScore/AwayScore/Status from the
+        // API fixture, the job must check ShouldSkipScoreUpdateForOverride and, if true, leave
+        // the admin's score untouched — exactly as coded in ResultIngestionJob.Execute's FT loop.
+        var dbFixture = new Fixture
+        {
+            Id             = "5",
+            HomeTeamId     = "ARG",
+            AwayTeamId     = "FRA",
+            HomeScore      = 2,
+            AwayScore      = 1,
+            Status         = MatchStatus.Completed,
+            ResultOverridden = true,
+        };
+
+        var apiReportedHomeGoals = 3; // different from the admin's override
+        var apiReportedAwayGoals = 1;
+
+        // Mirror the exact branch structure from ResultIngestionJob.Execute.
+        if (!ResultIngestionJob.ShouldSkipScoreUpdateForOverride(dbFixture))
+        {
+            dbFixture.HomeScore = apiReportedHomeGoals;
+            dbFixture.AwayScore = apiReportedAwayGoals;
+        }
+
+        Assert.Equal(2, dbFixture.HomeScore);
+        Assert.Equal(1, dbFixture.AwayScore);
+        Assert.Equal(MatchStatus.Completed, dbFixture.Status);
+    }
+
+    [Fact]
+    public void RevertedOverride_SubsequentPoll_ScoreUpdatesNormally()
+    {
+        // After DELETE /admin/overrides/{id} clears ResultOverridden back to false (and resets
+        // the fixture to Scheduled per the existing revert handler), a later poll must resume
+        // normal ingestion.
+        var dbFixture = new Fixture
+        {
+            Id               = "5",
+            HomeTeamId       = "ARG",
+            AwayTeamId       = "FRA",
+            HomeScore        = null,
+            AwayScore        = null,
+            Status           = MatchStatus.Scheduled,
+            ResultOverridden = false, // cleared by DELETE /admin/overrides/{id}
+        };
+
+        var apiReportedHomeGoals = 3;
+        var apiReportedAwayGoals = 1;
+
+        if (!ResultIngestionJob.ShouldSkipScoreUpdateForOverride(dbFixture))
+        {
+            dbFixture.HomeScore = apiReportedHomeGoals;
+            dbFixture.AwayScore = apiReportedAwayGoals;
+            dbFixture.Status    = MatchStatus.Completed;
+        }
+
+        Assert.Equal(3, dbFixture.HomeScore);
+        Assert.Equal(1, dbFixture.AwayScore);
+        Assert.Equal(MatchStatus.Completed, dbFixture.Status);
+    }
+
+    [Fact]
+    public void Fixture_ResultOverridden_DefaultsFalse()
+    {
+        // New/existing fixtures never predicated on this flag must default to "not overridden"
+        // so pre-existing seeded fixtures keep ingesting normally.
+        var fixture = new Fixture { Id = "1" };
+
+        Assert.False(fixture.ResultOverridden);
+    }
 }
