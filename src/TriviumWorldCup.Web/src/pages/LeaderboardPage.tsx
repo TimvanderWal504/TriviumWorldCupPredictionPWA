@@ -9,7 +9,6 @@ interface LeaderboardEntry {
   userId: string;
   displayName: string;
   countryCode?: string;
-  email?: string;
   totalPoints: number;
   groupMatchPoints: number;
   championPoints: number;
@@ -116,11 +115,6 @@ function PodiumSection({ entries, currentUserId, onSelect, selectable }: PodiumS
               {entry.displayName}
               {isCurrentUser && <span className="text-secondary ml-1 text-[11px]">(you)</span>}
             </span>
-            {entry.email && (
-              <span className="text-[11px] text-fg-muted truncate w-full px-1 text-center mb-0.5">
-                {entry.email.split('@')[0]}
-              </span>
-            )}
             <span className={`${ptsSize[entry.rank]} font-black tnum mb-2`} style={{ color: colorVar }}>
               {entry.totalPoints} pts
             </span>
@@ -455,7 +449,7 @@ export function LeaderboardPage() {
   const isSearching = searchQuery.trim().length > 0;
   const normalised  = searchQuery.trim().toLowerCase();
   const filteredEntries = isSearching
-    ? entries.filter(e => e.email?.toLowerCase().includes(normalised))
+    ? entries.filter(e => e.displayName.toLowerCase().includes(normalised))
     : entries;
 
   const top3 = filteredEntries.filter(e => e.rank <= 3);
@@ -512,10 +506,9 @@ export function LeaderboardPage() {
 
         {listEntries.length > 0 ? (
           <>
-            <div className="grid grid-cols-[2rem_1fr_1fr_3.5rem] gap-x-3 px-4 py-2.5 bg-surface-2 text-[10px] font-display font-bold uppercase tracking-wider text-fg-muted items-center">
+            <div className="grid grid-cols-[2rem_1fr_3.5rem] gap-x-3 px-4 py-2.5 bg-surface-2 text-[10px] font-display font-bold uppercase tracking-wider text-fg-muted items-center">
               <span className="text-center">#</span>
               <span>Member</span>
-              <span>Email</span>
               <span className="text-right">Pts</span>
             </div>
             <div className="divide-y divide-border">
@@ -526,7 +519,7 @@ export function LeaderboardPage() {
                     key={entry.userId}
                     onClick={user ? () => void handleRowClick(entry) : undefined}
                     disabled={!user}
-                    className={`w-full grid grid-cols-[2rem_1fr_1fr_3.5rem] gap-x-3 px-4 py-3 text-left items-center transition-colors ${
+                    className={`w-full grid grid-cols-[2rem_1fr_3.5rem] gap-x-3 px-4 py-3 text-left items-center transition-colors ${
                       user ? 'hover:bg-surface-2 cursor-pointer' : 'cursor-default'
                     } ${isCurrentUser ? 'bg-blue-500/10' : ''}`}
                   >
@@ -547,9 +540,6 @@ export function LeaderboardPage() {
                       </span>
                       {isCurrentUser && <span className="text-[11px] text-secondary shrink-0">(you)</span>}
                     </div>
-                    <span className="text-[12px] text-fg-muted truncate">
-                      {entry.email?.split('@')[0] ?? '—'}
-                    </span>
                     <span className="font-display font-black text-[18px] tnum text-right">{entry.totalPoints}</span>
                   </button>
                 );
@@ -578,7 +568,7 @@ export function LeaderboardPage() {
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search by email…"
+            placeholder="Search by name…"
             className="w-full bg-transparent pl-8 pr-8 py-2.5 text-[14px] text-fg placeholder:text-fg-muted focus:outline-none"
           />
           {isSearching && (
