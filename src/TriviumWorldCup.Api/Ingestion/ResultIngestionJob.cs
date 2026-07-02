@@ -166,6 +166,15 @@ public class ResultIngestionJob(
                 allApiFixtures = allApiFixtures.Concat(prev).DistinctBy(f => f.FixtureId).ToList();
             }
         }
+        catch (HttpRequestException ex) when (ex.InnerException is InvalidOperationException { Message: "Quota exceeded" })
+        {
+            // Same recognisable shape GetAllEventsAsync raises — reported identically so
+            // LastError doesn't depend on which underlying API-Football call hit the limit.
+            statusStore.LastError = "API quota exhausted (429)";
+            statusStore.ErrorCount++;
+            logger.LogWarning(ex, "ResultIngestionJob: API-Football quota exhausted while fetching fixtures — will retry on next cycle");
+            return;
+        }
         catch (Exception ex)
         {
             statusStore.LastError = ex.Message;
