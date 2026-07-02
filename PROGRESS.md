@@ -422,3 +422,14 @@ Root cause: admin re-ingest endpoints (`reset-events`, `fetch-events`, `fetch-al
 **412 tests pass.**
 
 **After deploy:** run `POST /admin/recompute` — existing `MemberScore` documents contain inflated knockout points for any user who had two or more correct picks in the same round. The recompute corrects all scores.
+
+## Unversioned work (feature/TWC-54, 2 July 2026)
+
+### TWC-54 — Public leaderboard email exposure
+
+- **`Leaderboard/LeaderboardEndpoints.cs`** — `GET /leaderboard` was unauthenticated and returned every member's email via `LeaderboardEntryDto.Email` (joined from `InviteUser`). Initial fix (commit `3619347`) removed `Email` entirely, per the Jira AC ("no email field on the public response; if needed elsewhere, admin-gated only").
+- **Follow-up (same day):** product decision to restore a masked identity indicator on the public leaderboard rather than removing it outright. `LeaderboardEntryDto.Email` replaced by `MemberHandle` — computed server-side via a local `MaskEmail` helper that returns only the local-part (everything before `@`) of `InviteUser.Email`; full address/domain never serialized, no `email`-named property. This is a narrower interpretation than the original AC's "no email-derived data publicly" intent — logged as a comment on TWC-54 for visibility, issue left Done (not reopened).
+- **`Leaderboard/LeaderboardEndpoints.cs`** DTO — `MemberHandle: string?` param added back to `LeaderboardEntryDto`; both population sites (ranked + unscored members) restored the `inviteUserById` lookup.
+- **`Api.Tests/Leaderboard/LeaderboardEntryDtoTests.cs`** — rewritten: still asserts no `Email`-named property/JSON key at type + serialization level; new test asserts serialized JSON never contains `@`; "expected public fields" test updated for `memberHandle`.
+- **`pages/LeaderboardPage.tsx`** — podium and list rows show `entry.memberHandle` (server-computed, no more client-side `.split('@')[0]`); search matches display name OR handle; search placeholder updated to "Search by name or handle…"; list header restored a `Handle` column.
+- Backend: 14/14 Leaderboard tests pass. Frontend: `tsc -b && vite build` green.
