@@ -994,4 +994,100 @@ public class ResultIngestionJobTests
 
         Assert.Equal(expectedId, goal.Id);
     }
+
+    // ── TWC-64: PEN/AET completion with no derivable winner must not finalize ────
+    //
+    // Regression coverage for the bug where a PEN-completed slot with missing penalty
+    // scores (API omitted ScorePenaltyHome/ScorePenaltyAway) left WinnerTeamId null but the
+    // slot was still marked Completed. ScoringRecomputeService only processes knockout slots
+    // where Status == Completed && WinnerTeamId != null, so the slot silently dropped out of
+    // scoring/propagation. IsUnresolvableDecidingCompletion is the guard the FT branch now
+    // checks before setting Status = Completed.
+
+    [Fact]
+    public void IsUnresolvableDecidingCompletion_PenWithNullWinner_ReturnsTrue()
+    {
+        Assert.True(ResultIngestionJob.IsUnresolvableDecidingCompletion("PEN", winnerTeamId: null));
+    }
+
+    [Fact]
+    public void IsUnresolvableDecidingCompletion_AetWithNullWinner_ReturnsTrue()
+    {
+        Assert.True(ResultIngestionJob.IsUnresolvableDecidingCompletion("AET", winnerTeamId: null));
+    }
+
+    [Fact]
+    public void IsUnresolvableDecidingCompletion_PenWithWinner_ReturnsFalse()
+    {
+        Assert.False(ResultIngestionJob.IsUnresolvableDecidingCompletion("PEN", winnerTeamId: "ARG"));
+    }
+
+    [Fact]
+    public void IsUnresolvableDecidingCompletion_AetWithWinner_ReturnsFalse()
+    {
+        Assert.False(ResultIngestionJob.IsUnresolvableDecidingCompletion("AET", winnerTeamId: "FRA"));
+    }
+
+    [Fact]
+    public void IsUnresolvableDecidingCompletion_RegularFtWithNullWinner_ReturnsFalse()
+    {
+        // A plain "FT" result should never hit this guard — regulation-time score comparison
+        // always yields a winner unless the scores are tied, which for a knockout match with
+        // status "FT" (not AET/PEN) should not happen; this guard is scoped to AET/PEN only.
+        Assert.False(ResultIngestionJob.IsUnresolvableDecidingCompletion("FT", winnerTeamId: null));
+    }
+
+    [Fact]
+    public void PenCompletion_MissingPenaltyScores_LeavesWinnerNull_DetectedByGuard()
+    {
+        // Simulates the exact bug scenario: API reports StatusShort "PEN" but
+        // ScorePenaltyHome/ScorePenaltyAway are both null. Mirrors the winner-derivation
+        // logic in ResultIngestionJob.Execute's FT branch.
+        var slot = new KnockoutSlot
+        {
+            Id         = "SF-1",
+            SlotKey    = "SF-1",
+            HomeTeamId = "ARG",
+            AwayTeamId = "FRA",
+            HomeScore  = 1,
+            AwayScore  = 1,
+        };
+
+        int? scorePenaltyHome = null;
+        int? scorePenaltyAway = null;
+
+        slot.PenaltyHomeScore = scorePenaltyHome;
+        slot.PenaltyAwayScore = scorePenaltyAway;
+        if (slot.PenaltyHomeScore > slot.PenaltyAwayScore)
+            slot.WinnerTeamId = slot.HomeTeamId;
+        else if (slot.PenaltyAwayScore > slot.PenaltyHomeScore)
+            slot.WinnerTeamId = slot.AwayTeamId;
+
+        Assert.Null(slot.WinnerTeamId);
+        Assert.True(ResultIngestionJob.IsUnresolvableDecidingCompletion("PEN", slot.WinnerTeamId));
+    }
+
+    [Fact]
+    public void PenCompletion_ValidPenaltyScores_DerivesWinner_GuardDoesNotFire()
+    {
+        var slot = new KnockoutSlot
+        {
+            Id         = "SF-1",
+            SlotKey    = "SF-1",
+            HomeTeamId = "ARG",
+            AwayTeamId = "FRA",
+            HomeScore  = 1,
+            AwayScore  = 1,
+        };
+
+        slot.PenaltyHomeScore = 4;
+        slot.PenaltyAwayScore = 3;
+        if (slot.PenaltyHomeScore > slot.PenaltyAwayScore)
+            slot.WinnerTeamId = slot.HomeTeamId;
+        else if (slot.PenaltyAwayScore > slot.PenaltyHomeScore)
+            slot.WinnerTeamId = slot.AwayTeamId;
+
+        Assert.Equal("ARG", slot.WinnerTeamId);
+        Assert.False(ResultIngestionJob.IsUnresolvableDecidingCompletion("PEN", slot.WinnerTeamId));
+    }
 }

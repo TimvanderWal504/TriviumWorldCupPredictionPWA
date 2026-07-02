@@ -879,7 +879,6 @@ public class ResultIngestionJob(
                     // scoring system compares against. Falls back to goals total if not available.
                     slot.HomeScore = apiFixture.ScoreFullTimeHome ?? apiFixture.HomeGoals;
                     slot.AwayScore = apiFixture.ScoreFullTimeAway ?? apiFixture.AwayGoals;
-                    slot.Status    = MatchStatus.Completed;
 
                     // Determine winner
                     if (slot.HomeScore > slot.AwayScore)
@@ -903,6 +902,39 @@ public class ResultIngestionJob(
                         else if (slot.PenaltyAwayScore > slot.PenaltyHomeScore)
                             slot.WinnerTeamId = slot.AwayTeamId;
                     }
+
+                    // A PEN/AET completion that levelled out with no derivable winner (e.g. the
+                    // API omitted penalty scores, or an AET fixture reports equal HomeGoals/
+                    // AwayGoals) must NOT be silently finalized as Completed — ScoringRecomputeService
+                    // only processes knockout slots where Status == Completed && WinnerTeamId != null,
+                    // so a Completed slot with a null winner would silently drop out of scoring and
+                    // bracket propagation with no visible alert. Leave it non-terminal so the next
+                    // poll retries (in case the API was just slow to publish penalty scores) and
+                    // surface a clear message for manual resolution via the existing knockout
+                    // result-override endpoint (POST /admin/knockout/{slotKey}/result).
+                    if (IsUnresolvableDecidingCompletion(apiFixture.StatusShort, slot.WinnerTeamId))
+                    {
+                        var message =
+                            $"ResultIngestionJob: knockout slot {slot.SlotKey} reported {apiFixture.StatusShort} " +
+                            $"by the API but no winner could be derived (score {slot.HomeScore}-{slot.AwayScore}" +
+                            (apiFixture.StatusShort is "PEN"
+                                ? $", penalties {apiFixture.ScorePenaltyHome?.ToString() ?? "null"}-{apiFixture.ScorePenaltyAway?.ToString() ?? "null"}"
+                                : "") +
+                            "). Leaving the slot out of Completed status — resolve manually via " +
+                            $"POST /admin/knockout/{slot.SlotKey}/result.";
+                        logger.LogWarning(message);
+                        statusStore.LastError = message;
+
+                        // Keep the slot in ExtraTime so it stays in the "still to resolve" bucket
+                        // (excluded from Completed/Cancelled/Postponed, so future polls keep
+                        // rechecking it) without pretending the match is over.
+                        slot.Status = MatchStatus.ExtraTime;
+                        session.Store(slot);
+                        knockoutUpdated++;
+                        continue;
+                    }
+
+                    slot.Status = MatchStatus.Completed;
 
                     completedSlotKeys.Add(slot.SlotKey);
                     logger.LogInformation(
@@ -1418,6 +1450,19 @@ public class ResultIngestionJob(
     /// without any infrastructure.
     /// </summary>
     internal static bool ShouldSkipScoreUpdateForOverride(Fixture fixture) => fixture.ResultOverridden;
+
+    /// <summary>
+    /// True when the API reports a knockout slot decided by extra time or penalties
+    /// (StatusShort "AET" or "PEN") but no winner could be derived from the scores supplied
+    /// (e.g. the API omitted penalty scores, or an "AET" fixture reports equal HomeGoals/
+    /// AwayGoals). In this case the FT branch must not finalize the slot as Completed —
+    /// <see cref="ScoringRecomputeService"/> only processes knockout slots where
+    /// Status == Completed &amp;&amp; WinnerTeamId != null, so a Completed slot with a null winner
+    /// would silently drop out of scoring/propagation with no visible alert.
+    /// Pure function — testable without any infrastructure.
+    /// </summary>
+    internal static bool IsUnresolvableDecidingCompletion(string statusShort, string? winnerTeamId) =>
+        winnerTeamId is null && statusShort is "PEN" or "AET";
 
     /// <summary>
     /// Returns true when goal events should be purged and rewritten on a live-poll cycle.
