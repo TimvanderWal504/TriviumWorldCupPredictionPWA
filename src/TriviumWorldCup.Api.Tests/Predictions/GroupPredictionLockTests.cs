@@ -111,8 +111,5 @@ public class GroupPredictionLockTests
         var error = GroupPredictionEndpoints.ValidateRequest(request);
         Assert.NotNull(error);
         Assert.Contains("AwayScore", error, StringComparison.OrdinalIgnoreCase);
-    }
-
-    // Note: TWC-52 route-removal coverage for POST /predictions/group/inject lives in
-    // GroupPredictionInjectRemovedTests.cs, alongside the rest of the route-table assertions.
+    }   
 }

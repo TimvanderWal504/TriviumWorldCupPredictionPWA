@@ -86,14 +86,6 @@ public static class GroupPredictionEndpoints
         .WithName("CreateGroupPrediction")
         .WithSummary("Creates a group-stage prediction for the current user.");
 
-        // NOTE (TWC-52): The former self-service "POST /predictions/group/inject" bulk-upsert
-        // endpoint has been removed. It bypassed all lock checks (any authenticated user could
-        // write predictions for completed fixtures and gain points on the next scoring recompute).
-        // The admin-gated equivalent — POST /admin/users/{userId}/predictions/inject
-        // (AdminEndpoints.cs), gated with IsInRole("admin") — supersedes it. There is no
-        // legitimate self-service need for a lock-bypassing bulk write: normal bulk saves go
-        // through POST/PUT /predictions/group/{fixtureId}, which both enforce IsLocked(fixture).
-
         // PUT /predictions/group/{fixtureId} — update an existing prediction.
         group.MapPut("/{fixtureId}", async (
             string fixtureId,
