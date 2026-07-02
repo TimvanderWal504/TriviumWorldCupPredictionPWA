@@ -707,4 +707,89 @@ public class ResultIngestionJobTests
 
         Assert.False(evt.IsMissedPenalty);
     }
+
+    // ── TWC-55: knockout FT event fetch — no live poll caught the goals ─────
+    //
+    // Regression coverage for the bug where the knockout FT branch never called
+    // GetAllEventsAsync, so a slot that went Scheduled -> Completed across two polls with
+    // no live poll in between (e.g. a short-lived API hiccup, or the job simply not
+    // running during the match) recorded a score but zero goal events, permanently
+    // undercounting Golden Six. The FT branch now fetches the full event set exactly like
+    // the group-fixture FT path — this test exercises that same pipeline (filter cancelled
+    // goals -> resolve goal type -> build deterministic GoalEvent) end-to-end for a
+    // knockout slot's full event history, proving every goal from kickoff to FT survives
+    // even though no live poll ever ran to pick them up incrementally.
+
+    [Fact]
+    public void KnockoutFtEventPipeline_NoLivePollEverRan_AllGoalsFromEntireMatchSurvive()
+    {
+        // Simulates GetAllEventsAsync returning the FULL match history in one shot — as
+        // would happen if the job's live window never caught this match (e.g. a Scheduled
+        // slot jumped straight to FT between two 30s polls with no InProgress poll between).
+        var scorer1 = Guid.NewGuid();
+        var scorer2 = Guid.NewGuid();
+
+        var earlyGoal = new ApiMatchEvent
+        {
+            Type   = "Goal",
+            Time   = new ApiTime { Elapsed = 12 },
+            Player = new ApiPlayer { Name = "Player One" },
+            Detail = "Normal Goal",
+        };
+        var lateGoal = new ApiMatchEvent
+        {
+            Type   = "Goal",
+            Time   = new ApiTime { Elapsed = 88 },
+            Player = new ApiPlayer { Name = "Player Two" },
+            Detail = "Normal Goal",
+        };
+
+        var allSlotEvents = new List<ApiMatchEvent> { earlyGoal, lateGoal };
+
+        var varCancels    = allSlotEvents.Where(e => e.IsVar && e.IsGoalCancelled);
+        var filteredGoals = ResultIngestionJob.FilterCancelledGoals(
+            allSlotEvents.Where(e => e.IsGoal && !e.IsMissedPenalty), varCancels);
+
+        Assert.Equal(2, filteredGoals.Count);
+
+        var built = filteredGoals
+            .Select(evt => ResultIngestionJob.BuildGoalEvent(
+                apiFixtureId: 55001,
+                dbFixtureId:  "R32-1",
+                playerId:     evt.Player!.Name == "Player One" ? scorer1 : scorer2,
+                evt:          evt))
+            .ToList();
+
+        Assert.Equal(2, built.Count);
+        Assert.All(built, g => Assert.Equal("R32-1", g.FixtureId));
+        Assert.Contains(built, g => g.PlayerId == scorer1 && g.Minute == 12);
+        Assert.Contains(built, g => g.PlayerId == scorer2 && g.Minute == 88);
+        Assert.NotEqual(built[0].Id, built[1].Id);
+    }
+
+    [Fact]
+    public void KnockoutFtEventPipeline_ShootoutKicks_NotCountedAsInMatchGoals()
+    {
+        // Reuses the same shootout discrimination the live-poll path relies on
+        // (ResolveGoalType -> GoalType.Shootout, which ScoringRecomputeService explicitly
+        // excludes from Golden Six). A shootout kick must never be tagged OpenPlay/PenaltyInMatch.
+        var shootoutKick = new ApiMatchEvent
+        {
+            Type     = "Goal",
+            Time     = new ApiTime { Elapsed = 120 },
+            Player   = new ApiPlayer { Name = "Shootout Taker" },
+            Detail   = "Penalty",
+            Comments = "Penalty Shootout",
+        };
+        var inMatchPenalty = new ApiMatchEvent
+        {
+            Type   = "Goal",
+            Time   = new ApiTime { Elapsed = 45 },
+            Player = new ApiPlayer { Name = "Regular Taker" },
+            Detail = "Penalty",
+        };
+
+        Assert.Equal(GoalType.Shootout, ResultIngestionJob.ResolveGoalType(shootoutKick));
+        Assert.Equal(GoalType.PenaltyInMatch, ResultIngestionJob.ResolveGoalType(inMatchPenalty));
+    }
 }

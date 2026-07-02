@@ -892,6 +892,137 @@ public class ResultIngestionJob(
                         "ResultIngestionJob: knockout slot {SlotKey} completed — {Home} {HomeScore}-{AwayScore} {Away}, winner={Winner}",
                         slot.SlotKey, slot.HomeTeamId, slot.HomeScore, slot.AwayScore, slot.AwayTeamId,
                         slot.WinnerTeamId ?? "TBD");
+
+                    // Fetch the full event set for the slot at FT — mirrors the group-fixture FT
+                    // path. This is required (not just an incremental top-up from live polling)
+                    // because a slot that completes between polls (or one whose live window was
+                    // never caught) would otherwise have zero events, permanently undercounting
+                    // Golden Six. Purge-then-rewrite guarantees no stale/duplicate rows survive.
+                    IReadOnlyList<ApiMatchEvent> slotFtEvents = [];
+                    try
+                    {
+                        slotFtEvents = await apiClient.GetAllEventsAsync(apiFixture.FixtureId, ct);
+                    }
+                    catch (HttpRequestException ex) when (ex.InnerException is InvalidOperationException { Message: "Quota exceeded" })
+                    {
+                        logger.LogWarning(ex,
+                            "ResultIngestionJob: API-Football quota exhausted while fetching FT events for knockout slot {SlotKey}. " +
+                            "Score recorded; events will backfill after quota reset (00:00 UTC).",
+                            slot.SlotKey);
+                        statusStore.LastError = "API quota exhausted (429)";
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex,
+                            "ResultIngestionJob: transient error fetching FT events for knockout slot {SlotKey} — " +
+                            "score recorded but events skipped",
+                            slot.SlotKey);
+                    }
+
+                    if (slotFtEvents.Count > 0)
+                    {
+                        await PurgeFixtureEventsAsync(session, slot.SlotKey, ct);
+
+                        // Shootout kicks arrive as type:"Goal", detail:"Penalty" — identical shape
+                        // to an in-match penalty. ShouldPurgeGoalEventsOnLivePoll(PenaltyShootout)
+                        // returns false, which is the same discrimination the live-poll path uses
+                        // to avoid mixing shootout kicks into in-match goal totals. At FT the slot
+                        // is Completed, not PenaltyShootout, so that guard doesn't apply here —
+                        // instead we rely on IsShootout directly to exclude shootout kicks from the
+                        // goal set written below, exactly like the group FT path excludes them via
+                        // ResolveGoalType/GoalType.Shootout on write (never counted in Golden Six).
+                        var ftVarCancels    = slotFtEvents.Where(e => e.IsVar && e.IsGoalCancelled);
+                        var ftFilteredGoals = FilterCancelledGoals(slotFtEvents.Where(e => e.IsGoal && !e.IsMissedPenalty), ftVarCancels);
+
+                        foreach (var evt in ftFilteredGoals)
+                        {
+                            if (evt.Player?.Name is not { Length: > 0 } pName) continue;
+                            var ftGoalMinute = evt.Time?.Elapsed ?? 0;
+                            var ftPlayer = ResolvePlayer(pName, playerByName, playersByLastName);
+                            if (ftPlayer == null) { statusStore.RecordUnmatched(slot.SlotKey, "goal", pName, ftGoalMinute); continue; }
+                            var ftGoalType = ResolveGoalType(evt);
+                            session.Store(new GoalEvent
+                            {
+                                Id          = CreateDeterministicGuid(GoalEventNamespace, $"{apiFixture.FixtureId}:{ftPlayer.Id}:{ftGoalMinute}"),
+                                FixtureId   = slot.SlotKey,
+                                PlayerId    = ftPlayer.Id,
+                                Type        = ftGoalType,
+                                Minute      = ftGoalMinute,
+                                ExtraMinute = evt.Time?.Extra,
+                            });
+                        }
+
+                        foreach (var evt in slotFtEvents.Where(e => e.IsCard))
+                        {
+                            if (evt.Player?.Name is not { Length: > 0 } pName) continue;
+                            if (!evt.IsYellow && !evt.IsSecondYellow && !evt.IsRed) continue;
+                            var ftPlayer = ResolvePlayer(pName, playerByName, playersByLastName);
+                            if (ftPlayer == null) { statusStore.RecordUnmatched(slot.SlotKey, "card", pName, evt.Time?.Elapsed ?? 0); continue; }
+                            var ftCardType = evt.IsSecondYellow ? CardType.SecondYellow : evt.IsRed ? CardType.Red : CardType.Yellow;
+                            var ftCardMinute = evt.Time?.Elapsed ?? 0;
+                            session.Store(new CardEvent
+                            {
+                                Id          = CreateDeterministicGuid(GoalEventNamespace, $"card:{apiFixture.FixtureId}:{ftPlayer.Id}:{ftCardMinute}"),
+                                FixtureId   = slot.SlotKey,
+                                PlayerId    = ftPlayer.Id,
+                                Type        = ftCardType,
+                                Minute      = ftCardMinute,
+                                ExtraMinute = evt.Time?.Extra,
+                            });
+                        }
+
+                        foreach (var evt in slotFtEvents.Where(e => e.IsSub))
+                        {
+                            var ftPlayerOutName = evt.Player?.Name ?? string.Empty;
+                            var ftPlayerInName  = evt.Assist?.Name ?? string.Empty;
+                            if (string.IsNullOrWhiteSpace(ftPlayerOutName) && string.IsNullOrWhiteSpace(ftPlayerInName)) continue;
+                            var ftSubTeam = evt.Team?.Name is { } stn
+                                ? FootballApiTeamMap.Resolve(evt.Team.Id, stn) ?? string.Empty
+                                : string.Empty;
+                            var ftPlayerOut = ResolvePlayer(ftPlayerOutName, playerByName, playersByLastName);
+                            var ftPlayerIn  = ResolvePlayer(ftPlayerInName,  playerByName, playersByLastName);
+                            var ftSubId = CreateDeterministicGuid(GoalEventNamespace,
+                                $"sub:{apiFixture.FixtureId}:{PlayerKey(ftPlayerOutName)}:{PlayerKey(ftPlayerInName)}:{evt.Time?.Elapsed ?? 0}");
+                            session.Store(new SubstitutionEvent
+                            {
+                                Id            = ftSubId,
+                                FixtureId     = slot.SlotKey,
+                                PlayerOutId   = ftPlayerOut?.Id,
+                                PlayerInId    = ftPlayerIn?.Id,
+                                PlayerOutName = ftPlayerOutName,
+                                PlayerInName  = ftPlayerInName,
+                                TeamId        = ftSubTeam,
+                                Minute        = evt.Time?.Elapsed ?? 0,
+                                ExtraMinute   = evt.Time?.Extra,
+                            });
+                        }
+
+                        foreach (var evt in slotFtEvents.Where(e => e.IsVar))
+                        {
+                            if (evt.Player?.Name is not { Length: > 0 } pName) continue;
+                            VarDecisionType? ftDecType =
+                                evt.IsGoalCancelled     ? VarDecisionType.GoalCancelled :
+                                evt.IsCardUpgradeRed    ? VarDecisionType.CardUpgradeRed :
+                                evt.IsCardUpgrade2ndYel ? VarDecisionType.CardUpgradeSecondYellow :
+                                null;
+                            if (ftDecType is null) continue;
+                            var ftVarTeam = evt.Team?.Name is { } vtn
+                                ? FootballApiTeamMap.Resolve(evt.Team.Id, vtn) ?? string.Empty
+                                : string.Empty;
+                            var ftVarId = CreateDeterministicGuid(GoalEventNamespace,
+                                $"var:{apiFixture.FixtureId}:{ftDecType}:{pName}:{evt.Time?.Elapsed ?? 0}");
+                            session.Store(new VarEvent
+                            {
+                                Id          = ftVarId,
+                                FixtureId   = slot.SlotKey,
+                                Type        = ftDecType.Value,
+                                PlayerName  = pName,
+                                TeamId      = ftVarTeam,
+                                Minute      = evt.Time?.Elapsed ?? 0,
+                                ExtraMinute = evt.Time?.Extra,
+                            });
+                        }
+                    }
                 }
 
                 session.Store(slot);
