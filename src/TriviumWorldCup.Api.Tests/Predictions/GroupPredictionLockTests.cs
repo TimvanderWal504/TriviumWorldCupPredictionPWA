@@ -111,5 +111,5 @@ public class GroupPredictionLockTests
         var error = GroupPredictionEndpoints.ValidateRequest(request);
         Assert.NotNull(error);
         Assert.Contains("AwayScore", error, StringComparison.OrdinalIgnoreCase);
-    }
+    }   
 }
