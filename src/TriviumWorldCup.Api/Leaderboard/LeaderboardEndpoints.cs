@@ -30,7 +30,12 @@ public static class LeaderboardEndpoints
                 .Query<UserProfile>()
                 .ToListAsync(ct);
 
-            var profileById = allProfiles.ToDictionary(p => p.Id);
+            var allInviteUsers = await session
+                .Query<InviteUser>()
+                .ToListAsync(ct);
+
+            var profileById    = allProfiles.ToDictionary(p => p.Id);
+            var inviteUserById = allInviteUsers.ToDictionary(u => u.Id);
 
             // Members with a MemberScore — rank these.
             var ranked = LeaderboardRanker.Rank(allScores);
@@ -46,11 +51,13 @@ public static class LeaderboardEndpoints
             foreach (var rs in ranked)
             {
                 profileById.TryGetValue(rs.Score.UserId, out var profile);
+                inviteUserById.TryGetValue(rs.Score.UserId, out var inviteUser);
                 result.Add(new LeaderboardEntryDto(
                     Rank:             rs.Rank,
                     UserId:           rs.Score.UserId,
                     DisplayName:      profile?.DisplayName ?? rs.Score.UserId,
                     CountryCode:      profile?.CountryCode,
+                    MemberHandle:     MaskEmail(inviteUser?.Email),
                     TotalPoints:      rs.Score.TotalPoints,
                     GroupMatchPoints: rs.Score.GroupMatchPoints,
                     ChampionPoints:   rs.Score.ChampionPoints,
@@ -62,11 +69,13 @@ public static class LeaderboardEndpoints
             var bottomRank = ranked.Count + 1;
             foreach (var profile in unscoredProfiles)
             {
+                inviteUserById.TryGetValue(profile.Id, out var inviteUser);
                 result.Add(new LeaderboardEntryDto(
                     Rank:             bottomRank,
                     UserId:           profile.Id,
                     DisplayName:      profile.DisplayName,
                     CountryCode:      profile.CountryCode,
+                    MemberHandle:     MaskEmail(inviteUser?.Email),
                     TotalPoints:      0,
                     GroupMatchPoints: 0,
                     ChampionPoints:   0,
@@ -78,6 +87,15 @@ public static class LeaderboardEndpoints
         .WithName("GetLeaderboard")
         .WithSummary("Returns all members ranked by total points and tiebreaker chain.")
         .CacheOutput("leaderboard");
+
+        static string? MaskEmail(string? email)
+        {
+            if (string.IsNullOrEmpty(email))
+                return null;
+
+            var atIndex = email.IndexOf('@');
+            return atIndex > 0 ? email[..atIndex] : email;
+        }
 
         // ── GET /leaderboard/{userId} ─────────────────────────────────────────
         // Auth required — viewer identity enforces the privacy rule server-side.
@@ -322,6 +340,7 @@ public sealed record LeaderboardEntryDto(
     string UserId,
     string DisplayName,
     string? CountryCode,
+    string? MemberHandle,
     int TotalPoints,
     int GroupMatchPoints,
     int ChampionPoints,

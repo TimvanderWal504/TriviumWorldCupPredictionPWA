@@ -4,10 +4,9 @@ using TriviumWorldCup.Api.Leaderboard;
 namespace TriviumWorldCup.Api.Tests.Leaderboard;
 
 /// <summary>
-/// TWC-54: GET /leaderboard is public (no auth) and must never expose member email
-/// addresses. Verifies the public leaderboard DTO carries no email field, at both
-/// the type level and the serialized-JSON level (belt and braces — catches any
-/// future re-introduction of an Email property or a [JsonPropertyName] alias).
+/// TWC-54: GET /leaderboard is public (no auth) and must never expose a full member
+/// email address. The DTO carries no Email property/alias — only MemberHandle, the
+/// masked email local-part (before '@'), computed server-side.
 /// </summary>
 public class LeaderboardEntryDtoTests
 {
@@ -27,6 +26,7 @@ public class LeaderboardEntryDtoTests
             UserId:           "user-1",
             DisplayName:      "Alice",
             CountryCode:      "NL",
+            MemberHandle:     "alice",
             TotalPoints:      42,
             GroupMatchPoints: 30,
             ChampionPoints:   10,
@@ -45,6 +45,28 @@ public class LeaderboardEntryDtoTests
     }
 
     [Fact]
+    public void LeaderboardEntryDto_SerializedJson_MemberHandleNeverContainsAtSign()
+    {
+        var dto = new LeaderboardEntryDto(
+            Rank:             1,
+            UserId:           "user-1",
+            DisplayName:      "Alice",
+            CountryCode:      "NL",
+            MemberHandle:     "alice",
+            TotalPoints:      42,
+            GroupMatchPoints: 30,
+            ChampionPoints:   10,
+            GoldenSixPoints:  2);
+
+        var json = JsonSerializer.Serialize(dto, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        });
+
+        Assert.DoesNotContain("@", json);
+    }
+
+    [Fact]
     public void LeaderboardEntryDto_SerializedJson_StillContainsExpectedPublicFields()
     {
         var dto = new LeaderboardEntryDto(
@@ -52,6 +74,7 @@ public class LeaderboardEntryDtoTests
             UserId:           "user-1",
             DisplayName:      "Alice",
             CountryCode:      "NL",
+            MemberHandle:     "alice",
             TotalPoints:      42,
             GroupMatchPoints: 30,
             ChampionPoints:   10,
@@ -69,6 +92,7 @@ public class LeaderboardEntryDtoTests
         Assert.Contains("userId", propertyNames);
         Assert.Contains("displayName", propertyNames);
         Assert.Contains("countryCode", propertyNames);
+        Assert.Contains("memberHandle", propertyNames);
         Assert.Contains("totalPoints", propertyNames);
         Assert.Contains("groupMatchPoints", propertyNames);
         Assert.Contains("championPoints", propertyNames);
