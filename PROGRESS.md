@@ -60,7 +60,7 @@
   - New: `Auth/Link/InviteUser.cs` (Marten document), `LinkIdentityProvider.cs` (reads `twc_link_session` cookie from DB), `LinkAuthEndpoints.cs` (`GET /auth/link/login?id=` sets 30-day HttpOnly cookie + redirects to `/`; `POST /auth/link/logout`; `GET /auth/me` reports `authProvider: "link"`).
   - Admin user management: `GET/POST/DELETE /admin/users` in `AdminEndpoints`; Admin page shows Users section (create, list, copy link, delete) only when `isLinkAuth`.
   - Deleted: `Auth/Mock/` folder (all three files), `DevUserSwitcher.tsx`. `Auth:Provider` default changed to `"link"`. `ASPNETCORE_ENVIRONMENT` restored to `Production` (link auth has no production guard).
-- **Admin user seed** — `InviteUsersData.cs` and `UserProfilesData.cs` read `ADMIN_USER_ID` env var at seed time and create an `InviteUser` (role: admin) + `UserProfile` (Tim, NL) as part of `TournamentSeed`. `ADMIN_USER_ID` added to `docker-compose.yml` and `.env.example` with stable example value `fe3a4de8-3243-48b8-b68b-528d35dedeed`.
+- **Admin user seed** — `InviteUsersData.cs` and `UserProfilesData.cs` read `ADMIN_USER_ID` env var at seed time and create an `InviteUser` (role: admin) + `UserProfile` (Tim, NL) as part of `TournamentSeed`. `ADMIN_USER_ID` added to `docker-compose.yml` and `.env.example` (real value lives in the secrets store, not in this file — see TWC-53).
 - **App.tsx restructure** — Rules promoted to dedicated top-level tab (removed from Me sub-page). Admin remains accessible via Me → Admin. `IS_PROD` / `isMockAuth` removed; sign-in screen shows "Open your personal login link to sign in." `AuthContext` simplified: `isMockAuth` removed, `signOut` hardcoded to `/auth/link/logout`.
 - **Deployment** — App deployed to Azure Container Apps (staging env). `Auth__Provider=link`, `ADMIN_USER_ID` set in Azure Key Vault / env vars.
 
@@ -143,7 +143,7 @@ Staging environment fully provisioned on Azure (Visual Studio Enterprise subscri
 
 **Remaining / pending:**
 - `git push origin staging` — triggers first real image build + deploy (currently running placeholder)
-- Seed admin user: navigate to `<webAppFqdn>/auth/link/login?id=c0c53bf2-8c04-4f08-86ee-10d25e895fee`
+- Seed admin user: navigate to `<webAppFqdn>/auth/link/login?id=<ADMIN_USER_ID>`
 - Production tenant: create new Azure subscription, copy `.infra/main.parameters.local.json` → `main.parameters.production.local.json`, create OIDC SP in prod tenant, set GitHub `production` environment secrets, then push to `main`
 - Custom domain (optional)
 - Entra app registration for TWC-20 (not blocking Azure deployment)
@@ -422,3 +422,12 @@ Root cause: admin re-ingest endpoints (`reset-events`, `fetch-events`, `fetch-al
 **412 tests pass.**
 
 **After deploy:** run `POST /admin/recompute` — existing `MemberScore` documents contain inflated knockout points for any user who had two or more correct picks in the same round. The recompute corrects all scores.
+
+## Bug hardening (epic TWC-51) — Wave 1, 2 July 2026
+
+Epic TWC-51 audits main @ 949ad00 (19 stories: 3 Critical, 3 High, 8 Medium, 4 Low, label `bug-hardening`). Orchestrated via `/orchestrate-twc`, one `twc-implementer` sub-agent per story.
+
+- **TWC-52** ✅ — CRITICAL: removed the self-service `POST /predictions/group/inject` endpoint, which only checked `IsAuthenticated` and let any member overwrite completed-fixture predictions to gain points on the next scoring recompute. No frontend caller depended on it; the admin-gated equivalent (`POST /admin/users/{userId}/predictions/inject`, `IsInRole("admin")`) supersedes it. Added a route-table test proving the route is gone. Also added `scripts/audit-group-predictions-twc-52.sql`, a best-effort query surfacing `GroupPrediction` writes submitted after fixture kickoff for manual review — `GroupPrediction` has no field distinguishing admin-injected from self-service writes, so this can't cleanly separate legitimate backfills from exploited ones. **Open follow-up:** add a provenance field (e.g. `Source`/`InjectedByAdminUserId`) if reliable auditing is wanted. (`feature/TWC-52`, commit a7c77cb). 424/424 tests pass.
+- **TWC-53** — CRITICAL, BLOCKED: exposed staging admin login credential in `PROGRESS.md`/`.env.example`. Needs a human decision (credential rotation on live staging, git history scrub or accept, repo visibility) before any code-side work.
+
+**Next (not yet dispatched):** Wave 2 — TWC-55, TWC-56, TWC-57, TWC-64, TWC-66 (all touch `ResultIngestionJob.cs`, must run serially).
