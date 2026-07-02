@@ -422,7 +422,7 @@ public class ResultIngestionJob(
                 var goalType = ResolveGoalType(evt);
 
                 var goalId = CreateDeterministicGuid(GoalEventNamespace,
-                    $"{apiFixture.FixtureId}:{player.Id}:{evt.Time?.Elapsed ?? 0}");
+                    $"{apiFixture.FixtureId}:{player.Id}:{MinuteKey(evt.Time)}");
 
                 session.Store(new GoalEvent
                 {
@@ -461,7 +461,7 @@ public class ResultIngestionJob(
                 var cardMinute = evt.Time?.Elapsed ?? 0;
 
                 var cardId = CreateDeterministicGuid(GoalEventNamespace,
-                    $"card:{apiFixture.FixtureId}:{player.Id}:{cardMinute}");
+                    $"card:{apiFixture.FixtureId}:{player.Id}:{MinuteKey(evt.Time)}");
 
                 session.Store(new CardEvent
                 {
@@ -489,7 +489,7 @@ public class ResultIngestionJob(
                     ? FootballApiTeamMap.Resolve(evt.Team.Id, teamName) ?? string.Empty
                     : string.Empty;
 
-                var subKey = $"sub:{apiFixture.FixtureId}:{PlayerKey(playerOutName)}:{PlayerKey(playerInName)}:{evt.Time?.Elapsed ?? 0}";
+                var subKey = $"sub:{apiFixture.FixtureId}:{PlayerKey(playerOutName)}:{PlayerKey(playerInName)}:{MinuteKey(evt.Time)}";
                 var subId  = CreateDeterministicGuid(GoalEventNamespace, subKey);
 
                 session.Store(new SubstitutionEvent
@@ -593,7 +593,7 @@ public class ResultIngestionJob(
                     var gt = ResolveGoalType(evt);
                     session.Store(new GoalEvent
                     {
-                        Id          = CreateDeterministicGuid(GoalEventNamespace, $"{apiFixture.FixtureId}:{player.Id}:{liveGoalMinute}"),
+                        Id          = CreateDeterministicGuid(GoalEventNamespace, $"{apiFixture.FixtureId}:{player.Id}:{MinuteKey(evt.Time)}"),
                         FixtureId   = liveDbFixture.Id,
                         PlayerId    = player.Id,
                         Type        = gt,
@@ -612,7 +612,7 @@ public class ResultIngestionJob(
                     var liveCardMinute = evt.Time?.Elapsed ?? 0;
                     session.Store(new CardEvent
                     {
-                        Id          = CreateDeterministicGuid(GoalEventNamespace, $"card:{apiFixture.FixtureId}:{player.Id}:{liveCardMinute}"),
+                        Id          = CreateDeterministicGuid(GoalEventNamespace, $"card:{apiFixture.FixtureId}:{player.Id}:{MinuteKey(evt.Time)}"),
                         FixtureId   = liveDbFixture.Id,
                         PlayerId    = player.Id,
                         Type        = liveCt,
@@ -633,7 +633,7 @@ public class ResultIngestionJob(
                     var livePlayerOut = ResolvePlayer(livePlayerOutName, playerByName, playersByLastName);
                     var livePlayerIn  = ResolvePlayer(livePlayerInName,  playerByName, playersByLastName);
                     var liveSubId = CreateDeterministicGuid(GoalEventNamespace,
-                        $"sub:{apiFixture.FixtureId}:{PlayerKey(livePlayerOutName)}:{PlayerKey(livePlayerInName)}:{evt.Time?.Elapsed ?? 0}");
+                        $"sub:{apiFixture.FixtureId}:{PlayerKey(livePlayerOutName)}:{PlayerKey(livePlayerInName)}:{MinuteKey(evt.Time)}");
                     session.Store(new SubstitutionEvent
                     {
                         Id            = liveSubId,
@@ -791,7 +791,7 @@ public class ResultIngestionJob(
                                 var slotGt = ResolveGoalType(evt);
                                 session.Store(new GoalEvent
                                 {
-                                    Id          = CreateDeterministicGuid(GoalEventNamespace, $"{apiFixture.FixtureId}:{slotPlayer.Id}:{slotGoalMinute}"),
+                                    Id          = CreateDeterministicGuid(GoalEventNamespace, $"{apiFixture.FixtureId}:{slotPlayer.Id}:{MinuteKey(evt.Time)}"),
                                     FixtureId   = slot.SlotKey,
                                     PlayerId    = slotPlayer.Id,
                                     Type        = slotGt,
@@ -811,7 +811,7 @@ public class ResultIngestionJob(
                             var slotCardMinute = evt.Time?.Elapsed ?? 0;
                             session.Store(new CardEvent
                             {
-                                Id          = CreateDeterministicGuid(GoalEventNamespace, $"card:{apiFixture.FixtureId}:{slotPlayer.Id}:{slotCardMinute}"),
+                                Id          = CreateDeterministicGuid(GoalEventNamespace, $"card:{apiFixture.FixtureId}:{slotPlayer.Id}:{MinuteKey(evt.Time)}"),
                                 FixtureId   = slot.SlotKey,
                                 PlayerId    = slotPlayer.Id,
                                 Type        = slotCt,
@@ -831,7 +831,7 @@ public class ResultIngestionJob(
                             var slotPlayerOut = ResolvePlayer(slotPlayerOutName, playerByName, playersByLastName);
                             var slotPlayerIn  = ResolvePlayer(slotPlayerInName,  playerByName, playersByLastName);
                             var slotSubId = CreateDeterministicGuid(GoalEventNamespace,
-                                $"sub:{apiFixture.FixtureId}:{PlayerKey(slotPlayerOutName)}:{PlayerKey(slotPlayerInName)}:{evt.Time?.Elapsed ?? 0}");
+                                $"sub:{apiFixture.FixtureId}:{PlayerKey(slotPlayerOutName)}:{PlayerKey(slotPlayerInName)}:{MinuteKey(evt.Time)}");
                             session.Store(new SubstitutionEvent
                             {
                                 Id            = slotSubId,
@@ -960,7 +960,7 @@ public class ResultIngestionJob(
                             var ftGoalType = ResolveGoalType(evt);
                             session.Store(new GoalEvent
                             {
-                                Id          = CreateDeterministicGuid(GoalEventNamespace, $"{apiFixture.FixtureId}:{ftPlayer.Id}:{ftGoalMinute}"),
+                                Id          = CreateDeterministicGuid(GoalEventNamespace, $"{apiFixture.FixtureId}:{ftPlayer.Id}:{MinuteKey(evt.Time)}"),
                                 FixtureId   = slot.SlotKey,
                                 PlayerId    = ftPlayer.Id,
                                 Type        = ftGoalType,
@@ -979,7 +979,7 @@ public class ResultIngestionJob(
                             var ftCardMinute = evt.Time?.Elapsed ?? 0;
                             session.Store(new CardEvent
                             {
-                                Id          = CreateDeterministicGuid(GoalEventNamespace, $"card:{apiFixture.FixtureId}:{ftPlayer.Id}:{ftCardMinute}"),
+                                Id          = CreateDeterministicGuid(GoalEventNamespace, $"card:{apiFixture.FixtureId}:{ftPlayer.Id}:{MinuteKey(evt.Time)}"),
                                 FixtureId   = slot.SlotKey,
                                 PlayerId    = ftPlayer.Id,
                                 Type        = ftCardType,
@@ -999,7 +999,7 @@ public class ResultIngestionJob(
                             var ftPlayerOut = ResolvePlayer(ftPlayerOutName, playerByName, playersByLastName);
                             var ftPlayerIn  = ResolvePlayer(ftPlayerInName,  playerByName, playersByLastName);
                             var ftSubId = CreateDeterministicGuid(GoalEventNamespace,
-                                $"sub:{apiFixture.FixtureId}:{PlayerKey(ftPlayerOutName)}:{PlayerKey(ftPlayerInName)}:{evt.Time?.Elapsed ?? 0}");
+                                $"sub:{apiFixture.FixtureId}:{PlayerKey(ftPlayerOutName)}:{PlayerKey(ftPlayerInName)}:{MinuteKey(evt.Time)}");
                             session.Store(new SubstitutionEvent
                             {
                                 Id            = ftSubId,
@@ -1293,6 +1293,16 @@ public class ResultIngestionJob(
     }
 
     /// <summary>
+    /// Builds the "{elapsed}:{extra}" suffix used in every deterministic event-ID key that
+    /// embeds a match minute (goal, card, substitution). Extra defaults to 0 when the API
+    /// doesn't report stoppage time. Including extra is required because two goals by the
+    /// same player at the same elapsed minute but different stoppage extra (e.g. 90+2' and
+    /// 90+5') previously collided on the same ID — {elapsed} alone is not unique.
+    /// Pure function — testable without any infrastructure.
+    /// </summary>
+    internal static string MinuteKey(ApiTime? time) => $"{time?.Elapsed ?? 0}:{time?.Extra ?? 0}";
+
+    /// <summary>
     /// Resolves a player from the API event name using two steps:
     /// 1. Exact full-name match (case-insensitive) — handles "Themba Zwane", "César Montes".
     /// 2. Last-name match — extracts the last word of the API name and compares it against
@@ -1445,7 +1455,7 @@ public class ResultIngestionJob(
         return new GoalEvent
         {
             Id          = CreateDeterministicGuid(GoalEventNamespace,
-                              $"{apiFixtureId}:{playerId}:{minute}"),
+                              $"{apiFixtureId}:{playerId}:{MinuteKey(evt.Time)}"),
             FixtureId   = dbFixtureId,
             PlayerId    = playerId,
             Type        = MapGoalType(evt),

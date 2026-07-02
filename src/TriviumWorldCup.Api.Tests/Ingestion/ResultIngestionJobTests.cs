@@ -894,4 +894,104 @@ public class ResultIngestionJobTests
 
         Assert.False(fixture.ResultOverridden);
     }
+
+    // ── TWC-57: deterministic event IDs must include ExtraMinute ─────────────
+    //
+    // Regression coverage for the bug where the deterministic ID key omitted
+    // evt.Time.Extra (stoppage minute), so two goals by the same player at the same
+    // elapsed minute but different extra (e.g. 90+2' and 90+5') collided on the same GUID
+    // and only one survived. MinuteKey is the shared helper now used by every goal/card/sub
+    // key-building call site (group FT, group live, knockout live, knockout FT, and
+    // BuildGoalEvent).
+
+    [Fact]
+    public void MinuteKey_IncludesExtra_WhenPresent()
+    {
+        var time = new ApiTime { Elapsed = 90, Extra = 2 };
+        Assert.Equal("90:2", ResultIngestionJob.MinuteKey(time));
+    }
+
+    [Fact]
+    public void MinuteKey_DefaultsExtraToZero_WhenAbsent()
+    {
+        var time = new ApiTime { Elapsed = 23, Extra = null };
+        Assert.Equal("23:0", ResultIngestionJob.MinuteKey(time));
+    }
+
+    [Fact]
+    public void MinuteKey_NullTime_DefaultsToZeroZero()
+    {
+        Assert.Equal("0:0", ResultIngestionJob.MinuteKey(null));
+    }
+
+    [Fact]
+    public void BuildGoalEvent_SameElapsedMinute_DifferentExtra_ProducesDistinctIds()
+    {
+        // Same-minute brace: a player scores at both 90+2' and 90+5' — same Elapsed (90),
+        // different Extra. Before the fix both events hashed to {fixtureId}:{playerId}:90
+        // and collided; only one GoalEvent document survived (the second Store() overwrote
+        // the first as an "idempotent" upsert that was actually clobbering distinct goals).
+        var playerId = Guid.NewGuid();
+
+        var firstStoppageGoal = new ApiMatchEvent
+        {
+            Time   = new ApiTime { Elapsed = 90, Extra = 2 },
+            Player = new ApiPlayer { Name = "Braced Player" },
+            Detail = "Normal Goal",
+        };
+        var secondStoppageGoal = new ApiMatchEvent
+        {
+            Time   = new ApiTime { Elapsed = 90, Extra = 5 },
+            Player = new ApiPlayer { Name = "Braced Player" },
+            Detail = "Normal Goal",
+        };
+
+        var goal1 = ResultIngestionJob.BuildGoalEvent(99001, "fixture-1", playerId, firstStoppageGoal);
+        var goal2 = ResultIngestionJob.BuildGoalEvent(99001, "fixture-1", playerId, secondStoppageGoal);
+
+        Assert.NotEqual(goal1.Id, goal2.Id);
+        Assert.Equal(90, goal1.Minute);
+        Assert.Equal(90, goal2.Minute);
+        Assert.Equal(2, goal1.ExtraMinute);
+        Assert.Equal(5, goal2.ExtraMinute);
+    }
+
+    [Fact]
+    public void BuildGoalEvent_SameElapsedAndExtra_ProducesSameId()
+    {
+        // Re-processing the identical event (same elapsed + same extra) must still be a
+        // stable, idempotent upsert — the fix must not break existing idempotency.
+        var playerId = Guid.NewGuid();
+        var evt = new ApiMatchEvent
+        {
+            Time   = new ApiTime { Elapsed = 45, Extra = 3 },
+            Player = new ApiPlayer { Name = "Player" },
+            Detail = "Normal Goal",
+        };
+
+        var goal1 = ResultIngestionJob.BuildGoalEvent(99001, "fixture-1", playerId, evt);
+        var goal2 = ResultIngestionJob.BuildGoalEvent(99001, "fixture-1", playerId, evt);
+
+        Assert.Equal(goal1.Id, goal2.Id);
+    }
+
+    [Fact]
+    public void BuildGoalEvent_NoExtra_SameAsExtraZero()
+    {
+        // A goal with Extra == null must hash identically to Extra == 0's absence marker,
+        // so the key format is stable regardless of whether the API omits the field.
+        var playerId = Guid.NewGuid();
+        var evtNullExtra = new ApiMatchEvent
+        {
+            Time   = new ApiTime { Elapsed = 10, Extra = null },
+            Player = new ApiPlayer { Name = "Player" },
+            Detail = "Normal Goal",
+        };
+
+        var goal = ResultIngestionJob.BuildGoalEvent(99001, "fixture-1", playerId, evtNullExtra);
+        var expectedId = ResultIngestionJob.CreateDeterministicGuid(
+            new Guid("a1b2c3d4-e5f6-7890-abcd-ef1234567890"), "99001:" + playerId + ":10:0");
+
+        Assert.Equal(expectedId, goal.Id);
+    }
 }
