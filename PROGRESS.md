@@ -452,3 +452,18 @@ All five stories implemented sequentially by a single `twc-implementer` sub-agen
 **Known gap, not in scope of this wave:** no DB-backed integration test harness exists for Marten/Postgres or `IFootballApiClient` — all ingestion tests (this wave and prior) are pure-function unit tests against extracted logic, consistent with the existing test suite's convention.
 
 **Next (not yet dispatched):** remaining TWC-51 stories — TWC-58 through TWC-63, TWC-65 (Medium/Low, no fixed order). TWC-53 (credential rotation) remains BLOCKED on a human decision. TWC-82 (new, Low) filed as a TWC-57 follow-up.
+
+## TWC-83 — Knockout Component 1 judged at end of extra time, not 90 minutes (3 July 2026)
+
+**Root cause:** Reported by Tim after live matches went to extra time — knockout Component 1 (the unmultiplied score-prediction points) was judged strictly at 90 minutes even when a match continued into ET/AET/PEN, producing scores that looked wrong against the eventual result. Confirmed against the canonical Rules & Scoring page that "judged at end of normal time only" was the existing (now superseded) rule, not a bug — updated the canonical page first, then propagated.
+
+**Changes:**
+- **Confluence "Rules & Scoring (canonical)"** — Component 1 now reads: judged at 90 minutes for matches decided in normal time, or at the end of extra time for matches that went to ET/AET/PEN. Added worked example 4. Component 2 (advancing team, round-multiplied) unchanged.
+- **`Ingestion/ResultIngestionJob.cs`** — new pure static helper `ResolveKnockoutScoreAtCutoff(statusShort, homeGoals, awayGoals, scoreFullTimeHome, scoreFullTimeAway)`: returns `score.fulltime` (falling back to `goals`) for normal-time completions, or `goals` (ET-inclusive, shootout-exclusive) for AET/PEN. Replaces the old always-90-min assignment at the FT branch call site. The now-redundant AET tie-break branch in winner determination was removed (`slot.HomeScore`/`AwayScore` already hold the decisive AET total).
+- **`Domain/KnockoutSlot.cs`**, **`Domain/KnockoutPrediction.cs`**, **`Scoring/KnockoutMatchScorer.cs`**, **`Tournament/KnockoutSlotEndpoints.cs`** — doc comments updated from "90-minute score" to "score at the applicable cutoff." No logic changes needed in the scorer or `ScoringRecomputeService` — both already just compare whatever is in `KnockoutSlot.HomeScore/AwayScore`.
+- **`pages/RulesPage.tsx`** — Component 1 heading/description/table header updated to match; worked examples updated; added the ET worked example.
+- **`Api.Tests/Ingestion/ResultIngestionJobTests.cs`** — 4 new tests for `ResolveKnockoutScoreAtCutoff` (normal FT, FT fallback to goals, AET uses ET-inclusive score not 90-min, PEN uses end-of-ET score excluding the shootout).
+
+**455 backend tests pass.** Frontend `npm run build` green; `npm test` has one pre-existing unrelated failure (`OfflineBanner.test.tsx` — copy text mismatch, fails identically on `main`, not touched by this story).
+
+**After deploy:** run `POST /admin/recompute` — any already-completed AET/PEN knockout slot needs Component 1 rescored against the corrected cutoff. Slots decided in normal time (FT) are unaffected.

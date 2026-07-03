@@ -114,15 +114,15 @@ export function RulesPage() {
         </p>
 
         <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-fg">Component 1 — 90-minute score <span className="font-normal text-fg-muted">(not multiplied)</span></h3>
-          <p className="text-fg-muted text-sm">Scored using the same group-stage tiers, judged at end of normal time only:</p>
+          <h3 className="text-sm font-semibold text-fg">Component 1 — score prediction <span className="font-normal text-fg-muted">(not multiplied)</span></h3>
+          <p className="text-fg-muted text-sm">Scored using the same group-stage tiers, judged at the end of the match as actually played — the 90-minute score for matches decided in normal time, or the score at the end of extra time for matches that went to ET/AET or were decided on penalties:</p>
           <table className="w-full text-sm border-collapse rounded-card overflow-hidden border border-border">
             <thead><tr className={tableHead}>
-              <th className="px-4 py-2.5">90-minute score prediction</th>
+              <th className="px-4 py-2.5">Score prediction</th>
               <th className="px-4 py-2.5 text-right">Points</th>
             </tr></thead>
             <tbody className="divide-y divide-border">
-              {[['Exact score','10'],['Correct goal difference (not exact)','7'],['Correct outcome only (W/D/L at 90 min)','3'],['Wrong','0']].map(([label, pts]) => (
+              {[['Exact score','10'],['Correct goal difference (not exact)','7'],['Correct outcome only (W/D/L at the applicable cutoff)','3'],['Wrong','0']].map(([label, pts]) => (
                 <tr key={label} className="even:bg-surface-2">
                   <td className={tdBase}>{label}</td>
                   <td className={tdRight}>{pts}</td>
@@ -163,7 +163,7 @@ export function RulesPage() {
         </div>
 
         <div className="rounded-card bg-surface-2 border border-border p-4 space-y-1 text-sm text-fg-muted">
-          <p className="font-medium text-fg-secondary">Total = [90-min score] + [5 × streak if advancing team correct]</p>
+          <p className="font-medium text-fg-secondary">Total = [score-prediction points] + [5 × streak if advancing team correct]</p>
         </div>
 
         <div className="rounded-card p-5 space-y-2 border" style={{ background: 'var(--win-soft)', borderColor: 'transparent' }}>
@@ -174,7 +174,8 @@ export function RulesPage() {
             <li>5th correct in a row, correct winner + exact score: 10 + (5 × 5) = <span className="font-semibold text-fg">35 points</span></li>
             <li>Any match, exact score but wrong winner: 10 + 0 = <span className="font-semibold text-fg">10 points</span> (streak resets)</li>
             <li>1st correct prediction, correct winner but wrong score: 0 + (5 × 1) = <span className="font-semibold text-fg">5 points</span></li>
-            <li>Wrong advancing team predicted, exact 90-min score: 10 + 0 = <span className="font-semibold text-fg">10 points</span> (streak resets)</li>
+            <li>Wrong advancing team predicted, exact score at the applicable cutoff: 10 + 0 = <span className="font-semibold text-fg">10 points</span> (streak resets)</li>
+            <li>Round of 16 match 1–1 after 90 min, 2–1 after extra time: a 1–1 prediction now scores 0 for Component 1 (judged at the ET cutoff, not 90 minutes) — a 2–1 prediction scores 10</li>
           </ul>
         </div>
       </section>

@@ -223,7 +223,7 @@ public sealed record MyKnockoutPredictionDto(
     string PredictedWinnerTeamId,
     int? PredictedHomeScore,
     int? PredictedAwayScore,
-    /// <summary>Group-style points for the 90-minute score (0–10).</summary>
+    /// <summary>Group-style points for the score prediction — judged at 90 minutes, or at the end of extra time for AET/PEN matches (0–10).</summary>
     int ScorePoints,
     /// <summary>Advancing-team bonus: 5 × streak multiplier when correct, 0 when wrong.</summary>
     int AdvancingPoints,

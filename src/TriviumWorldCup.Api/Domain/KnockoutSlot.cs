@@ -38,7 +38,11 @@ public class KnockoutSlot
 
     public MatchStatus Status { get; set; } = MatchStatus.Scheduled;
 
-    /// <summary>90-minute score — used by the prediction scoring system.</summary>
+    /// <summary>
+    /// Score used by the prediction scoring system — the 90-minute score for matches decided
+    /// in normal time, or the score at the end of extra time for matches that went to AET/PEN
+    /// (StatusShort "AET"/"PEN"). See TWC-83.
+    /// </summary>
     public int? HomeScore { get; set; }
     public int? AwayScore { get; set; }
 
