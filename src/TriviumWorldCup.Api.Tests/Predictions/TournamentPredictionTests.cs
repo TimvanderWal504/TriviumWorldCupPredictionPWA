@@ -1,3 +1,4 @@
+using System.Reflection;
 using TriviumWorldCup.Api.Predictions;
 
 namespace TriviumWorldCup.Api.Tests.Predictions;
@@ -48,6 +49,37 @@ public class TournamentPredictionTests
         var firstKickoff = new DateTimeOffset(2026, 6, 11, 19, 0, 0, TimeSpan.Zero);
         var now          = new DateTimeOffset(2026, 6, 10, 19, 0, 0, TimeSpan.Zero);
         Assert.False(TournamentPredictionValidator.IsLocked(firstKickoff, now));
+    }
+
+    // ── TWC-70: no date-based lock bypass exists — IsLocked is the sole authority ─────
+
+    [Fact]
+    public void IsLocked_OnFormerGraceDate_AfterKickoff_StillReturnsTrue()
+    {
+        // The removed backdoor exempted all of 2026-06-12 (UTC) from the lock check regardless
+        // of kickoff. IsLocked must lock consistently on that date too, once kickoff has passed.
+        var firstKickoff = new DateTimeOffset(2026, 6, 12, 12, 0, 0, TimeSpan.Zero);
+        var now          = new DateTimeOffset(2026, 6, 12, 18, 0, 0, TimeSpan.Zero);
+        Assert.True(TournamentPredictionValidator.IsLocked(firstKickoff, now));
+    }
+
+    [Fact]
+    public void IsLocked_OnFormerGraceDate_BeforeKickoff_ReturnsFalse()
+    {
+        // Same date, but before kickoff — unlocked purely because kickoff hasn't happened yet,
+        // not because of any date-specific carve-out.
+        var firstKickoff = new DateTimeOffset(2026, 6, 12, 12, 0, 0, TimeSpan.Zero);
+        var now          = new DateTimeOffset(2026, 6, 12, 6, 0, 0, TimeSpan.Zero);
+        Assert.False(TournamentPredictionValidator.IsLocked(firstKickoff, now));
+    }
+
+    [Fact]
+    public void TournamentPredictionEndpoints_HasNoGraceDateBackdoorField()
+    {
+        // Reflection guard: the removed GraceDate/isGraceDay lock-bypass must not resurface.
+        var fields = typeof(TournamentPredictionEndpoints)
+            .GetFields(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance);
+        Assert.DoesNotContain(fields, f => f.Name.Contains("Grace", StringComparison.OrdinalIgnoreCase));
     }
 
     // ── Golden Six count validation ───────────────────────────────────────────
