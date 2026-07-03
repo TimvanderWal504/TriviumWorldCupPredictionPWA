@@ -55,9 +55,10 @@ public class TournamentSeedMigrationTests
             SlotSourceType.GroupRunnerUp, "K", // corrected reference
             homeTeamId: null, awayTeamId: null);
 
-        var changed = TournamentSeed.ApplySlotMigration(existing, template);
+        var result = TournamentSeed.ApplySlotMigration(existing, template);
 
-        Assert.True(changed);
+        Assert.True(result.Changed);
+        Assert.True(result.WiringChanged);
         Assert.Null(existing.HomeTeamId);
         Assert.Null(existing.AwayTeamId);
         Assert.False(existing.HomeTeamOverridden);
@@ -85,9 +86,10 @@ public class TournamentSeedMigrationTests
             SlotSourceType.GroupRunnerUp, "E", // wiring changed
             homeTeamId: null, awayTeamId: null);
 
-        var changed = TournamentSeed.ApplySlotMigration(existing, template);
+        var result = TournamentSeed.ApplySlotMigration(existing, template);
 
-        Assert.True(changed);
+        Assert.True(result.Changed);
+        Assert.True(result.WiringChanged);
         Assert.Null(existing.HomeTeamId);
         Assert.Null(existing.AwayTeamId);
         Assert.False(existing.HomeTeamOverridden);
@@ -114,9 +116,10 @@ public class TournamentSeedMigrationTests
             homeTeamId: null, awayTeamId: null);
         template.Venue = "New Venue";
 
-        var changed = TournamentSeed.ApplySlotMigration(existing, template);
+        var result = TournamentSeed.ApplySlotMigration(existing, template);
 
-        Assert.True(changed); // metaChanged still triggers an update
+        Assert.True(result.Changed); // metaChanged still triggers an update
+        Assert.False(result.WiringChanged);
         Assert.Equal("ESP", existing.HomeTeamId);
         Assert.Equal("JPN", existing.AwayTeamId);
         Assert.True(existing.HomeTeamOverridden);
@@ -139,9 +142,10 @@ public class TournamentSeedMigrationTests
             SlotSourceType.GroupRunnerUp, "H",
             homeTeamId: null, awayTeamId: null);
 
-        var changed = TournamentSeed.ApplySlotMigration(existing, template);
+        var result = TournamentSeed.ApplySlotMigration(existing, template);
 
-        Assert.False(changed);
+        Assert.False(result.Changed);
+        Assert.False(result.WiringChanged);
         Assert.Equal("POR", existing.HomeTeamId);
         Assert.Equal("URU", existing.AwayTeamId);
     }

@@ -1535,6 +1535,17 @@ public static class AdminEndpoints
             }
             session.Store(slot);
 
+            // TWC-63: the participant change may invalidate existing predictions for this slot
+            // (predicted a team that is no longer a participant). Delete them so scoring/UI treat
+            // it as "no pick" rather than a wrong pick that breaks a streak. The slot isn't locked
+            // by this change, so affected users can re-predict against the corrected matchup.
+            var existingPredictions = await session.Query<KnockoutPrediction>()
+                .Where(p => p.SlotKey == slotKey)
+                .ToListAsync(ct);
+            var stalePredictions = KnockoutPredictionInvalidator.FindStale(slot, existingPredictions);
+            foreach (var stale in stalePredictions)
+                session.Delete(stale);
+
             session.Store(new ResultOverride
             {
                 Id               = Guid.NewGuid(),
@@ -1543,7 +1554,8 @@ public static class AdminEndpoints
                 OverriddenAt     = DateTimeOffset.UtcNow,
                 TargetType       = "knockoutslot-teams",
                 TargetId         = slotKey,
-                Description      = $"Manual team override: {string.Join(", ", parts)}",
+                Description      = $"Manual team override: {string.Join(", ", parts)}"
+                                    + (stalePredictions.Count > 0 ? $"; cleared {stalePredictions.Count} stale prediction(s)" : string.Empty),
             });
 
             await session.SaveChangesAsync(ct);
@@ -1557,6 +1569,7 @@ public static class AdminEndpoints
                 slot.HomeScore,
                 slot.AwayScore,
                 slot.Status,
+                clearedPredictions = stalePredictions.Count,
             });
         })
         .WithName("SetKnockoutSlotTeams")

@@ -1,6 +1,7 @@
 using Marten;
 using TriviumWorldCup.Api.Data.SeedData;
 using TriviumWorldCup.Api.Domain;
+using TriviumWorldCup.Api.Scoring;
 
 namespace TriviumWorldCup.Api.Data;
 
@@ -79,6 +80,7 @@ public static class TournamentSeed
         var byKey = existing.ToDictionary(s => s.SlotKey);
 
         var changed = 0;
+        var slotsWithWiringChange = new List<KnockoutSlot>();
         foreach (var template in KnockoutSlotsData.All)
         {
             if (!byKey.TryGetValue(template.SlotKey, out var slot))
@@ -89,10 +91,34 @@ public static class TournamentSeed
                 continue;
             }
 
-            if (!ApplySlotMigration(slot, template)) continue;
+            var result = ApplySlotMigration(slot, template);
+            if (!result.Changed) continue;
+
+            if (result.WiringChanged)
+                slotsWithWiringChange.Add(slot);
 
             session.Store(slot);
             changed++;
+        }
+
+        // TWC-63: a wiring change means HomeTeamId/AwayTeamId were cleared, so any existing
+        // predictions for that slot now reference a team that isn't a participant. Clear them
+        // so scoring/UI treat it as "no pick" — see KnockoutPredictionInvalidator for the
+        // delete-vs-flag rationale.
+        if (slotsWithWiringChange.Count > 0)
+        {
+            var slotKeys = slotsWithWiringChange.Select(s => s.SlotKey).ToList();
+            var affectedPredictions = await session.Query<KnockoutPrediction>()
+                .Where(p => p.SlotKey.IsOneOf(slotKeys))
+                .ToListAsync(ct);
+
+            var predictionsBySlot = affectedPredictions.GroupBy(p => p.SlotKey);
+            foreach (var group in predictionsBySlot)
+            {
+                var slot = slotsWithWiringChange.First(s => s.SlotKey == group.Key);
+                foreach (var stale in KnockoutPredictionInvalidator.FindStale(slot, group))
+                    session.Delete(stale);
+            }
         }
 
         if (changed > 0)
@@ -101,10 +127,11 @@ public static class TournamentSeed
 
     /// <summary>
     /// Applies structural migration from <paramref name="template"/> onto <paramref name="slot"/>
-    /// in place. Returns true if any field changed (caller should persist), false otherwise.
-    /// Pure — no DB dependency — so wiring-change/override-clearing behavior is unit-testable.
+    /// in place. Returns whether any field changed (caller should persist) and, separately,
+    /// whether the wiring itself changed (caller should also invalidate stale predictions —
+    /// see TWC-63). Pure — no DB dependency — so this is fully unit-testable.
     /// </summary>
-    internal static bool ApplySlotMigration(KnockoutSlot slot, KnockoutSlot template)
+    internal static SlotMigrationResult ApplySlotMigration(KnockoutSlot slot, KnockoutSlot template)
     {
         var wiringChanged =
             slot.HomeSlotSource.Type      != template.HomeSlotSource.Type      ||
@@ -119,7 +146,7 @@ public static class TournamentSeed
             slot.Round      != template.Round      ||
             slot.SlotNumber != template.SlotNumber;
 
-        if (!wiringChanged && !metaChanged) return false;
+        if (!wiringChanged && !metaChanged) return new SlotMigrationResult(false, false);
 
         slot.HomeSlotSource = template.HomeSlotSource;
         slot.AwaySlotSource = template.AwaySlotSource;
@@ -144,6 +171,9 @@ public static class TournamentSeed
             slot.AwayTeamOverridden = false;
         }
 
-        return true;
+        return new SlotMigrationResult(true, wiringChanged);
     }
 }
+
+/// <summary>Result of <see cref="TournamentSeed.ApplySlotMigration"/>.</summary>
+internal readonly record struct SlotMigrationResult(bool Changed, bool WiringChanged);
