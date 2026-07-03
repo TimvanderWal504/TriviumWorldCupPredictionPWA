@@ -75,7 +75,7 @@
 - **Cloudflare Tunnel token** — LAN demo works without it
 
 ## Known follow-ups (non-blocking)
-- **Marten GHSA-vmw2-qwm8-x84c (Critical):** Upgrade before going public.
+- ~~**Marten GHSA-vmw2-qwm8-x84c (Critical):** Upgrade before going public.~~ ✅ Resolved (TWC-67, 3 July 2026) — upgraded Marten 7.40.5 → 8.37.3 (first patched line per the advisory is 8.37.0; the vulnerable code path — `regConfig` full-text search injection — was never exercised in this codebase anyway, zero usages of any `Search*`/`*Search` API). Npgsql bumped 8.0.7 → 9.0.5 in lockstep (Marten 8.37.3 requires Npgsql >= 9.0.4). Verified with a live end-to-end run against a fresh throwaway Postgres container: `ApplyAllDatabaseChangesOnStartup` applied the full schema, the tournament seed ran, and `/health`/`/teams`/`/fixtures` served real data.
 - **NuGet.config:** Repo-level override for unreachable `BluRedSelect` Azure DevOps feed.
 - **R32 bracket wiring (`SeedData.cs`):** Several slot source entries carry `// TODO: verify bracket wiring` comments. The resolver consumes these declarations faithfully — if any slot source is wrong the bracket will misfire. Verify all 32 slot source entries against the official FIFA 2026 bracket draw before the first knockout match (28 June).
 - **E2E harness updated for link auth:** `POST /e2e/seed/invite-user` endpoint added; `auth.ts` rewritten to navigate to `/auth/link/login?id=`; `AppPage.ts` nav methods updated for current tab structure. Area specs TWC-23–31 remain Backlog and have not been run yet.

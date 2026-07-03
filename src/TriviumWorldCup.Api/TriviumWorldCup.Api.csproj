@@ -16,8 +16,8 @@
     <PackageReference Include="WebPush" Version="1.0.11" />
 
     <!-- Marten document store + Npgsql -->
-    <PackageReference Include="Marten" Version="7.40.5" />
-    <PackageReference Include="Npgsql" Version="8.0.7" />
+    <PackageReference Include="Marten" Version="8.37.3" />
+    <PackageReference Include="Npgsql" Version="9.0.5" />
 
     <!-- Health checks -->
     <PackageReference Include="AspNetCore.HealthChecks.NpgSql" Version="8.0.1" />
