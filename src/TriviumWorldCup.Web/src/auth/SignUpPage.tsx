@@ -7,6 +7,7 @@ interface SignUpPageProps {
 export function SignUpPage({ onSwitchToLogin }: SignUpPageProps) {
   const [email, setEmail]       = useState('');
   const [token, setToken]       = useState<string | null>(null);
+  const [submitted, setSubmitted] = useState(false);
   const [error, setError]       = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [copied, setCopied]     = useState(false);
@@ -21,9 +22,12 @@ export function SignUpPage({ onSwitchToLogin }: SignUpPageProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim() }),
       });
-      const body = await res.json() as { token?: string; error?: string };
-      if (res.ok && body.token) {
-        setToken(body.token);
+      const body = await res.json() as { token?: string | null; error?: string };
+      if (res.ok) {
+        // The response never reveals whether an account already existed. If a token was
+        // issued, show it (new account); otherwise show the generic confirmation screen.
+        setToken(body.token ?? null);
+        setSubmitted(true);
       } else {
         setError(body.error ?? `Unexpected error (${res.status}).`);
       }
@@ -41,7 +45,7 @@ export function SignUpPage({ onSwitchToLogin }: SignUpPageProps) {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  if (token) {
+  if (submitted && token) {
     return (
       <div className="bg-surface rounded-sheet shadow-sheet w-full max-w-md p-8 border border-border">
         <h2 className="font-display font-bold text-2xl tracking-tight mb-1">Account created</h2>
@@ -67,6 +71,27 @@ export function SignUpPage({ onSwitchToLogin }: SignUpPageProps) {
         <button
           onClick={onSwitchToLogin}
           className="w-full text-sm text-fg-secondary hover:text-fg transition-colors"
+        >
+          Go to sign in
+        </button>
+      </div>
+    );
+  }
+
+  if (submitted) {
+    // Generic confirmation — does not reveal whether this email already had an account.
+    return (
+      <div className="bg-surface rounded-sheet shadow-sheet w-full max-w-md p-8 border border-border">
+        <h2 className="font-display font-bold text-2xl tracking-tight mb-1">Check your details</h2>
+        <p className="text-fg-secondary mb-6 text-sm">
+          If <span className="font-medium">{email.trim()}</span> is eligible for an account, you'll either
+          receive a fresh token above, or — if you already have one — you can sign in with your existing
+          token. Contact an admin if you've lost it.
+        </p>
+        <button
+          onClick={onSwitchToLogin}
+          className="w-full font-semibold rounded-input py-2.5 transition-colors"
+          style={{ background: 'var(--primary-fill)', color: 'var(--fg-onbrand)' }}
         >
           Go to sign in
         </button>

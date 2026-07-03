@@ -1,6 +1,7 @@
 using Marten;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using TriviumWorldCup.Api.Admin;
 using TriviumWorldCup.Api.Auth;
@@ -96,6 +97,19 @@ builder.Services.AddOutputCache(options =>
     options.AddPolicy("players",        p => p.Expire(TimeSpan.FromMinutes(5)));
 });
 
+// Rate limiting — TWC-69. Fixed-window per-IP limiter applied to /auth/link/* (signup/login are
+// unauthenticated and would otherwise allow unlimited token-guessing / signup-domain probing).
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddFixedWindowLimiter("auth-link", limiterOptions =>
+    {
+        limiterOptions.PermitLimit = 10;
+        limiterOptions.Window = TimeSpan.FromMinutes(1);
+        limiterOptions.QueueLimit = 0;
+    });
+});
+
 // Health checks
 builder.Services.AddHealthChecks()
     .AddNpgSql(
@@ -144,6 +158,8 @@ app.UseSwagger();
 app.UseSwaggerUI();
 
 app.UseOutputCache();
+
+app.UseRateLimiter();
 
 // Auth middleware — resolves current user for all downstream handlers
 app.UseCurrentUser();
