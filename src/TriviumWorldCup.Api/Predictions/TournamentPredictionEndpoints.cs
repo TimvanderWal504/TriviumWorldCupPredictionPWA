@@ -11,9 +11,6 @@ namespace TriviumWorldCup.Api.Predictions;
 /// </summary>
 public static class TournamentPredictionEndpoints
 {
-    // Temporary grace window: predictions stay open all of 2026-06-12 (UTC) regardless of the lock.
-    private static readonly DateOnly GraceDate = new(2026, 6, 12);
-
     public static IEndpointRouteBuilder MapTournamentPredictionEndpoints(this IEndpointRouteBuilder routes)
     {
         var group = routes.MapGroup("/predictions/tournament").WithTags("predictions");
@@ -58,8 +55,7 @@ public static class TournamentPredictionEndpoints
 
             // Lock check — server-side, query the earliest kickoff from Marten.
             var firstKickoff = await GetFirstKickoffAsync(session, ct);
-            var isGraceDay = DateOnly.FromDateTime(DateTimeOffset.UtcNow.DateTime) == GraceDate;
-            if (!isGraceDay && TournamentPredictionValidator.IsLocked(firstKickoff, DateTimeOffset.UtcNow))
+            if (TournamentPredictionValidator.IsLocked(firstKickoff, DateTimeOffset.UtcNow))
                 return Results.Json(new { error = "Predictions are locked. The tournament has started." }, statusCode: 403);
 
             // Validation
@@ -102,8 +98,7 @@ public static class TournamentPredictionEndpoints
 
             // Lock check — server-side
             var firstKickoff = await GetFirstKickoffAsync(session, ct);
-            var isGraceDay = DateOnly.FromDateTime(DateTimeOffset.UtcNow.DateTime) == GraceDate;
-            if (!isGraceDay && TournamentPredictionValidator.IsLocked(firstKickoff, DateTimeOffset.UtcNow))
+            if (TournamentPredictionValidator.IsLocked(firstKickoff, DateTimeOffset.UtcNow))
                 return Results.Json(new { error = "Predictions are locked. The tournament has started." }, statusCode: 403);
 
             // Validation
@@ -191,6 +186,10 @@ public static class TournamentPredictionValidator
         if (request.GoldenSixPlayerIds is null || request.GoldenSixPlayerIds.Count != 6)
             return "GoldenSixPlayerIds must contain exactly 6 player IDs.";
 
+        // Player IDs must be distinct — duplicates would let one player's goals count multiple times.
+        if (request.GoldenSixPlayerIds.Distinct().Count() != 6)
+            return "GoldenSixPlayerIds must contain 6 distinct players.";
+
         // Verify every player ID exists in Marten
         foreach (var playerId in request.GoldenSixPlayerIds)
         {
@@ -210,6 +209,8 @@ public static class TournamentPredictionValidator
     {
         if (playerIds is null || playerIds.Count != 6)
             return "GoldenSixPlayerIds must contain exactly 6 player IDs.";
+        if (playerIds.Distinct().Count() != 6)
+            return "GoldenSixPlayerIds must contain 6 distinct players.";
         return null;
     }
 

@@ -1,6 +1,7 @@
 using Marten;
 using TriviumWorldCup.Api.Auth;
 using TriviumWorldCup.Api.Domain;
+using TriviumWorldCup.Api.Leaderboard;
 
 namespace TriviumWorldCup.Api.Standings;
 
@@ -28,12 +29,23 @@ public static class StandingsEndpoints
             // Load all MemberScore documents to determine rank.
             var allScores = await session.Query<MemberScore>().ToListAsync(ct);
 
-            var myTotalPoints = myScore?.TotalPoints ?? 0;
+            // Rank — single source of truth: LeaderboardRanker.Rank (same TotalPoints →
+            // ExactScorelineCount → CorrectOutcomeCount tiebreaker chain and competition/Olympic
+            // ranking used by /leaderboard), so ranks are always identical between the two endpoints.
+            int rank;
+            if (myScore is not null)
+            {
+                var ranked = LeaderboardRanker.Rank(allScores);
+                rank = ranked.First(rs => rs.Score.UserId == user.UserId).Rank;
+            }
+            else
+            {
+                // No MemberScore yet — same "unscored members at the bottom" rank /leaderboard uses.
+                rank = allScores.Count + 1;
+            }
 
-            // Rank = count of members with strictly MORE total points + 1.
-            var membersAhead = allScores.Count(s => s.TotalPoints > myTotalPoints);
-            var rank = membersAhead + 1;
             var totalMembers = allScores.Count;
+            var myTotalPoints = myScore?.TotalPoints ?? 0;
 
             // Load tournament prediction to get Golden Six picks.
             var tournamentPrediction = await session.LoadAsync<TournamentPrediction>(user.UserId, ct);

@@ -50,6 +50,28 @@ public class TournamentPredictionTests
         Assert.False(TournamentPredictionValidator.IsLocked(firstKickoff, now));
     }
 
+    // ── TWC-70: no date-based lock bypass exists — IsLocked is the sole authority ─────
+
+    [Fact]
+    public void IsLocked_OnFormerGraceDate_AfterKickoff_StillReturnsTrue()
+    {
+        // The removed backdoor exempted all of 2026-06-12 (UTC) from the lock check regardless
+        // of kickoff. IsLocked must lock consistently on that date too, once kickoff has passed.
+        var firstKickoff = new DateTimeOffset(2026, 6, 12, 12, 0, 0, TimeSpan.Zero);
+        var now          = new DateTimeOffset(2026, 6, 12, 18, 0, 0, TimeSpan.Zero);
+        Assert.True(TournamentPredictionValidator.IsLocked(firstKickoff, now));
+    }
+
+    [Fact]
+    public void IsLocked_OnFormerGraceDate_BeforeKickoff_ReturnsFalse()
+    {
+        // Same date, but before kickoff — unlocked purely because kickoff hasn't happened yet,
+        // not because of any date-specific carve-out.
+        var firstKickoff = new DateTimeOffset(2026, 6, 12, 12, 0, 0, TimeSpan.Zero);
+        var now          = new DateTimeOffset(2026, 6, 12, 6, 0, 0, TimeSpan.Zero);
+        Assert.False(TournamentPredictionValidator.IsLocked(firstKickoff, now));
+    }
+
     // ── Golden Six count validation ───────────────────────────────────────────
 
     [Fact]
@@ -93,12 +115,32 @@ public class TournamentPredictionTests
     }
 
     [Fact]
-    public void ValidateGoldenSixCount_SixDuplicates_ReturnsNull()
+    public void ValidateGoldenSixCount_SixDuplicates_ReturnsError()
     {
-        // Duplicate player IDs within one member's picks are allowed by the ACs:
-        // "two members may hold identical picks" — no uniqueness restriction on the picks themselves.
+        // TWC-59: a single player repeated across all 6 slots must be rejected — GoldenSixScorer
+        // sums per occurrence, so duplicates would multiply that player's points sixfold.
+        // (Distinct picks across different members are still unrestricted — this only guards
+        // against duplicates *within* one member's own submission.)
         var sameId = Guid.NewGuid();
         var ids = Enumerable.Repeat(sameId, 6).ToList();
+        var error = TournamentPredictionValidator.ValidateGoldenSixCount(ids);
+        Assert.NotNull(error);
+        Assert.Contains("distinct", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ValidateGoldenSixCount_OneDuplicatePair_ReturnsError()
+    {
+        var duplicate = Guid.NewGuid();
+        var ids = new List<Guid> { duplicate, duplicate, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
+        var error = TournamentPredictionValidator.ValidateGoldenSixCount(ids);
+        Assert.NotNull(error);
+    }
+
+    [Fact]
+    public void ValidateGoldenSixCount_SixDistinct_ReturnsNull()
+    {
+        var ids = Enumerable.Range(0, 6).Select(_ => Guid.NewGuid()).ToList();
         Assert.Null(TournamentPredictionValidator.ValidateGoldenSixCount(ids));
     }
 

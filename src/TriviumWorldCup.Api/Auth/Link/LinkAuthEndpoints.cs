@@ -39,27 +39,44 @@ public static class LinkAuthEndpoints
                 .Where(u => u.Email == email)
                 .FirstOrDefaultAsync(ct);
 
-            if (existing is not null)
-                return Results.Conflict(new { error = "An account for this email address already exists." });
-
-            var localPart = email.Split('@')[0];
-            var displayName = char.ToUpperInvariant(localPart[0]) + localPart[1..];
-            var newUser = new InviteUser
+            // TWC-69: the response must not reveal whether an account already exists for this
+            // email — only actually create (and return a usable token) when eligible. An
+            // existing account's real token is never re-issued or leaked here; the account
+            // holder already has their original token from when they first signed up.
+            if (existing is null)
             {
-                Id          = Guid.NewGuid().ToString(),
-                Email       = email,
-                DisplayName = displayName,
-                CreatedAt   = DateTimeOffset.UtcNow,
-            };
-            session.Store(newUser);
-            await session.SaveChangesAsync(ct);
+                var localPart = email.Split('@')[0];
+                var displayName = char.ToUpperInvariant(localPart[0]) + localPart[1..];
+                var newUser = new InviteUser
+                {
+                    Id          = Guid.NewGuid().ToString(),
+                    Email       = email,
+                    DisplayName = displayName,
+                    CreatedAt   = DateTimeOffset.UtcNow,
+                };
+                session.Store(newUser);
+                await session.SaveChangesAsync(ct);
 
-            return Results.Ok(new { token = newUser.Id });
+                return Results.Ok(new
+                {
+                    token = newUser.Id,
+                    message = "Account created. Save your token — it is shown only once.",
+                });
+            }
+
+            // Existing account: same 200 shape, no usable token, generic message. Does not
+            // confirm or deny that an account exists for this address.
+            return Results.Ok(new
+            {
+                token = (string?)null,
+                message = "If this email address is eligible, check for your existing sign-in details or contact an admin.",
+            });
         })
         .WithName("LinkSignup")
         .WithTags("auth-link")
-        .WithSummary("Self-service signup — creates an InviteUser for an allowed email domain and returns the token once.")
-        .AllowAnonymous();
+        .WithSummary("Self-service signup — creates an InviteUser for an allowed email domain and returns the token once. Does not reveal whether an account already exists.")
+        .AllowAnonymous()
+        .RequireRateLimiting("auth-link");
 
         // POST /auth/link/login
         // Body: { email, token }
@@ -100,7 +117,8 @@ public static class LinkAuthEndpoints
         .WithName("LinkFormLogin")
         .WithTags("auth-link")
         .WithSummary("Form login — validates email + token and issues a 30-day session cookie.")
-        .AllowAnonymous();
+        .AllowAnonymous()
+        .RequireRateLimiting("auth-link");
 
         // GET /auth/link/login?id=<userId>
         // On success: sets HttpOnly session cookie, redirects to /.
@@ -134,7 +152,8 @@ public static class LinkAuthEndpoints
         })
         .WithName("LinkLogin")
         .WithTags("auth-link")
-        .WithSummary("Validates a login-link ID and issues a 30-day session cookie.");
+        .WithSummary("Validates a login-link ID and issues a 30-day session cookie.")
+        .RequireRateLimiting("auth-link");
 
         // POST /auth/link/logout
         routes.MapPost("/auth/link/logout", (HttpContext context) =>

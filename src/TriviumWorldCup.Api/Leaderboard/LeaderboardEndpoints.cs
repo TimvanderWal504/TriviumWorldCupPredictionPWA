@@ -2,6 +2,7 @@ using Marten;
 using TriviumWorldCup.Api.Auth;
 using TriviumWorldCup.Api.Auth.Link;
 using TriviumWorldCup.Api.Domain;
+using TriviumWorldCup.Api.Predictions;
 
 namespace TriviumWorldCup.Api.Leaderboard;
 
@@ -266,14 +267,30 @@ public static class LeaderboardEndpoints
                     WinnerPoints:           winnerPoints));
             }
 
-            // ── Golden Six detail ─────────────────────────────────────────────
+            // ── Golden Six + champion detail ──────────────────────────────────
+            // Privacy: like group/knockout predictions, another member's champion and Golden Six
+            // picks are hidden until the tournament itself locks (same lock as
+            // POST/PUT /predictions/tournament — the earliest fixture kickoff, or immediately
+            // once any fixture is completed). Only the owner can see their own picks pre-lock.
+
+            var tournamentFixtures = await session.Query<Fixture>().ToListAsync(ct);
+            DateTimeOffset tournamentFirstKickoff;
+            if (tournamentFixtures.Count == 0)
+                tournamentFirstKickoff = DateTimeOffset.MaxValue;
+            else if (tournamentFixtures.Any(f => f.Status == MatchStatus.Completed))
+                tournamentFirstKickoff = DateTimeOffset.MinValue;
+            else
+                tournamentFirstKickoff = tournamentFixtures.Min(f => f.KickoffUtc);
+
+            bool tournamentLocked = TournamentPredictionValidator.IsLocked(tournamentFirstKickoff, now);
 
             var goldenSixDtos = new List<GoldenSixDetailDto>();
-            string? championTeamId   = tournamentPrediction?.ChampionTeamId;
+            string? championTeamId   = null;
             string? championTeamName = null;
 
-            if (tournamentPrediction is not null)
+            if (tournamentPrediction is not null && ShouldRevealTournamentPrediction(isSelf, tournamentLocked))
             {
+                championTeamId = tournamentPrediction.ChampionTeamId;
                 var playerIds = tournamentPrediction.GoldenSixPlayerIds;
 
                 if (playerIds.Count > 0)
@@ -330,6 +347,14 @@ public static class LeaderboardEndpoints
 
         return routes;
     }
+
+    /// <summary>
+    /// TWC-61: champion + Golden Six are only revealed to the owner, or to any viewer once the
+    /// tournament has locked (same lock as group/knockout predictions — "reveal once
+    /// locked/completed"). Pure predicate, fully unit-testable without a database.
+    /// </summary>
+    public static bool ShouldRevealTournamentPrediction(bool isSelf, bool tournamentLocked) =>
+        isSelf || tournamentLocked;
 }
 
 // ── DTOs ─────────────────────────────────────────────────────────────────────

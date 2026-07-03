@@ -1,5 +1,6 @@
 using TriviumWorldCup.Api.Domain;
 using TriviumWorldCup.Api.Predictions;
+using TriviumWorldCup.Api.Scoring;
 
 namespace TriviumWorldCup.Api.Tests.Predictions;
 
@@ -288,5 +289,59 @@ public class KnockoutPredictionTests
         Assert.NotNull(slot.AwayTeamId);
         Assert.Null(KnockoutPredictionEndpoints.ValidateWinner("FRA", slot));
         Assert.Null(KnockoutPredictionEndpoints.ValidateWinner("ESP", slot));
+    }
+
+    // ── TWC-58: winner casing normalized to the slot's canonical team ID on store ─────
+
+    [Fact]
+    public void CanonicalWinnerTeamId_MatchesHomeTeamIdCaseInsensitively_ReturnsCanonicalHomeTeamId()
+    {
+        var slot = MakeSlot(homeTeamId: "BRA", awayTeamId: "ARG");
+        Assert.Equal("BRA", KnockoutPredictionEndpoints.CanonicalWinnerTeamId("bra", slot));
+    }
+
+    [Fact]
+    public void CanonicalWinnerTeamId_MatchesAwayTeamIdCaseInsensitively_ReturnsCanonicalAwayTeamId()
+    {
+        var slot = MakeSlot(homeTeamId: "BRA", awayTeamId: "ARG");
+        Assert.Equal("ARG", KnockoutPredictionEndpoints.CanonicalWinnerTeamId("Arg", slot));
+    }
+
+    [Fact]
+    public void CanonicalWinnerTeamId_AlreadyCanonical_ReturnsUnchanged()
+    {
+        var slot = MakeSlot(homeTeamId: "BRA", awayTeamId: "ARG");
+        Assert.Equal("BRA", KnockoutPredictionEndpoints.CanonicalWinnerTeamId("BRA", slot));
+    }
+
+    [Fact]
+    public void LowercaseWinnerInput_NormalizedThroughSubmitToScoring_CreditsPointsCorrectly()
+    {
+        // Regression test for TWC-58: a winner submitted in any casing must persist as the
+        // slot's canonical team ID so downstream ordinal scoring comparisons (KnockoutMatchScorer,
+        // ScoringRecomputeService, KnockoutStreakCalculator) credit the pick correctly.
+        var slot = MakeSlot(homeTeamId: "BRA", awayTeamId: "ARG");
+
+        // User submits the winner in lowercase — request validation accepts it case-insensitively.
+        var request = MakeRequest("bra", 2, 1);
+        Assert.Null(KnockoutPredictionEndpoints.ValidatePrediction(request, slot));
+
+        // Endpoint normalizes to canonical casing before storing (mirrors POST/PUT handler logic).
+        var storedWinnerId = KnockoutPredictionEndpoints.CanonicalWinnerTeamId(request.PredictedWinnerTeamId, slot);
+        Assert.Equal("BRA", storedWinnerId);
+
+        // The match result: BRA (home) wins 2-1, recorded as "BRA" (canonical) on the slot.
+        var points = KnockoutMatchScorer.Compute(
+            predictedWinnerId: storedWinnerId,
+            predictedHomeScore: request.PredictedHomeScore,
+            predictedAwayScore: request.PredictedAwayScore,
+            actualWinnerId: "BRA",
+            actualHomeScore: 2,
+            actualAwayScore: 1,
+            streakBefore: 0);
+
+        // Exact score (10) + advancing team correct (5 × 1) = 15. Would be 10 (score only) if the
+        // stored winner ID still carried the raw "bra" casing and failed the ordinal `==` check.
+        Assert.Equal(15, points);
     }
 }

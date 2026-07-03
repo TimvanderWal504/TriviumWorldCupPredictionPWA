@@ -3,13 +3,14 @@
 > Secondary to Jira. Project `TWC` is the source of truth for task state; this file is a fast, human-readable log for resuming the orchestrator mid-run. Update it at the end of each wave.
 
 ## Status
-- MVP ✅ delivered. Post-MVP done: TWC-14 (knockout bracket), TWC-15 (knockout scoring), TWC-16 (admin), TWC-17 (live updates), TWC-18 (push notifications), TWC-19 (backups). TWC-22 E2E foundation done. TWC-32 ✅ knockout resolver delivered (Wave 7) — bracket now populates from final group standings.
-- **E2E:** TWC-22 foundation ✅ (16/16 smoke tests). Harness updated for link auth (TWC-33 follow-up). Area specs TWC-23–TWC-31 remain Backlog.
-- TWC-20 (Entra) remains BLOCKED.
+- MVP ✅ delivered. Post-MVP done: TWC-14 (knockout bracket), TWC-15 (knockout scoring), TWC-16 (admin), TWC-17 (live updates), TWC-18 (push notifications), TWC-19 (backups). TWC-22 E2E foundation done. TWC-32 ✅ knockout resolver delivered (Wave 7) — bracket now populates from final group standings. TWC-83 ✅ (knockout Component 1 ET cutoff) — code was already on main, Jira transition closed out 3 July 2026.
+- **E2E:** TWC-22 foundation ✅ (16/16 smoke tests). Harness updated for link auth (TWC-33 follow-up). Area specs TWC-23–TWC-31 marked **Obsolete** in Jira (not live work).
+- TWC-20 (Entra) marked **Obsolete** in Jira — deprioritized, no longer planned.
+- **Bug hardening (epic TWC-51):** Waves 1–2 ✅ (TWC-52, 54–57, 64, 66). Wave 3 ✅ (TWC-58–63, 65, 67–70, 82 — 12/13 remaining stories). Only **TWC-53** (Critical, credential rotation) remains open, BLOCKED on a human decision.
+- **Clean code (epic TWC-71):** 10 stories (TWC-72–81) open, not yet started — separate scope from bug-hardening, awaiting go-ahead.
 
 ## Planned waves
-- **Wave 8** — E2E suite (epic TWC-21): TWC-22 foundation ✅, area specs TWC-23–TWC-30 in parallel; TWC-31 (knockout E2E) unblocked by TWC-32 ✅.
-- **Wave 9 — final** — TWC-20 real Entra integration (human-gated on the Entra app registration).
+- Gen-Wave B / E2E area specs / TWC-20: all marked **Obsolete** in Jira as of 3 July 2026 — no longer planned. The static wave template above this line is historical; the live backlog going forward is epic TWC-51 (TWC-53 only) and epic TWC-71 (TWC-72–81).
 
 ## Accepted (Done)
 
@@ -75,7 +76,7 @@
 - **Cloudflare Tunnel token** — LAN demo works without it
 
 ## Known follow-ups (non-blocking)
-- **Marten GHSA-vmw2-qwm8-x84c (Critical):** Upgrade before going public.
+- ~~**Marten GHSA-vmw2-qwm8-x84c (Critical):** Upgrade before going public.~~ ✅ Resolved (TWC-67, 3 July 2026) — upgraded Marten 7.40.5 → 8.37.3 (first patched line per the advisory is 8.37.0; the vulnerable code path — `regConfig` full-text search injection — was never exercised in this codebase anyway, zero usages of any `Search*`/`*Search` API). Npgsql bumped 8.0.7 → 9.0.5 in lockstep (Marten 8.37.3 requires Npgsql >= 9.0.4). Verified with a live end-to-end run against a fresh throwaway Postgres container: `ApplyAllDatabaseChangesOnStartup` applied the full schema, the tournament seed ran, and `/health`/`/teams`/`/fixtures` served real data.
 - **NuGet.config:** Repo-level override for unreachable `BluRedSelect` Azure DevOps feed.
 - **R32 bracket wiring (`SeedData.cs`):** Several slot source entries carry `// TODO: verify bracket wiring` comments. The resolver consumes these declarations faithfully — if any slot source is wrong the bracket will misfire. Verify all 32 slot source entries against the official FIFA 2026 bracket draw before the first knockout match (28 June).
 - **E2E harness updated for link auth:** `POST /e2e/seed/invite-user` endpoint added; `auth.ts` rewritten to navigate to `/auth/link/login?id=`; `AppPage.ts` nav methods updated for current tab structure. Area specs TWC-23–31 remain Backlog and have not been run yet.
@@ -360,12 +361,14 @@ Root cause analysis of Azure 503 errors during live matches identified CPU credi
 - **`.github/workflows/deploy-azure.yml`** — added a `test` job that runs before `build-and-deploy`. Checks out the repo, sets up .NET 8, and runs `dotnet test TriviumWorldCup.sln --configuration Release`. The `build-and-deploy` job now has `needs: test`, so pushes to `staging` or `main` are blocked if any test fails.
 
 ## Next action
-1. **Run `POST /admin/recompute`** (urgent) — three fixes now require a full recompute: the penalty-shootout goal type fix (30 June), the knockout streak-multiplier fix (30 June), and the scoring centralisation refactor (1 July, which backfills the new breakdown fields). A single recompute covers all three.
+1. **Run `POST /admin/recompute`** (urgent) — several fixes now require a full recompute: the penalty-shootout goal type fix (30 June), the knockout streak-multiplier fix (30 June), the scoring centralisation refactor (1 July), the ET-cutoff fix (TWC-83), and the wave-3 knockout-winner-casing fix (TWC-58). A single recompute covers all of them.
 2. **Deploy B2ms Postgres upgrade** — re-run `az deployment group create` with updated `main.bicep` during a non-match window (Azure requires ~2 min downtime to resize Flexible Server).
 3. **Run `POST /admin/fixtures/sync-api-ids`** — also populates `FootballApiFixtureId` on resolved knockout slots for reliable ingestion.
-4. **Platform generalization Gen-Wave B** — TWC-36 (data-driven structure), TWC-37 (generic outcome model), TWC-38 (competitor generalization), TWC-41 (lock policy + grace removal). All unblocked by TWC-35 ✅.
-5. **TWC-20 (Entra)** — deprioritised; may be marked obsolete. No action until decided.
-6. **Update Confluence Design & Architecture page** — use the prompt in `.docs/confluence-update-prompt.md`.
+4. **Merge `feature/wave-3` to `main`** — 12 bug-hardening stories (TWC-58–63, 65, 67–70, 82), local-only branch, not pushed. 487/487 backend tests pass. Review the diff (see "Bug hardening — Wave 3" section below) before merging; the Marten 7→8 + Npgsql 8→9 upgrade (TWC-67) is the highest-risk commit in the branch.
+5. **TWC-53 (Critical, BLOCKED)** — exposed staging admin login GUID in PROGRESS.md/.env.example. Needs a human decision on credential rotation, git-history handling, and repo visibility before any further action.
+6. **TWC-71 clean-code epic (TWC-72–81, 10 stories)** — not yet started, awaiting go-ahead on scope/scheduling.
+7. Gen-Wave B (TWC-36/37/38/41/44/46), TWC-20 (Entra), and the E2E area specs (TWC-23–31) are now marked **Obsolete** in Jira — no action needed, kept here only as a historical note.
+8. **Update Confluence Design & Architecture page** — use the prompt in `.docs/confluence-update-prompt.md`.
 
 ## Unversioned work (main, 29 June 2026)
 
@@ -451,7 +454,7 @@ All five stories implemented sequentially by a single `twc-implementer` sub-agen
 
 **Known gap, not in scope of this wave:** no DB-backed integration test harness exists for Marten/Postgres or `IFootballApiClient` — all ingestion tests (this wave and prior) are pure-function unit tests against extracted logic, consistent with the existing test suite's convention.
 
-**Next (not yet dispatched):** remaining TWC-51 stories — TWC-58 through TWC-63, TWC-65 (Medium/Low, no fixed order). TWC-53 (credential rotation) remains BLOCKED on a human decision. TWC-82 (new, Low) filed as a TWC-57 follow-up.
+**Wave 2 done.** Remaining TWC-51 stories (TWC-58–63, 65, 67–70, 82) implemented in Wave 3 below. TWC-53 (credential rotation) remains BLOCKED on a human decision.
 
 ## TWC-83 — Knockout Component 1 judged at end of extra time, not 90 minutes (3 July 2026)
 
@@ -467,3 +470,28 @@ All five stories implemented sequentially by a single `twc-implementer` sub-agen
 **455 backend tests pass.** Frontend `npm run build` green; `npm test` has one pre-existing unrelated failure (`OfflineBanner.test.tsx` — copy text mismatch, fails identically on `main`, not touched by this story).
 
 **After deploy:** run `POST /admin/recompute` — any already-completed AET/PEN knockout slot needs Component 1 rescored against the corrected cutoff. Slots decided in normal time (FT) are unaffected.
+
+**Jira housekeeping (3 July 2026):** this story's code was already merged to `main` (as documented above) but the Jira issue was never transitioned. Closed out by the orchestrator with a comment — no new code.
+
+## Bug hardening (epic TWC-51) — Wave 3, 3 July 2026
+
+Remaining 12 of 13 open TWC-51 stories (all but the human-gated TWC-53), implemented sequentially on one shared branch `feature/wave-3` by a single `twc-implementer` sub-agent via `/orchestrate-twc` (scope confirmed with Tim: bug-hardening only, one agent, one branch). **Branch is local only — not pushed, not merged to `main`.** Ordered to land correctness fixes first and isolate the highest-risk change (Marten major-version upgrade) last.
+
+- **TWC-58** ✅ — MEDIUM: knockout winner casing normalized to the slot's canonical team ID on store (`KnockoutPredictionEndpoints.CanonicalWinnerTeamId`), closing the gap where case-insensitive validation accepted a winner ID that then failed scoring's ordinal comparison. +4 tests. (commit `ff1ffbf`)
+- **TWC-59** ✅ — MEDIUM: `TournamentPredictionValidator` now rejects Golden Six submissions with duplicate player IDs (`Distinct().Count() != 6` → 422), closing a 6× point-inflation exploit. Net +2 tests. (commit `5296bc8`)
+- **TWC-70** ✅ — LOW: removed the server-side `GraceDate`/`isGraceDay` lock-bypass backdoor from `TournamentPredictionEndpoints`; lock behavior now driven solely by `TournamentPredictionValidator.IsLocked`. +3 tests (incl. a reflection guard against the field resurfacing). (commit `64aafb2`)
+- **TWC-60** ✅ — MEDIUM: `GET /scores/me` now derives rank via `LeaderboardRanker.Rank` (same tiebreaker chain as `/leaderboard`) instead of a points-only count, fixing rank disagreement between the two screens for tied members. +2 tests. (commit `7874477`)
+- **TWC-61** ✅ — MEDIUM: leaderboard drill-down champion + Golden Six now gated behind `isSelf || tournamentLocked`, matching the privacy filtering already applied to group/knockout predictions. +5 tests. (commit `7371145`)
+- **TWC-62** ✅ — MEDIUM: `TournamentSeed.MigrateKnockoutSlotsAsync` now clears `HomeTeamOverridden`/`AwayTeamOverridden` alongside the team IDs on a wiring change, so `KnockoutBracketResolver` can repopulate the slot instead of leaving it permanently teamless. Logic extracted into a pure, testable `ApplySlotMigration` helper. +4 tests. (commit `d03b190`)
+- **TWC-63** ✅ — MEDIUM: new `Scoring/KnockoutPredictionInvalidator.FindStale` deletes `KnockoutPrediction` documents whose predicted winner is no longer a slot participant, wired into both the admin team-override endpoint and the TWC-62 wiring-change path. +6 tests. **Judgment call:** delete rather than flag — every scoring/UI consumer already treats a missing prediction as "no pick," so deletion needed zero downstream changes; affected users may re-predict while the slot remains unlocked. (commit `c5f8bfb`)
+- **TWC-68** ✅ — LOW: added `UseForwardedHeaders` early in `Program.cs` so `Request.IsHttps` (and therefore the session cookie's `Secure` flag) reflects the original scheme behind Azure Container Apps' TLS-terminating ingress. **Judgment call:** trusts all forwarded-header sources unconditionally (`KnownNetworks`/`KnownProxies` cleared) since ACA doesn't publish a fixed/enumerable proxy IP set and the API has internal-only ingress. No unit tests (pure middleware wiring; no integration harness exists in this repo — pre-existing, documented gap). (commit `3bbb8c6`)
+- **TWC-69** ✅ — LOW: added a fixed-window rate limiter (10 req/min/client) to `/auth/link/*`; signup no longer distinguishes "already exists" from "created" (always 200 with a generic message; real token only for new eligible signups). `SignUpPage.tsx` updated for the null-token case. No unit tests (same constraint as TWC-68). (commit `c1a145e`)
+- **TWC-82** ✅ — LOW: admin event-backfill endpoints (`/fetch-events`, `/reset-events`, `/fetch-all-events`) now build deterministic event IDs via `ResultIngestionJob.MinuteKey`, matching the ingestion job's same-minute-brace collision fix from TWC-57. +4 tests. **Scope note:** the story also named `/goals`, but that endpoint takes an admin-typed `AddGoalRequest.Minute` with no `Extra`/stoppage field — it never had this collision, left unchanged. (commit `d680e6e`)
+- **TWC-65** ✅ — MEDIUM: removed the dead `WolverineFx`/`WolverineFx.Http` package references from the API csproj (zero usages anywhere in `src/**/*.cs`). Behavior-neutral. +2 guardrail tests. (commit `14a887f`)
+- **TWC-67** ✅ — LOW (done last, highest blast radius): Marten upgraded 7.40.5 → 8.37.3 (first version past critical advisory GHSA-vmw2-qwm8-x84c) in both API and Tests csproj; Npgsql bumped 8.0.7 → 9.0.5 as a required transitive dependency. Verified end-to-end against a fresh throwaway Postgres container (schema application, seed, endpoints) — did not touch the running dev compose stack. PROGRESS.md's prior "Known follow-ups" entry for this advisory is now resolved (see below). (commit `eb0688b`)
+
+**487/487 backend tests pass** (+32 from the 455 baseline). Frontend `npm run build` green; `npm test` 10/11 (the one pre-existing `OfflineBanner.test.tsx` failure predates this batch, untouched).
+
+**Deliberately not done:** no unit tests for TWC-68/69 (pure ASP.NET Core pipeline wiring, no integration harness in this repo). `/admin/fixtures/{fixtureId}/goals` left unchanged for TWC-82 (not the described bug). TWC-53, TWC-72–81 out of scope for this batch.
+
+**Not merged.** `feature/wave-3` is local-only, 12 commits (one per story), clean diff (990 insertions / 92 deletions across 21 files). Needs review + merge to `main`, then a deploy + `POST /admin/recompute` (TWC-58's winner-casing fix can change historical knockout scores for any prediction that was submitted in non-canonical casing).
