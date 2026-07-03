@@ -966,7 +966,7 @@ public static class AdminEndpoints
                 }
                 var goalType = ResultIngestionJob.ResolveGoalType(evt);
                 var goalId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                    $"{apiId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                    $"{apiId}:{playerName}:{ResultIngestionJob.MinuteKey(evt.Time)}");
                 session.Store(new GoalEvent
                 {
                     Id          = goalId,
@@ -991,7 +991,7 @@ public static class AdminEndpoints
                 }
                 var cardType = evt.IsSecondYellow ? CardType.SecondYellow : evt.IsRed ? CardType.Red : CardType.Yellow;
                 var cardId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                    $"card:{apiId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                    $"card:{apiId}:{playerName}:{ResultIngestionJob.MinuteKey(evt.Time)}");
                 session.Store(new CardEvent
                 {
                     Id          = cardId,
@@ -1016,7 +1016,7 @@ public static class AdminEndpoints
                     ? FootballApiTeamMap.Resolve(evt.Team.Id, tn) ?? string.Empty
                     : string.Empty;
                 var subId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                    $"sub:{apiId}:{playerOutName}:{playerInName}:{evt.Time?.Elapsed ?? 0}");
+                    $"sub:{apiId}:{playerOutName}:{playerInName}:{ResultIngestionJob.MinuteKey(evt.Time)}");
                 session.Store(new SubstitutionEvent
                 {
                     Id            = subId,
@@ -1044,7 +1044,7 @@ public static class AdminEndpoints
                     ? FootballApiTeamMap.Resolve(evt.Team.Id, vtn) ?? string.Empty
                     : string.Empty;
                 var varId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                    $"var:{apiId}:{decType}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                    $"var:{apiId}:{decType}:{playerName}:{ResultIngestionJob.MinuteKey(evt.Time)}");
                 session.Store(new VarEvent
                 {
                     Id          = varId,
@@ -1173,7 +1173,7 @@ public static class AdminEndpoints
                 }
                 var goalType = ResultIngestionJob.ResolveGoalType(evt);
                 var goalId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                    $"{apiId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                    $"{apiId}:{playerName}:{ResultIngestionJob.MinuteKey(evt.Time)}");
                 session.Store(new GoalEvent
                 {
                     Id          = goalId,
@@ -1198,7 +1198,7 @@ public static class AdminEndpoints
                 }
                 var cardType = evt.IsSecondYellow ? CardType.SecondYellow : evt.IsRed ? CardType.Red : CardType.Yellow;
                 var cardId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                    $"card:{apiId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                    $"card:{apiId}:{playerName}:{ResultIngestionJob.MinuteKey(evt.Time)}");
                 session.Store(new CardEvent
                 {
                     Id          = cardId,
@@ -1222,7 +1222,7 @@ public static class AdminEndpoints
                     ? FootballApiTeamMap.Resolve(evt.Team.Id, tn) ?? string.Empty
                     : string.Empty;
                 var subId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                    $"sub:{apiId}:{playerOutName}:{playerInName}:{evt.Time?.Elapsed ?? 0}");
+                    $"sub:{apiId}:{playerOutName}:{playerInName}:{ResultIngestionJob.MinuteKey(evt.Time)}");
                 session.Store(new SubstitutionEvent
                 {
                     Id            = subId,
@@ -1250,7 +1250,7 @@ public static class AdminEndpoints
                     ? FootballApiTeamMap.Resolve(evt.Team.Id, vtn) ?? string.Empty
                     : string.Empty;
                 var varId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                    $"var:{apiId}:{decType}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                    $"var:{apiId}:{decType}:{playerName}:{ResultIngestionJob.MinuteKey(evt.Time)}");
                 session.Store(new VarEvent
                 {
                     Id          = varId,
@@ -1377,7 +1377,7 @@ public static class AdminEndpoints
                     }
                     var goalType = ResultIngestionJob.ResolveGoalType(evt);
                     var goalId   = ResultIngestionJob.CreateDeterministicGuid(ns,
-                        $"{fixture.FootballApiFixtureId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                        $"{fixture.FootballApiFixtureId}:{playerName}:{ResultIngestionJob.MinuteKey(evt.Time)}");
                     session.Store(new GoalEvent
                     {
                         Id          = goalId,
@@ -1402,7 +1402,7 @@ public static class AdminEndpoints
                     }
                     var cardType = evt.IsSecondYellow ? CardType.SecondYellow : evt.IsRed ? CardType.Red : CardType.Yellow;
                     var cardId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                        $"card:{fixture.FootballApiFixtureId}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                        $"card:{fixture.FootballApiFixtureId}:{playerName}:{ResultIngestionJob.MinuteKey(evt.Time)}");
                     session.Store(new CardEvent
                     {
                         Id          = cardId,
@@ -1426,7 +1426,7 @@ public static class AdminEndpoints
                         ? FootballApiTeamMap.Resolve(evt.Team.Id, tn) ?? string.Empty
                         : string.Empty;
                     var subId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                        $"sub:{fixture.FootballApiFixtureId}:{playerOutName}:{playerInName}:{evt.Time?.Elapsed ?? 0}");
+                        $"sub:{fixture.FootballApiFixtureId}:{playerOutName}:{playerInName}:{ResultIngestionJob.MinuteKey(evt.Time)}");
                     session.Store(new SubstitutionEvent
                     {
                         Id            = subId,
@@ -1455,7 +1455,7 @@ public static class AdminEndpoints
                         ? FootballApiTeamMap.Resolve(evt.Team.Id, vtn) ?? string.Empty
                         : string.Empty;
                     var varId = ResultIngestionJob.CreateDeterministicGuid(ns,
-                        $"var:{fixture.FootballApiFixtureId}:{decType}:{playerName}:{evt.Time?.Elapsed ?? 0}");
+                        $"var:{fixture.FootballApiFixtureId}:{decType}:{playerName}:{ResultIngestionJob.MinuteKey(evt.Time)}");
                     session.Store(new VarEvent
                     {
                         Id          = varId,
