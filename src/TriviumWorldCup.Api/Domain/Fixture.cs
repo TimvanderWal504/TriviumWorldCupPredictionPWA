@@ -61,4 +61,14 @@ public class Fixture
     /// Default: false. Set to true in ResultIngestionJob after a successful GetAllEventsAsync call.
     /// </summary>
     public bool EventsIngested { get; set; } = false;
+
+    /// <summary>
+    /// When true, an admin has manually set this fixture's result via
+    /// POST /admin/fixtures/{fixtureId}/result. ResultIngestionJob checks this before
+    /// overwriting HomeScore/AwayScore/Status from the API so a manual override survives
+    /// subsequent polls, mirroring the HomeTeamOverridden/AwayTeamOverridden pattern used
+    /// for knockout slot team resolution. Cleared when the override is reverted via
+    /// DELETE /admin/overrides/{id}.
+    /// </summary>
+    public bool ResultOverridden { get; set; }
 }

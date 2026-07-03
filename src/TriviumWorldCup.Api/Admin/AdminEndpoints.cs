@@ -86,6 +86,9 @@ public static class AdminEndpoints
             fixture.Status        = request.MarkAsLive ? MatchStatus.InProgress : MatchStatus.Completed;
             fixture.ElapsedMinute = request.MarkAsLive ? request.ElapsedMinute : null;
             fixture.ElapsedExtra  = request.MarkAsLive ? request.ElapsedExtra  : null;
+            // Marks the result as admin-authoritative so ResultIngestionJob does not overwrite
+            // it with the API's score on a subsequent poll.
+            fixture.ResultOverridden = true;
             session.Store(fixture);
 
             var overrideRecord = new ResultOverride
@@ -457,9 +460,10 @@ public static class AdminEndpoints
                     var fixture = await session.LoadAsync<Fixture>(record.TargetId, ct);
                     if (fixture is not null)
                     {
-                        fixture.HomeScore = null;
-                        fixture.AwayScore = null;
-                        fixture.Status    = MatchStatus.Scheduled;
+                        fixture.HomeScore        = null;
+                        fixture.AwayScore        = null;
+                        fixture.Status           = MatchStatus.Scheduled;
+                        fixture.ResultOverridden = false;
                         session.Store(fixture);
                     }
                     break;

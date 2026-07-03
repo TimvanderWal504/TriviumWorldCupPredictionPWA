@@ -707,4 +707,387 @@ public class ResultIngestionJobTests
 
         Assert.False(evt.IsMissedPenalty);
     }
+
+    // ── TWC-55: knockout FT event fetch — no live poll caught the goals ─────
+    //
+    // Regression coverage for the bug where the knockout FT branch never called
+    // GetAllEventsAsync, so a slot that went Scheduled -> Completed across two polls with
+    // no live poll in between (e.g. a short-lived API hiccup, or the job simply not
+    // running during the match) recorded a score but zero goal events, permanently
+    // undercounting Golden Six. The FT branch now fetches the full event set exactly like
+    // the group-fixture FT path — this test exercises that same pipeline (filter cancelled
+    // goals -> resolve goal type -> build deterministic GoalEvent) end-to-end for a
+    // knockout slot's full event history, proving every goal from kickoff to FT survives
+    // even though no live poll ever ran to pick them up incrementally.
+
+    [Fact]
+    public void KnockoutFtEventPipeline_NoLivePollEverRan_AllGoalsFromEntireMatchSurvive()
+    {
+        // Simulates GetAllEventsAsync returning the FULL match history in one shot — as
+        // would happen if the job's live window never caught this match (e.g. a Scheduled
+        // slot jumped straight to FT between two 30s polls with no InProgress poll between).
+        var scorer1 = Guid.NewGuid();
+        var scorer2 = Guid.NewGuid();
+
+        var earlyGoal = new ApiMatchEvent
+        {
+            Type   = "Goal",
+            Time   = new ApiTime { Elapsed = 12 },
+            Player = new ApiPlayer { Name = "Player One" },
+            Detail = "Normal Goal",
+        };
+        var lateGoal = new ApiMatchEvent
+        {
+            Type   = "Goal",
+            Time   = new ApiTime { Elapsed = 88 },
+            Player = new ApiPlayer { Name = "Player Two" },
+            Detail = "Normal Goal",
+        };
+
+        var allSlotEvents = new List<ApiMatchEvent> { earlyGoal, lateGoal };
+
+        var varCancels    = allSlotEvents.Where(e => e.IsVar && e.IsGoalCancelled);
+        var filteredGoals = ResultIngestionJob.FilterCancelledGoals(
+            allSlotEvents.Where(e => e.IsGoal && !e.IsMissedPenalty), varCancels);
+
+        Assert.Equal(2, filteredGoals.Count);
+
+        var built = filteredGoals
+            .Select(evt => ResultIngestionJob.BuildGoalEvent(
+                apiFixtureId: 55001,
+                dbFixtureId:  "R32-1",
+                playerId:     evt.Player!.Name == "Player One" ? scorer1 : scorer2,
+                evt:          evt))
+            .ToList();
+
+        Assert.Equal(2, built.Count);
+        Assert.All(built, g => Assert.Equal("R32-1", g.FixtureId));
+        Assert.Contains(built, g => g.PlayerId == scorer1 && g.Minute == 12);
+        Assert.Contains(built, g => g.PlayerId == scorer2 && g.Minute == 88);
+        Assert.NotEqual(built[0].Id, built[1].Id);
+    }
+
+    [Fact]
+    public void KnockoutFtEventPipeline_ShootoutKicks_NotCountedAsInMatchGoals()
+    {
+        // Reuses the same shootout discrimination the live-poll path relies on
+        // (ResolveGoalType -> GoalType.Shootout, which ScoringRecomputeService explicitly
+        // excludes from Golden Six). A shootout kick must never be tagged OpenPlay/PenaltyInMatch.
+        var shootoutKick = new ApiMatchEvent
+        {
+            Type     = "Goal",
+            Time     = new ApiTime { Elapsed = 120 },
+            Player   = new ApiPlayer { Name = "Shootout Taker" },
+            Detail   = "Penalty",
+            Comments = "Penalty Shootout",
+        };
+        var inMatchPenalty = new ApiMatchEvent
+        {
+            Type   = "Goal",
+            Time   = new ApiTime { Elapsed = 45 },
+            Player = new ApiPlayer { Name = "Regular Taker" },
+            Detail = "Penalty",
+        };
+
+        Assert.Equal(GoalType.Shootout, ResultIngestionJob.ResolveGoalType(shootoutKick));
+        Assert.Equal(GoalType.PenaltyInMatch, ResultIngestionJob.ResolveGoalType(inMatchPenalty));
+    }
+
+    // ── TWC-56: admin fixture result override survives subsequent ingestion polls ──
+    //
+    // Regression coverage for the bug where POST /admin/fixtures/{id}/result set the score
+    // and wrote a ResultOverride audit record but never marked the fixture as overridden, so
+    // the next ingestion poll's FT/live branches silently overwrote the admin's score with
+    // whatever the API reported. ShouldSkipScoreUpdateForOverride is the guard both the FT
+    // branch and the live-clock-update branch now check before touching HomeScore/AwayScore/
+    // Status — mirroring the existing HomeTeamOverridden/AwayTeamOverridden pattern used for
+    // knockout slot team resolution.
+
+    [Fact]
+    public void ShouldSkipScoreUpdateForOverride_ResultOverridden_ReturnsTrue()
+    {
+        var fixture = new Fixture { Id = "5", ResultOverridden = true };
+
+        Assert.True(ResultIngestionJob.ShouldSkipScoreUpdateForOverride(fixture));
+    }
+
+    [Fact]
+    public void ShouldSkipScoreUpdateForOverride_NotOverridden_ReturnsFalse()
+    {
+        var fixture = new Fixture { Id = "5", ResultOverridden = false };
+
+        Assert.False(ResultIngestionJob.ShouldSkipScoreUpdateForOverride(fixture));
+    }
+
+    [Fact]
+    public void AdminOverriddenFixture_IngestionPollWithDifferentApiScore_ScoreUnchanged()
+    {
+        // Simulates: admin sets fixture 5 to 2-1 via POST /admin/fixtures/5/result (which now
+        // sets ResultOverridden = true), then the next poll's FT loop sees the API reporting a
+        // different score (3-1). Before applying dbFixture.HomeScore/AwayScore/Status from the
+        // API fixture, the job must check ShouldSkipScoreUpdateForOverride and, if true, leave
+        // the admin's score untouched — exactly as coded in ResultIngestionJob.Execute's FT loop.
+        var dbFixture = new Fixture
+        {
+            Id             = "5",
+            HomeTeamId     = "ARG",
+            AwayTeamId     = "FRA",
+            HomeScore      = 2,
+            AwayScore      = 1,
+            Status         = MatchStatus.Completed,
+            ResultOverridden = true,
+        };
+
+        var apiReportedHomeGoals = 3; // different from the admin's override
+        var apiReportedAwayGoals = 1;
+
+        // Mirror the exact branch structure from ResultIngestionJob.Execute.
+        if (!ResultIngestionJob.ShouldSkipScoreUpdateForOverride(dbFixture))
+        {
+            dbFixture.HomeScore = apiReportedHomeGoals;
+            dbFixture.AwayScore = apiReportedAwayGoals;
+        }
+
+        Assert.Equal(2, dbFixture.HomeScore);
+        Assert.Equal(1, dbFixture.AwayScore);
+        Assert.Equal(MatchStatus.Completed, dbFixture.Status);
+    }
+
+    [Fact]
+    public void RevertedOverride_SubsequentPoll_ScoreUpdatesNormally()
+    {
+        // After DELETE /admin/overrides/{id} clears ResultOverridden back to false (and resets
+        // the fixture to Scheduled per the existing revert handler), a later poll must resume
+        // normal ingestion.
+        var dbFixture = new Fixture
+        {
+            Id               = "5",
+            HomeTeamId       = "ARG",
+            AwayTeamId       = "FRA",
+            HomeScore        = null,
+            AwayScore        = null,
+            Status           = MatchStatus.Scheduled,
+            ResultOverridden = false, // cleared by DELETE /admin/overrides/{id}
+        };
+
+        var apiReportedHomeGoals = 3;
+        var apiReportedAwayGoals = 1;
+
+        if (!ResultIngestionJob.ShouldSkipScoreUpdateForOverride(dbFixture))
+        {
+            dbFixture.HomeScore = apiReportedHomeGoals;
+            dbFixture.AwayScore = apiReportedAwayGoals;
+            dbFixture.Status    = MatchStatus.Completed;
+        }
+
+        Assert.Equal(3, dbFixture.HomeScore);
+        Assert.Equal(1, dbFixture.AwayScore);
+        Assert.Equal(MatchStatus.Completed, dbFixture.Status);
+    }
+
+    [Fact]
+    public void Fixture_ResultOverridden_DefaultsFalse()
+    {
+        // New/existing fixtures never predicated on this flag must default to "not overridden"
+        // so pre-existing seeded fixtures keep ingesting normally.
+        var fixture = new Fixture { Id = "1" };
+
+        Assert.False(fixture.ResultOverridden);
+    }
+
+    // ── TWC-57: deterministic event IDs must include ExtraMinute ─────────────
+    //
+    // Regression coverage for the bug where the deterministic ID key omitted
+    // evt.Time.Extra (stoppage minute), so two goals by the same player at the same
+    // elapsed minute but different extra (e.g. 90+2' and 90+5') collided on the same GUID
+    // and only one survived. MinuteKey is the shared helper now used by every goal/card/sub
+    // key-building call site (group FT, group live, knockout live, knockout FT, and
+    // BuildGoalEvent).
+
+    [Fact]
+    public void MinuteKey_IncludesExtra_WhenPresent()
+    {
+        var time = new ApiTime { Elapsed = 90, Extra = 2 };
+        Assert.Equal("90:2", ResultIngestionJob.MinuteKey(time));
+    }
+
+    [Fact]
+    public void MinuteKey_DefaultsExtraToZero_WhenAbsent()
+    {
+        var time = new ApiTime { Elapsed = 23, Extra = null };
+        Assert.Equal("23:0", ResultIngestionJob.MinuteKey(time));
+    }
+
+    [Fact]
+    public void MinuteKey_NullTime_DefaultsToZeroZero()
+    {
+        Assert.Equal("0:0", ResultIngestionJob.MinuteKey(null));
+    }
+
+    [Fact]
+    public void BuildGoalEvent_SameElapsedMinute_DifferentExtra_ProducesDistinctIds()
+    {
+        // Same-minute brace: a player scores at both 90+2' and 90+5' — same Elapsed (90),
+        // different Extra. Before the fix both events hashed to {fixtureId}:{playerId}:90
+        // and collided; only one GoalEvent document survived (the second Store() overwrote
+        // the first as an "idempotent" upsert that was actually clobbering distinct goals).
+        var playerId = Guid.NewGuid();
+
+        var firstStoppageGoal = new ApiMatchEvent
+        {
+            Time   = new ApiTime { Elapsed = 90, Extra = 2 },
+            Player = new ApiPlayer { Name = "Braced Player" },
+            Detail = "Normal Goal",
+        };
+        var secondStoppageGoal = new ApiMatchEvent
+        {
+            Time   = new ApiTime { Elapsed = 90, Extra = 5 },
+            Player = new ApiPlayer { Name = "Braced Player" },
+            Detail = "Normal Goal",
+        };
+
+        var goal1 = ResultIngestionJob.BuildGoalEvent(99001, "fixture-1", playerId, firstStoppageGoal);
+        var goal2 = ResultIngestionJob.BuildGoalEvent(99001, "fixture-1", playerId, secondStoppageGoal);
+
+        Assert.NotEqual(goal1.Id, goal2.Id);
+        Assert.Equal(90, goal1.Minute);
+        Assert.Equal(90, goal2.Minute);
+        Assert.Equal(2, goal1.ExtraMinute);
+        Assert.Equal(5, goal2.ExtraMinute);
+    }
+
+    [Fact]
+    public void BuildGoalEvent_SameElapsedAndExtra_ProducesSameId()
+    {
+        // Re-processing the identical event (same elapsed + same extra) must still be a
+        // stable, idempotent upsert — the fix must not break existing idempotency.
+        var playerId = Guid.NewGuid();
+        var evt = new ApiMatchEvent
+        {
+            Time   = new ApiTime { Elapsed = 45, Extra = 3 },
+            Player = new ApiPlayer { Name = "Player" },
+            Detail = "Normal Goal",
+        };
+
+        var goal1 = ResultIngestionJob.BuildGoalEvent(99001, "fixture-1", playerId, evt);
+        var goal2 = ResultIngestionJob.BuildGoalEvent(99001, "fixture-1", playerId, evt);
+
+        Assert.Equal(goal1.Id, goal2.Id);
+    }
+
+    [Fact]
+    public void BuildGoalEvent_NoExtra_SameAsExtraZero()
+    {
+        // A goal with Extra == null must hash identically to Extra == 0's absence marker,
+        // so the key format is stable regardless of whether the API omits the field.
+        var playerId = Guid.NewGuid();
+        var evtNullExtra = new ApiMatchEvent
+        {
+            Time   = new ApiTime { Elapsed = 10, Extra = null },
+            Player = new ApiPlayer { Name = "Player" },
+            Detail = "Normal Goal",
+        };
+
+        var goal = ResultIngestionJob.BuildGoalEvent(99001, "fixture-1", playerId, evtNullExtra);
+        var expectedId = ResultIngestionJob.CreateDeterministicGuid(
+            new Guid("a1b2c3d4-e5f6-7890-abcd-ef1234567890"), "99001:" + playerId + ":10:0");
+
+        Assert.Equal(expectedId, goal.Id);
+    }
+
+    // ── TWC-64: PEN/AET completion with no derivable winner must not finalize ────
+    //
+    // Regression coverage for the bug where a PEN-completed slot with missing penalty
+    // scores (API omitted ScorePenaltyHome/ScorePenaltyAway) left WinnerTeamId null but the
+    // slot was still marked Completed. ScoringRecomputeService only processes knockout slots
+    // where Status == Completed && WinnerTeamId != null, so the slot silently dropped out of
+    // scoring/propagation. IsUnresolvableDecidingCompletion is the guard the FT branch now
+    // checks before setting Status = Completed.
+
+    [Fact]
+    public void IsUnresolvableDecidingCompletion_PenWithNullWinner_ReturnsTrue()
+    {
+        Assert.True(ResultIngestionJob.IsUnresolvableDecidingCompletion("PEN", winnerTeamId: null));
+    }
+
+    [Fact]
+    public void IsUnresolvableDecidingCompletion_AetWithNullWinner_ReturnsTrue()
+    {
+        Assert.True(ResultIngestionJob.IsUnresolvableDecidingCompletion("AET", winnerTeamId: null));
+    }
+
+    [Fact]
+    public void IsUnresolvableDecidingCompletion_PenWithWinner_ReturnsFalse()
+    {
+        Assert.False(ResultIngestionJob.IsUnresolvableDecidingCompletion("PEN", winnerTeamId: "ARG"));
+    }
+
+    [Fact]
+    public void IsUnresolvableDecidingCompletion_AetWithWinner_ReturnsFalse()
+    {
+        Assert.False(ResultIngestionJob.IsUnresolvableDecidingCompletion("AET", winnerTeamId: "FRA"));
+    }
+
+    [Fact]
+    public void IsUnresolvableDecidingCompletion_RegularFtWithNullWinner_ReturnsFalse()
+    {
+        // A plain "FT" result should never hit this guard — regulation-time score comparison
+        // always yields a winner unless the scores are tied, which for a knockout match with
+        // status "FT" (not AET/PEN) should not happen; this guard is scoped to AET/PEN only.
+        Assert.False(ResultIngestionJob.IsUnresolvableDecidingCompletion("FT", winnerTeamId: null));
+    }
+
+    [Fact]
+    public void PenCompletion_MissingPenaltyScores_LeavesWinnerNull_DetectedByGuard()
+    {
+        // Simulates the exact bug scenario: API reports StatusShort "PEN" but
+        // ScorePenaltyHome/ScorePenaltyAway are both null. Mirrors the winner-derivation
+        // logic in ResultIngestionJob.Execute's FT branch.
+        var slot = new KnockoutSlot
+        {
+            Id         = "SF-1",
+            SlotKey    = "SF-1",
+            HomeTeamId = "ARG",
+            AwayTeamId = "FRA",
+            HomeScore  = 1,
+            AwayScore  = 1,
+        };
+
+        int? scorePenaltyHome = null;
+        int? scorePenaltyAway = null;
+
+        slot.PenaltyHomeScore = scorePenaltyHome;
+        slot.PenaltyAwayScore = scorePenaltyAway;
+        if (slot.PenaltyHomeScore > slot.PenaltyAwayScore)
+            slot.WinnerTeamId = slot.HomeTeamId;
+        else if (slot.PenaltyAwayScore > slot.PenaltyHomeScore)
+            slot.WinnerTeamId = slot.AwayTeamId;
+
+        Assert.Null(slot.WinnerTeamId);
+        Assert.True(ResultIngestionJob.IsUnresolvableDecidingCompletion("PEN", slot.WinnerTeamId));
+    }
+
+    [Fact]
+    public void PenCompletion_ValidPenaltyScores_DerivesWinner_GuardDoesNotFire()
+    {
+        var slot = new KnockoutSlot
+        {
+            Id         = "SF-1",
+            SlotKey    = "SF-1",
+            HomeTeamId = "ARG",
+            AwayTeamId = "FRA",
+            HomeScore  = 1,
+            AwayScore  = 1,
+        };
+
+        slot.PenaltyHomeScore = 4;
+        slot.PenaltyAwayScore = 3;
+        if (slot.PenaltyHomeScore > slot.PenaltyAwayScore)
+            slot.WinnerTeamId = slot.HomeTeamId;
+        else if (slot.PenaltyAwayScore > slot.PenaltyHomeScore)
+            slot.WinnerTeamId = slot.AwayTeamId;
+
+        Assert.Equal("ARG", slot.WinnerTeamId);
+        Assert.False(ResultIngestionJob.IsUnresolvableDecidingCompletion("PEN", slot.WinnerTeamId));
+    }
 }

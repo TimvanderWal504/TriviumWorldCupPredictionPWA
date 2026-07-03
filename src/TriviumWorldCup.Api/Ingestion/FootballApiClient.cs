@@ -84,16 +84,7 @@ public class FootballApiClient : IFootballApiClient
     {
         var response = await _http.GetAsync($"fixtures/events?fixture={fixtureId}", ct);
 
-        // Detect quota exhaustion so the job can log it clearly and backfill on the next cycle.
-        if ((int)response.StatusCode == 429)
-        {
-            var retryAfter = response.Headers.RetryAfter?.Delta?.TotalSeconds
-                          ?? response.Headers.RetryAfter?.Date?.Subtract(DateTimeOffset.UtcNow).TotalSeconds
-                          ?? 60;
-            throw new HttpRequestException(
-                $"API-Football quota exhausted (HTTP 429). Retry after {retryAfter}s. Daily quota resets at 00:00 UTC.",
-                new InvalidOperationException("Quota exceeded"));
-        }
+        ThrowIfQuotaExceeded(response);
 
         response.EnsureSuccessStatusCode();
 
@@ -103,9 +94,32 @@ public class FootballApiClient : IFootballApiClient
         return wrapper?.Response ?? [];
     }
 
+    /// <summary>
+    /// Detects HTTP 429 (quota exhaustion) and throws the same recognisable exception shape
+    /// used everywhere in the ingestion pipeline: an <see cref="HttpRequestException"/> whose
+    /// InnerException is an <see cref="InvalidOperationException"/> with message
+    /// "Quota exceeded". ResultIngestionJob's catch clauses (and RecheckPostponedFixturesAsync)
+    /// pattern-match on exactly this shape to report quota exhaustion consistently regardless
+    /// of which underlying API call (events or fixtures) hit the limit.
+    /// </summary>
+    private static void ThrowIfQuotaExceeded(HttpResponseMessage response)
+    {
+        if ((int)response.StatusCode != 429) return;
+
+        var retryAfter = response.Headers.RetryAfter?.Delta?.TotalSeconds
+                      ?? response.Headers.RetryAfter?.Date?.Subtract(DateTimeOffset.UtcNow).TotalSeconds
+                      ?? 60;
+        throw new HttpRequestException(
+            $"API-Football quota exhausted (HTTP 429). Retry after {retryAfter}s. Daily quota resets at 00:00 UTC.",
+            new InvalidOperationException("Quota exceeded"));
+    }
+
     private async Task<IReadOnlyList<ApiFixture>> FetchFixturesAsync(string path, CancellationToken ct)
     {
         var response = await _http.GetAsync(path, ct);
+
+        ThrowIfQuotaExceeded(response);
+
         response.EnsureSuccessStatusCode();
 
         var body = await response.Content.ReadAsStringAsync(ct);
