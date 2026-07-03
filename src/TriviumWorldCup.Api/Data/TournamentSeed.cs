@@ -89,36 +89,7 @@ public static class TournamentSeed
                 continue;
             }
 
-            var wiringChanged =
-                slot.HomeSlotSource.Type      != template.HomeSlotSource.Type      ||
-                slot.HomeSlotSource.Reference != template.HomeSlotSource.Reference ||
-                slot.AwaySlotSource.Type      != template.AwaySlotSource.Type      ||
-                slot.AwaySlotSource.Reference != template.AwaySlotSource.Reference;
-
-            var metaChanged =
-                slot.KickoffUtc != template.KickoffUtc ||
-                slot.Venue      != template.Venue      ||
-                slot.City       != template.City       ||
-                slot.Round      != template.Round      ||
-                slot.SlotNumber != template.SlotNumber;
-
-            if (!wiringChanged && !metaChanged) continue;
-
-            slot.HomeSlotSource = template.HomeSlotSource;
-            slot.AwaySlotSource = template.AwaySlotSource;
-            slot.KickoffUtc     = template.KickoffUtc;
-            slot.Venue          = template.Venue;
-            slot.City           = template.City;
-            slot.Round          = template.Round;
-            slot.SlotNumber     = template.SlotNumber;
-
-            if (wiringChanged)
-            {
-                // Wiring changed → team assignments derived from old wiring are stale.
-                // Clear them so the resolver repopulates from the correct source.
-                slot.HomeTeamId = null;
-                slot.AwayTeamId = null;
-            }
+            if (!ApplySlotMigration(slot, template)) continue;
 
             session.Store(slot);
             changed++;
@@ -126,5 +97,53 @@ public static class TournamentSeed
 
         if (changed > 0)
             await session.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Applies structural migration from <paramref name="template"/> onto <paramref name="slot"/>
+    /// in place. Returns true if any field changed (caller should persist), false otherwise.
+    /// Pure — no DB dependency — so wiring-change/override-clearing behavior is unit-testable.
+    /// </summary>
+    internal static bool ApplySlotMigration(KnockoutSlot slot, KnockoutSlot template)
+    {
+        var wiringChanged =
+            slot.HomeSlotSource.Type      != template.HomeSlotSource.Type      ||
+            slot.HomeSlotSource.Reference != template.HomeSlotSource.Reference ||
+            slot.AwaySlotSource.Type      != template.AwaySlotSource.Type      ||
+            slot.AwaySlotSource.Reference != template.AwaySlotSource.Reference;
+
+        var metaChanged =
+            slot.KickoffUtc != template.KickoffUtc ||
+            slot.Venue      != template.Venue      ||
+            slot.City       != template.City       ||
+            slot.Round      != template.Round      ||
+            slot.SlotNumber != template.SlotNumber;
+
+        if (!wiringChanged && !metaChanged) return false;
+
+        slot.HomeSlotSource = template.HomeSlotSource;
+        slot.AwaySlotSource = template.AwaySlotSource;
+        slot.KickoffUtc     = template.KickoffUtc;
+        slot.Venue          = template.Venue;
+        slot.City           = template.City;
+        slot.Round          = template.Round;
+        slot.SlotNumber     = template.SlotNumber;
+
+        if (wiringChanged)
+        {
+            // Wiring changed → team assignments derived from old wiring are stale.
+            // Clear them so the resolver repopulates from the correct source. Also clear
+            // any manual admin override flags — a wiring change invalidates a prior
+            // override (it applied under the old participant source, not whatever the
+            // corrected wiring now feeds in), and KnockoutBracketResolver skips writes on
+            // slots where *Overridden is set, so leaving it set would leave the slot
+            // permanently teamless after this migration.
+            slot.HomeTeamId = null;
+            slot.AwayTeamId = null;
+            slot.HomeTeamOverridden = false;
+            slot.AwayTeamOverridden = false;
+        }
+
+        return true;
     }
 }
