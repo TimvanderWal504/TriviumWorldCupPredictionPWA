@@ -75,7 +75,7 @@ public static class KnockoutPredictionEndpoints
                 Id                   = predictionId,
                 UserId               = user.UserId,
                 SlotKey              = slotKey,
-                PredictedWinnerTeamId = request.PredictedWinnerTeamId,
+                PredictedWinnerTeamId = CanonicalWinnerTeamId(request.PredictedWinnerTeamId, slot),
                 PredictedHomeScore   = request.PredictedHomeScore,
                 PredictedAwayScore   = request.PredictedAwayScore,
                 SubmittedAt          = DateTimeOffset.UtcNow,
@@ -130,7 +130,7 @@ public static class KnockoutPredictionEndpoints
             if (validationError is not null)
                 return Results.BadRequest(new { error = validationError });
 
-            prediction.PredictedWinnerTeamId = request.PredictedWinnerTeamId;
+            prediction.PredictedWinnerTeamId = CanonicalWinnerTeamId(request.PredictedWinnerTeamId, slot);
             prediction.PredictedHomeScore    = request.PredictedHomeScore;
             prediction.PredictedAwayScore    = request.PredictedAwayScore;
             prediction.SubmittedAt           = DateTimeOffset.UtcNow;
@@ -208,6 +208,23 @@ public static class KnockoutPredictionEndpoints
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Returns the slot's canonical team ID (HomeTeamId or AwayTeamId, whichever matches
+    /// case-insensitively) for the given winner input. Callers must have already validated
+    /// via <see cref="ValidateWinner"/> that the input matches one of the two participants;
+    /// if neither matches (should not happen post-validation) the raw input is returned unchanged.
+    /// </summary>
+    public static string CanonicalWinnerTeamId(string predictedWinnerTeamId, KnockoutSlot slot)
+    {
+        if (string.Equals(predictedWinnerTeamId, slot.HomeTeamId, StringComparison.OrdinalIgnoreCase))
+            return slot.HomeTeamId!;
+
+        if (string.Equals(predictedWinnerTeamId, slot.AwayTeamId, StringComparison.OrdinalIgnoreCase))
+            return slot.AwayTeamId!;
+
+        return predictedWinnerTeamId;
     }
 
     private static KnockoutPredictionDto MapToDto(KnockoutPrediction p) =>
