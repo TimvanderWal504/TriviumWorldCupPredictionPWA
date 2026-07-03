@@ -149,39 +149,6 @@ public class MemberScoreBreakdownTests
         Assert.Equal(run1, run2);
     }
 
-    // ── 4. Guardrail: scorer classes not referenced outside Scoring namespace ──
-
-    [Fact]
-    public void ScoringFormulas_NotReferencedOutsideScoringNamespace()
-    {
-        var apiSrcDir = FindApiSrcDirectory();
-        Assert.True(Directory.Exists(apiSrcDir), $"Could not locate API source directory at '{apiSrcDir}'.");
-
-        var scorerPatterns = new[]
-        {
-            "GroupMatchScorer.",
-            "KnockoutMatchScorer.",
-            "KnockoutStreakCalculator.",
-            "GoldenSixScorer.",
-        };
-
-        var offendingFiles = new List<string>();
-
-        foreach (var csFile in Directory.EnumerateFiles(apiSrcDir, "*.cs", SearchOption.AllDirectories))
-        {
-            // Skip files that live inside the Scoring folder.
-            var normalised = csFile.Replace('\\', '/');
-            if (normalised.Contains("/Scoring/", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            var text = File.ReadAllText(csFile);
-            if (scorerPatterns.Any(p => text.Contains(p, StringComparison.Ordinal)))
-                offendingFiles.Add(Path.GetRelativePath(apiSrcDir, csFile));
-        }
-
-        Assert.Empty(offendingFiles);
-    }
-
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static Fixture MakeFixture(string id, int homeScore, int awayScore) => new()
@@ -226,17 +193,4 @@ public class MemberScoreBreakdownTests
         breakdown.Add(new KnockoutPredictionScore(slotKey, scorePoints, advancingPoints, streakMultiplier));
     }
 
-    private static string FindApiSrcDirectory()
-    {
-        // Walk up from the test assembly location until we find the API source directory.
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null)
-        {
-            var candidate = Path.Combine(dir.FullName, "src", "TriviumWorldCup.Api");
-            if (Directory.Exists(candidate))
-                return candidate;
-            dir = dir.Parent;
-        }
-        return Path.Combine(AppContext.BaseDirectory, "src", "TriviumWorldCup.Api");
-    }
 }

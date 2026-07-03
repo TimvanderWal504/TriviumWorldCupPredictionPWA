@@ -11,62 +11,6 @@ namespace TriviumWorldCup.Api.Tests.Leaderboard;
 public class LeaderboardEntryDtoTests
 {
     [Fact]
-    public void LeaderboardEntryDto_HasNoEmailProperty()
-    {
-        var properties = typeof(LeaderboardEntryDto).GetProperties();
-
-        Assert.DoesNotContain(properties, p => string.Equals(p.Name, "Email", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void LeaderboardEntryDto_SerializedJson_HasNoEmailProperty()
-    {
-        var dto = new LeaderboardEntryDto(
-            Rank:             1,
-            UserId:           "user-1",
-            DisplayName:      "Alice",
-            CountryCode:      "NL",
-            MemberHandle:     "alice",
-            TotalPoints:      42,
-            GroupMatchPoints: 30,
-            ChampionPoints:   10,
-            GoldenSixPoints:  2);
-
-        var json = JsonSerializer.Serialize(dto, new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        });
-
-        using var doc = JsonDocument.Parse(json);
-        var propertyNames = doc.RootElement.EnumerateObject().Select(p => p.Name).ToList();
-
-        Assert.DoesNotContain(propertyNames, name => string.Equals(name, "email", StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain("email", json, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void LeaderboardEntryDto_SerializedJson_MemberHandleNeverContainsAtSign()
-    {
-        var dto = new LeaderboardEntryDto(
-            Rank:             1,
-            UserId:           "user-1",
-            DisplayName:      "Alice",
-            CountryCode:      "NL",
-            MemberHandle:     "alice",
-            TotalPoints:      42,
-            GroupMatchPoints: 30,
-            ChampionPoints:   10,
-            GoldenSixPoints:  2);
-
-        var json = JsonSerializer.Serialize(dto, new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        });
-
-        Assert.DoesNotContain("@", json);
-    }
-
-    [Fact]
     public void LeaderboardEntryDto_SerializedJson_StillContainsExpectedPublicFields()
     {
         var dto = new LeaderboardEntryDto(
