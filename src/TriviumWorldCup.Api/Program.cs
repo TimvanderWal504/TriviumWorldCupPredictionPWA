@@ -1,5 +1,6 @@
 using Marten;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using TriviumWorldCup.Api.Admin;
 using TriviumWorldCup.Api.Auth;
@@ -111,8 +112,33 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
     options.CustomSchemaIds(t => t.FullName?.Replace('+', '.')));
 
+// Forwarded headers — TWC-68. The API sits behind a TLS-terminating ingress (Azure Container
+// Apps' internal ingress, itself reached via the external `twc-web` ACA's Cloudflare-fronted
+// HTTPS listener / Docker Compose reverse proxy). Without this, HttpContext.Request.IsHttps is
+// always false for the origin request, so the link-auth session cookie (Set-Cookie Secure=…,
+// see LinkAuthEndpoints.cs) never gets the Secure flag even when the original client request
+// was HTTPS.
+//
+// ACA does not publish a fixed, documented set of ingress proxy IPs (unlike e.g. Azure Front
+// Door), so KnownProxies/KnownNetworks can't be pinned reliably. ASP.NET Core's default
+// ForwardedHeadersOptions restricts trusted proxies to loopback only, which would silently
+// drop the header in ACA. Given the API's internal ingress is only reachable from inside the
+// twc-dev Container Apps environment (not exposed to the public Internet directly — see
+// PROGRESS.md Azure Migration notes) we explicitly trust all proxies for this header by
+// clearing KnownNetworks/KnownProxies, matching the documented pattern for platforms with a
+// managed, non-enumerable proxy layer (App Service, ACA, Container Instances behind a
+// platform-managed ingress).
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedFor;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 // ── App ───────────────────────────────────────────────────────────────────────
 var app = builder.Build();
+
+app.UseForwardedHeaders();
 
 app.UseSwagger();
 app.UseSwaggerUI();
