@@ -1090,4 +1090,51 @@ public class ResultIngestionJobTests
         Assert.Equal("ARG", slot.WinnerTeamId);
         Assert.False(ResultIngestionJob.IsUnresolvableDecidingCompletion("PEN", slot.WinnerTeamId));
     }
+
+    // ── TWC-83: Component 1 judged at end of extra time for AET/PEN, not 90 min ──
+
+    [Fact]
+    public void ResolveKnockoutScoreAtCutoff_RegularFullTime_UsesFullTimeScore()
+    {
+        // 90 min score differs from "goals" only if the API is inconsistent; regulation
+        // matches should use score.fulltime.
+        var (home, away) = ResultIngestionJob.ResolveKnockoutScoreAtCutoff(
+            "FT", homeGoals: 2, awayGoals: 1, scoreFullTimeHome: 2, scoreFullTimeAway: 1);
+
+        Assert.Equal(2, home);
+        Assert.Equal(1, away);
+    }
+
+    [Fact]
+    public void ResolveKnockoutScoreAtCutoff_RegularFullTime_FallsBackToGoalsWhenFullTimeMissing()
+    {
+        var (home, away) = ResultIngestionJob.ResolveKnockoutScoreAtCutoff(
+            "FT", homeGoals: 2, awayGoals: 1, scoreFullTimeHome: null, scoreFullTimeAway: null);
+
+        Assert.Equal(2, home);
+        Assert.Equal(1, away);
+    }
+
+    [Fact]
+    public void ResolveKnockoutScoreAtCutoff_Aet_UsesEndOfExtraTimeScore_NotNinetyMinuteScore()
+    {
+        // 1-1 after 90 minutes, 2-1 after extra time — Component 1 must use the 2-1.
+        var (home, away) = ResultIngestionJob.ResolveKnockoutScoreAtCutoff(
+            "AET", homeGoals: 2, awayGoals: 1, scoreFullTimeHome: 1, scoreFullTimeAway: 1);
+
+        Assert.Equal(2, home);
+        Assert.Equal(1, away);
+    }
+
+    [Fact]
+    public void ResolveKnockoutScoreAtCutoff_Pen_UsesEndOfExtraTimeScore_ExcludesShootout()
+    {
+        // 1-1 after ET, decided on penalties — Component 1 must use the 1-1, never the
+        // shootout score.
+        var (home, away) = ResultIngestionJob.ResolveKnockoutScoreAtCutoff(
+            "PEN", homeGoals: 1, awayGoals: 1, scoreFullTimeHome: 0, scoreFullTimeAway: 0);
+
+        Assert.Equal(1, home);
+        Assert.Equal(1, away);
+    }
 }

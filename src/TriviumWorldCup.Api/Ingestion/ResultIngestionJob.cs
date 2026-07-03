@@ -884,24 +884,19 @@ public class ResultIngestionJob(
                 }
                 else // IsFullTime
                 {
-                    // Store the 90-minute score (score.fulltime) — this is what the prediction
-                    // scoring system compares against. Falls back to goals total if not available.
-                    slot.HomeScore = apiFixture.ScoreFullTimeHome ?? apiFixture.HomeGoals;
-                    slot.AwayScore = apiFixture.ScoreFullTimeAway ?? apiFixture.AwayGoals;
+                    // Store the score at the applicable cutoff for prediction scoring (TWC-83).
+                    (slot.HomeScore, slot.AwayScore) = ResolveKnockoutScoreAtCutoff(
+                        apiFixture.StatusShort,
+                        apiFixture.HomeGoals, apiFixture.AwayGoals,
+                        apiFixture.ScoreFullTimeHome, apiFixture.ScoreFullTimeAway);
 
-                    // Determine winner
+                    // Determine winner. For AET, slot.HomeScore/AwayScore already hold the
+                    // end-of-extra-time totals (set above), so a difference here is decisive —
+                    // no separate AET tie-break is needed.
                     if (slot.HomeScore > slot.AwayScore)
                         slot.WinnerTeamId = slot.HomeTeamId;
                     else if (slot.AwayScore > slot.HomeScore)
                         slot.WinnerTeamId = slot.AwayTeamId;
-                    else if (apiFixture.StatusShort is "AET")
-                    {
-                        // ET tipped the balance — HomeGoals/AwayGoals hold the AET total
-                        if (apiFixture.HomeGoals > apiFixture.AwayGoals)
-                            slot.WinnerTeamId = slot.HomeTeamId;
-                        else if (apiFixture.AwayGoals > apiFixture.HomeGoals)
-                            slot.WinnerTeamId = slot.AwayTeamId;
-                    }
                     else if (apiFixture.StatusShort is "PEN")
                     {
                         slot.PenaltyHomeScore = apiFixture.ScorePenaltyHome;
@@ -1472,6 +1467,22 @@ public class ResultIngestionJob(
     /// </summary>
     internal static bool IsUnresolvableDecidingCompletion(string statusShort, string? winnerTeamId) =>
         winnerTeamId is null && statusShort is "PEN" or "AET";
+
+    /// <summary>
+    /// Resolves the score stored on KnockoutSlot.HomeScore/AwayScore — used by the prediction
+    /// scoring system's Component 1 (TWC-83). For matches decided in normal time this is the
+    /// 90-minute score (score.fulltime); for matches that went to AET or were decided on
+    /// penalties, Component 1 is judged at the end of extra time instead, so this returns the
+    /// ET-inclusive total (goals, which excludes the penalty shootout itself).
+    /// Pure function — testable without any infrastructure.
+    /// </summary>
+    internal static (int? Home, int? Away) ResolveKnockoutScoreAtCutoff(
+        string statusShort,
+        int? homeGoals, int? awayGoals,
+        int? scoreFullTimeHome, int? scoreFullTimeAway) =>
+        statusShort is "AET" or "PEN"
+            ? (homeGoals, awayGoals)
+            : (scoreFullTimeHome ?? homeGoals, scoreFullTimeAway ?? awayGoals);
 
     /// <summary>
     /// Returns true when goal events should be purged and rewritten on a live-poll cycle.

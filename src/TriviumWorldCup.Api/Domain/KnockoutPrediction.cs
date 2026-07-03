@@ -1,7 +1,8 @@
 namespace TriviumWorldCup.Api.Domain;
 
 /// <summary>
-/// A user's predicted winner and optional 90-minute score for a single knockout bracket slot.
+/// A user's predicted winner and optional score for a single knockout bracket slot. The score
+/// is judged at 90 minutes, or at the end of extra time if the match goes to AET/PEN (TWC-83).
 /// Marten identity: "{UserId}_{SlotKey}" — one prediction per user per slot.
 /// </summary>
 public class KnockoutPrediction
@@ -21,10 +22,10 @@ public class KnockoutPrediction
     /// </summary>
     public string PredictedWinnerTeamId { get; set; } = default!;
 
-    /// <summary>Predicted 90-minute home score — optional.</summary>
+    /// <summary>Predicted home score — optional.</summary>
     public int? PredictedHomeScore { get; set; }
 
-    /// <summary>Predicted 90-minute away score — optional.</summary>
+    /// <summary>Predicted away score — optional.</summary>
     public int? PredictedAwayScore { get; set; }
 
     /// <summary>When this prediction was last submitted/updated.</summary>
