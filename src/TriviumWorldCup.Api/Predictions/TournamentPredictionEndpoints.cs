@@ -191,6 +191,10 @@ public static class TournamentPredictionValidator
         if (request.GoldenSixPlayerIds is null || request.GoldenSixPlayerIds.Count != 6)
             return "GoldenSixPlayerIds must contain exactly 6 player IDs.";
 
+        // Player IDs must be distinct — duplicates would let one player's goals count multiple times.
+        if (request.GoldenSixPlayerIds.Distinct().Count() != 6)
+            return "GoldenSixPlayerIds must contain 6 distinct players.";
+
         // Verify every player ID exists in Marten
         foreach (var playerId in request.GoldenSixPlayerIds)
         {
@@ -210,6 +214,8 @@ public static class TournamentPredictionValidator
     {
         if (playerIds is null || playerIds.Count != 6)
             return "GoldenSixPlayerIds must contain exactly 6 player IDs.";
+        if (playerIds.Distinct().Count() != 6)
+            return "GoldenSixPlayerIds must contain 6 distinct players.";
         return null;
     }
 

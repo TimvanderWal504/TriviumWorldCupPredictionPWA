@@ -93,12 +93,32 @@ public class TournamentPredictionTests
     }
 
     [Fact]
-    public void ValidateGoldenSixCount_SixDuplicates_ReturnsNull()
+    public void ValidateGoldenSixCount_SixDuplicates_ReturnsError()
     {
-        // Duplicate player IDs within one member's picks are allowed by the ACs:
-        // "two members may hold identical picks" — no uniqueness restriction on the picks themselves.
+        // TWC-59: a single player repeated across all 6 slots must be rejected — GoldenSixScorer
+        // sums per occurrence, so duplicates would multiply that player's points sixfold.
+        // (Distinct picks across different members are still unrestricted — this only guards
+        // against duplicates *within* one member's own submission.)
         var sameId = Guid.NewGuid();
         var ids = Enumerable.Repeat(sameId, 6).ToList();
+        var error = TournamentPredictionValidator.ValidateGoldenSixCount(ids);
+        Assert.NotNull(error);
+        Assert.Contains("distinct", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ValidateGoldenSixCount_OneDuplicatePair_ReturnsError()
+    {
+        var duplicate = Guid.NewGuid();
+        var ids = new List<Guid> { duplicate, duplicate, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
+        var error = TournamentPredictionValidator.ValidateGoldenSixCount(ids);
+        Assert.NotNull(error);
+    }
+
+    [Fact]
+    public void ValidateGoldenSixCount_SixDistinct_ReturnsNull()
+    {
+        var ids = Enumerable.Range(0, 6).Select(_ => Guid.NewGuid()).ToList();
         Assert.Null(TournamentPredictionValidator.ValidateGoldenSixCount(ids));
     }
 
