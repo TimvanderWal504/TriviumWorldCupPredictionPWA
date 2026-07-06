@@ -455,6 +455,8 @@ export function ResultsPage({ tab }: ResultsPageProps) {
       );
     }
 
+    // Most recently played first: reverse the chronological round order and
+    // sort slots within each round by kickoff descending.
     const roundOrder = ['R32', 'R16', 'QF', 'SF', 'ThirdPlace', 'Final'];
     const slotsByRound = new Map<string, KnockoutSlotResultDto[]>();
     for (const slot of knockoutSlots) {
@@ -462,7 +464,14 @@ export function ResultsPage({ tab }: ResultsPageProps) {
       arr.push(slot);
       slotsByRound.set(slot.round, arr);
     }
-    const rounds = roundOrder.filter(r => slotsByRound.has(r));
+    for (const arr of slotsByRound.values()) {
+      arr.sort((a, b) => {
+        const at = a.kickoffUtc ? new Date(a.kickoffUtc).getTime() : 0;
+        const bt = b.kickoffUtc ? new Date(b.kickoffUtc).getTime() : 0;
+        return bt - at;
+      });
+    }
+    const rounds = roundOrder.filter(r => slotsByRound.has(r)).reverse();
 
     return (
       <div className="max-w-3xl mx-auto px-4 py-4 flex flex-col gap-6">
