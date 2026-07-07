@@ -363,7 +363,7 @@ Root cause analysis of Azure 503 errors during live matches identified CPU credi
 ## Next action
 1. **Run `POST /admin/recompute`** (urgent) — several fixes now require a full recompute: the penalty-shootout goal type fix (30 June), the knockout streak-multiplier fix (30 June), the scoring centralisation refactor (1 July), the ET-cutoff fix (TWC-83), and the wave-3 knockout-winner-casing fix (TWC-58). A single recompute covers all of them.
 2. **Deploy B2ms Postgres upgrade** — re-run `az deployment group create` with updated `main.bicep` during a non-match window (Azure requires ~2 min downtime to resize Flexible Server).
-3. **Run `POST /admin/fixtures/sync-api-ids`** — also populates `FootballApiFixtureId` on resolved knockout slots for reliable ingestion.
+3. **Run `POST /admin/fixtures/sync-api-ids`** (body `{ "ids": [...] }`) — populates `FootballApiFixtureId` on the named group-stage fixtures / knockout slots for reliable ingestion. Now targeted per-row and works on already-completed rows.
 4. **Merge `feature/wave-3` to `main`** — 12 bug-hardening stories (TWC-58–63, 65, 67–70, 82), local-only branch, not pushed. 487/487 backend tests pass. Review the diff (see "Bug hardening — Wave 3" section below) before merging; the Marten 7→8 + Npgsql 8→9 upgrade (TWC-67) is the highest-risk commit in the branch.
 5. **TWC-53 (Critical, BLOCKED)** — exposed staging admin login GUID in PROGRESS.md/.env.example. Needs a human decision on credential rotation, git-history handling, and repo visibility before any further action.
 6. **TWC-71 clean-code epic (TWC-72–81, 10 stories)** — not yet started, awaiting go-ahead on scope/scheduling.
@@ -380,7 +380,7 @@ Root cause analysis of Azure 503 errors during live matches identified CPU credi
 
 ### Admin sync — knockout slot API IDs
 
-- **`Admin/AdminEndpoints.cs`** — `POST /admin/fixtures/sync-api-ids` now matches resolved knockout slots by team pair in addition to group-stage fixtures. Both queries exclude `Completed` and `Cancelled` matches. Response extended with `matchedKnockout` and `knockoutSlots` fields.
+- **`Admin/AdminEndpoints.cs`** — `POST /admin/fixtures/sync-api-ids` now takes an explicit `{ "ids": [...] }` body (each id a group-stage fixture id `"1"`–`"72"` or a knockout `SlotKey` like `"R32-1"`/`"F"`) instead of scanning every row. Rows are loaded by id **regardless of status**, so already-`Completed` fixtures/slots — which the ingestion job and the previous blanket sync both skipped — can finally have `FootballApiFixtureId` backfilled. Team-pair matches are disambiguated by kickoff date to handle group/knockout rematches. Response keeps `matchedFixtures`/`fixtures`/`matchedKnockout`/`knockoutSlots`/`unresolved`. Admin UI gained an id/slot-key input next to the button.
 
 ### Admin event backfill — knockout slot support
 

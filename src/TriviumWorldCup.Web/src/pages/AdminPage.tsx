@@ -78,6 +78,7 @@ export function AdminPage() {
   const [resultMsg, setResultMsg] = useState<string | null>(null);
   const [resultError, setResultError] = useState<string | null>(null);
   const [recomputeMsg, setRecomputeMsg] = useState<string | null>(null);
+  const [syncApiIds, setSyncApiIds] = useState('');
   const [syncApiIdsMsg, setSyncApiIdsMsg] = useState<string | null>(null);
   const [syncApiIdsBusy, setSyncApiIdsBusy] = useState(false);
   const [fetchAllMsg, setFetchAllMsg] = useState<string | null>(null);
@@ -429,13 +430,27 @@ export function AdminPage() {
 
   async function handleSyncApiIds() {
     setSyncApiIdsMsg(null);
+    const ids = syncApiIds
+      .split(/[\s,]+/)
+      .map(s => s.trim())
+      .filter(Boolean);
+    if (ids.length === 0) { setSyncApiIdsMsg('Enter at least one fixture id or slot key.'); return; }
     setSyncApiIdsBusy(true);
     try {
-      const res = await fetch('/admin/fixtures/sync-api-ids', { method: 'POST', credentials: 'include' });
-      const body = await res.json() as { matched?: number; unresolved?: string[] };
-      if (!res.ok) { setSyncApiIdsMsg(`Error: HTTP ${res.status}`); return; }
-      const unresolvedNote = body.unresolved?.length ? ` (${body.unresolved.length} unresolved)` : '';
-      setSyncApiIdsMsg(`Synced ${body.matched ?? 0} fixture(s)${unresolvedNote}.`);
+      const res = await fetch('/admin/fixtures/sync-api-ids', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      const body = await res.json() as {
+        matchedFixtures?: number; matchedKnockout?: number; unresolved?: string[]; error?: string;
+      };
+      if (!res.ok) { setSyncApiIdsMsg(`Error: ${body.error ?? `HTTP ${res.status}`}`); return; }
+      const total = (body.matchedFixtures ?? 0) + (body.matchedKnockout ?? 0);
+      const unresolvedNote = body.unresolved?.length
+        ? ` ${body.unresolved.length} unresolved: ${body.unresolved.slice(0, 5).join('; ')}${body.unresolved.length > 5 ? '…' : ''}`
+        : '';
+      setSyncApiIdsMsg(`Synced ${total} row(s).${unresolvedNote}`);
     } catch (err) {
       setSyncApiIdsMsg(`Error: ${String(err)}`);
     } finally {
@@ -716,11 +731,21 @@ export function AdminPage() {
             {recomputeMsg && <p className="text-sm" style={{ color: 'var(--win)' }}>{recomputeMsg}</p>}
           </div>
           <div className="flex flex-col gap-1">
-            <button onClick={handleSyncApiIds} disabled={syncApiIdsBusy}
-              className="px-4 py-2 rounded-input text-sm font-semibold transition-colors disabled:opacity-50"
-              style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }}>
-              {syncApiIdsBusy ? 'Syncing…' : 'Sync fixture API IDs'}
-            </button>
+            <label htmlFor="syncApiIds" className="text-xs text-fg-secondary select-none">
+              Fixture ids / slot keys (comma or space separated)
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="syncApiIds" type="text" value={syncApiIds}
+                onChange={e => setSyncApiIds(e.target.value)}
+                placeholder="e.g. 61, SF-1, F" className={`${inputCls} w-48`}
+              />
+              <button onClick={handleSyncApiIds} disabled={syncApiIdsBusy}
+                className="px-4 py-2 rounded-input text-sm font-semibold transition-colors disabled:opacity-50"
+                style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }}>
+                {syncApiIdsBusy ? 'Syncing…' : 'Sync fixture API IDs'}
+              </button>
+            </div>
             {syncApiIdsMsg && <p className="text-sm" style={{ color: 'var(--win)' }}>{syncApiIdsMsg}</p>}
           </div>
           <div className="flex flex-col gap-1">

@@ -815,11 +815,15 @@ public static class AdminEndpoints
         .WithSummary("Sends a test push notification to the caller or a target user. Admin only.");
 
         // ── POST /admin/fixtures/sync-api-ids ────────────────────────────────
-        // Fetches all WC 2026 fixtures from the Football API in one call, matches each to a
-        // Marten Fixture (group stage) or KnockoutSlot by team pair, and writes FootballApiFixtureId.
-        // Safe to call multiple times — already-populated rows are overwritten with the same value.
+        // Backfills FootballApiFixtureId on the specific rows named in the request body,
+        // matching each to a Football API fixture by team pair. Body: { "ids": ["61","F"] }
+        // — each id is a group-stage Fixture id ("1"–"72") or a knockout SlotKey ("R32-1",
+        // "SF-1", …). Rows are loaded by id regardless of status, so a match that has already
+        // completed (which the ingestion job and the old blanket sync both skipped) can still
+        // have its id backfilled here.
         group.MapPost("/fixtures/sync-api-ids", async (
             HttpContext context,
+            [FromBody] SyncApiFixtureIdsRequest request,
             IFootballApiClient apiClient,
             IDocumentStore store,
             CancellationToken ct) =>
@@ -827,6 +831,15 @@ public static class AdminEndpoints
             var user = context.GetAppUser();
             if (!user.IsInRole("admin"))
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            var ids = request.Ids?
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList() ?? [];
+
+            if (ids.Count == 0)
+                return Results.BadRequest(new { error = "Specify at least one fixture id or knockout slot key in 'ids'." });
 
             IReadOnlyList<ApiFixture> apiFixtures;
             try
@@ -838,44 +851,83 @@ public static class AdminEndpoints
                 return Results.Problem($"Football API call failed: {ex.Message}", statusCode: 502);
             }
 
-            await using var session = store.LightweightSession();
-            var allFixtures = await session.Query<Fixture>()
-                .Where(f => f.Status != MatchStatus.Completed && f.Status != MatchStatus.Cancelled)
-                .ToListAsync(ct);
-            var fixtureByTeamPair = allFixtures.ToDictionary(f => (f.HomeTeamId, f.AwayTeamId));
+            // Index API fixtures by resolved FIFA team pair (the only linkage to our rows).
+            // A pair can appear more than once when two teams meet in both the group stage and
+            // a later knockout round, so keep every candidate and disambiguate by kickoff date.
+            var apiByTeamPair = new Dictionary<(string, string), List<ApiFixture>>();
+            foreach (var api in apiFixtures)
+            {
+                var homeCode = FootballApiTeamMap.Resolve(api.HomeTeamId, api.HomeTeamName);
+                var awayCode = FootballApiTeamMap.Resolve(api.AwayTeamId, api.AwayTeamName);
+                if (homeCode == null || awayCode == null) continue;
+                if (!apiByTeamPair.TryGetValue((homeCode, awayCode), out var list))
+                    apiByTeamPair[(homeCode, awayCode)] = list = [];
+                list.Add(api);
+            }
 
-            var knockoutSlots = await session.Query<KnockoutSlot>()
-                .Where(s => s.HomeTeamId != null && s.AwayTeamId != null
-                         && s.Status != MatchStatus.Completed && s.Status != MatchStatus.Cancelled)
-                .ToListAsync(ct);
-            var slotByTeamPair = knockoutSlots.ToDictionary(s => (s.HomeTeamId!, s.AwayTeamId!));
+            // Picks the API fixture whose kickoff is nearest the row's kickoff. When the row has
+            // no kickoff (e.g. an unresolved knockout slot), falls back to the latest-dated
+            // candidate — the knockout meeting always follows any earlier group-stage meeting.
+            static ApiFixture PickApiFixture(List<ApiFixture> candidates, DateTimeOffset? kickoff)
+            {
+                if (candidates.Count == 1) return candidates[0];
+                DateTimeOffset? ParseDate(ApiFixture f) =>
+                    DateTimeOffset.TryParse(f.Date, out var d) ? d : null;
+                if (kickoff is { } k)
+                    return candidates
+                        .OrderBy(f => ParseDate(f) is { } d ? Math.Abs((d - k).TotalMinutes) : double.MaxValue)
+                        .First();
+                return candidates.OrderByDescending(f => ParseDate(f) ?? DateTimeOffset.MinValue).First();
+            }
+
+            await using var session = store.LightweightSession();
 
             var matchedFixtures = new List<object>();
             var matchedKnockout = new List<object>();
             var unresolved = new List<string>();
 
-            foreach (var api in apiFixtures)
+            foreach (var id in ids)
             {
-                var homeCode = FootballApiTeamMap.Resolve(api.HomeTeamId, api.HomeTeamName);
-                var awayCode = FootballApiTeamMap.Resolve(api.AwayTeamId, api.AwayTeamName);
-
-                if (homeCode == null || awayCode == null)
+                var fixture = await session.LoadAsync<Fixture>(id, ct);
+                if (fixture is not null)
                 {
-                    unresolved.Add($"api_id={api.FixtureId} {api.HomeTeamName} vs {api.AwayTeamName} — FIFA code unresolved");
+                    if (apiByTeamPair.TryGetValue((fixture.HomeTeamId, fixture.AwayTeamId), out var candidates))
+                    {
+                        var api = PickApiFixture(candidates, fixture.KickoffUtc);
+                        fixture.FootballApiFixtureId = api.FixtureId;
+                        session.Store(fixture);
+                        matchedFixtures.Add(new { fixture.Id, fixture.HomeTeamId, fixture.AwayTeamId, apiFixtureId = api.FixtureId });
+                    }
+                    else
+                    {
+                        unresolved.Add($"fixture {id} ({fixture.HomeTeamId} vs {fixture.AwayTeamId}) — no API fixture with a matching team pair");
+                    }
                     continue;
                 }
 
-                if (fixtureByTeamPair.TryGetValue((homeCode, awayCode), out var fixture))
+                var slot = await session.LoadAsync<KnockoutSlot>(id, ct);
+                if (slot is null)
                 {
-                    fixture.FootballApiFixtureId = api.FixtureId;
-                    session.Store(fixture);
-                    matchedFixtures.Add(new { fixture.Id, homeCode, awayCode, apiFixtureId = api.FixtureId });
+                    unresolved.Add($"{id} — no fixture or knockout slot with this id");
+                    continue;
                 }
-                else if (slotByTeamPair.TryGetValue((homeCode, awayCode), out var slot))
+
+                if (slot.HomeTeamId is null || slot.AwayTeamId is null)
                 {
+                    unresolved.Add($"slot {id} — teams not yet determined");
+                    continue;
+                }
+
+                if (apiByTeamPair.TryGetValue((slot.HomeTeamId, slot.AwayTeamId), out var slotCandidates))
+                {
+                    var api = PickApiFixture(slotCandidates, slot.KickoffUtc);
                     slot.FootballApiFixtureId = api.FixtureId;
                     session.Store(slot);
-                    matchedKnockout.Add(new { slot.SlotKey, slot.Round, homeCode, awayCode, apiFixtureId = api.FixtureId });
+                    matchedKnockout.Add(new { slot.SlotKey, slot.Round, slot.HomeTeamId, slot.AwayTeamId, apiFixtureId = api.FixtureId });
+                }
+                else
+                {
+                    unresolved.Add($"slot {id} ({slot.HomeTeamId} vs {slot.AwayTeamId}) — no API fixture with a matching team pair");
                 }
             }
 
@@ -892,7 +944,7 @@ public static class AdminEndpoints
             });
         })
         .WithName("SyncApiFixtureIds")
-        .WithSummary("Backfills FootballApiFixtureId on group-stage Fixture and KnockoutSlot documents from the Football API.");
+        .WithSummary("Backfills FootballApiFixtureId on the named group-stage Fixture and/or KnockoutSlot rows from the Football API.");
 
         // ── POST /admin/fixtures/{fixtureId}/fetch-events ────────────────────
         // Fetches events directly from the Football API for any completed fixture,
@@ -1634,6 +1686,10 @@ public sealed record SetKnockoutResultRequest(int HomeScore, int AwayScore, stri
 
 /// <summary>Request body for POST /admin/push/test.</summary>
 public sealed record TestPushRequest(string? UserId, string? Title, string? Body);
+
+/// <summary>Request body for POST /admin/fixtures/sync-api-ids. Each id is a group-stage
+/// Fixture id ("1"–"72") or a knockout SlotKey ("R32-1", "SF-1", …).</summary>
+public sealed record SyncApiFixtureIdsRequest(IReadOnlyList<string>? Ids);
 
 /// <summary>Request body for POST /admin/knockout/{slotKey}/teams.</summary>
 public sealed record SetKnockoutTeamsRequest(string? HomeTeamId, string? AwayTeamId);

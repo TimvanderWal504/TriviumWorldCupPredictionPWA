@@ -296,7 +296,7 @@ Each cycle:
 4. Triggers an incremental `ScoringRecomputeService` pass that rescores only the members who predicted the completed fixture or slot, rather than every member.
 5. **Events backfill:** `EventsIngested` is a separate flag from `Status=Completed`. If a fixture completes but events could not be fetched (e.g. a 429 quota error), the job retries events-only on subsequent polls. A 429 is surfaced in the admin ingestion health dashboard.
 
-Name-based team matching is the primary strategy; known API team IDs can be cached via `POST /admin/fixtures/sync-api-ids`.
+Name-based team matching is the primary strategy; the API fixture id for specific rows can be backfilled via `POST /admin/fixtures/sync-api-ids` with a body of `{ "ids": ["61", "SF-1", "F"] }` (group-stage fixture ids or knockout slot keys), which also works on already-completed matches.
 
 ---
 
