@@ -37,6 +37,7 @@ namespace TriviumWorldCup.Api.Ingestion;
 public class FootballApiClient : IFootballApiClient
 {
     private readonly HttpClient _http;
+    private readonly FootballApiBudget _budget;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -48,9 +49,11 @@ public class FootballApiClient : IFootballApiClient
     private const int LeagueId = 1;
     private const int Season = 2026;
 
-    public FootballApiClient(HttpClient http)
+    public FootballApiClient(HttpClient http, FootballApiBudget? budget = null)
     {
         _http = http;
+        // Null only in tests that construct the client directly; a disabled budget is a no-op.
+        _budget = budget ?? FootballApiBudget.Disabled;
     }
 
     /// <summary>
@@ -82,6 +85,8 @@ public class FootballApiClient : IFootballApiClient
     /// </summary>
     public async Task<IReadOnlyList<ApiMatchEvent>> GetAllEventsAsync(int fixtureId, CancellationToken ct = default)
     {
+        ThrowIfBudgetExhausted();
+
         var response = await _http.GetAsync($"fixtures/events?fixture={fixtureId}", ct);
 
         ThrowIfQuotaExceeded(response);
@@ -114,8 +119,24 @@ public class FootballApiClient : IFootballApiClient
             new InvalidOperationException("Quota exceeded"));
     }
 
+    /// <summary>
+    /// Consumes one call from the free-plan budget before an API request is made. When budget mode
+    /// is active and the daily cap has been reached, throws the same recognisable "Quota exceeded"
+    /// shape that <see cref="ThrowIfQuotaExceeded"/> raises on an HTTP 429, so the ingestion job's
+    /// existing catch clauses record it and defer to the next cycle. No-op in disabled mode.
+    /// </summary>
+    private void ThrowIfBudgetExhausted()
+    {
+        if (_budget.TryConsumeCall()) return;
+        throw new HttpRequestException(
+            $"Football API daily budget of {_budget.MaxCallsPerDay} calls reached — deferring until the 00:00 UTC reset.",
+            new InvalidOperationException("Quota exceeded"));
+    }
+
     private async Task<IReadOnlyList<ApiFixture>> FetchFixturesAsync(string path, CancellationToken ct)
     {
+        ThrowIfBudgetExhausted();
+
         var response = await _http.GetAsync(path, ct);
 
         ThrowIfQuotaExceeded(response);

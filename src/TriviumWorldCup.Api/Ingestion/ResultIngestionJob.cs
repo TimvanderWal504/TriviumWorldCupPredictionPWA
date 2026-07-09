@@ -46,6 +46,7 @@ public class ResultIngestionJob(
     ScoringRecomputeService scoringService,
     KnockoutBracketResolver bracketResolver,
     IngestionStatusStore statusStore,
+    FootballApiBudget budget,
     PlayerCache playerCache,
     IOutputCacheStore outputCache,
     ILogger<ResultIngestionJob> logger) : IJob
@@ -137,6 +138,23 @@ public class ResultIngestionJob(
             logger.LogDebug("ResultIngestionJob: no fixtures in live window — skipping API call");
             return;
         }
+
+        // ── 1c. Free-plan budget pacing gate ──────────────────────────────────
+        // On the free plan (budget mode on) the 30-second Quartz cadence would exhaust the
+        // 100-call daily allowance within minutes. Only touch the API once per
+        // budget.MinPollInterval, and never past the daily cap. Spread this way the budget
+        // lasts the whole match, so calls are still available when the penalty shootout ends
+        // (the live window stays open through PenaltyShootout status). No-op — always true —
+        // when budget mode is off, preserving the original every-30s pro-plan behaviour.
+        if (!budget.ShouldPollThisCycle(now))
+        {
+            logger.LogDebug(
+                "ResultIngestionJob: budget-mode pacing — skipping API poll this cycle " +
+                "({Calls}/{Cap} calls used today, min interval {Interval}s)",
+                budget.CallsToday, budget.MaxCallsPerDay, budget.MinPollInterval.TotalSeconds);
+            return;
+        }
+        budget.MarkActivePoll(now);
 
         if (shouldRecheckPostponed)
         {

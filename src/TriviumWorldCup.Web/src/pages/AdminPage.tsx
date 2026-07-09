@@ -11,9 +11,18 @@ interface UnmatchedEvent {
   seenAt: string;
 }
 
+interface IngestionBudget {
+  enabled: boolean;
+  maxCallsPerDay: number;
+  minPollIntervalSeconds: number;
+  callsToday: number;
+  lastActivePoll: string | null;
+}
+
 interface IngestionStatus {
   lastSuccessfulPoll: string | null; lastAttemptedPoll: string | null;
   lastError: string | null; totalPollCount: number; errorCount: number; pendingFixtureCount: number;
+  budget: IngestionBudget;
   unmatchedEvents: UnmatchedEvent[];
 }
 interface OverrideRecord {
@@ -66,6 +75,10 @@ export function AdminPage() {
 
   const [ingestion, setIngestion] = useState<IngestionStatus | null>(null);
   const [ingestionError, setIngestionError] = useState<string | null>(null);
+  const [budgetInterval, setBudgetInterval] = useState('');
+  const [budgetCap, setBudgetCap] = useState('');
+  const [budgetMsg, setBudgetMsg] = useState<string | null>(null);
+  const [budgetBusy, setBudgetBusy] = useState(false);
   const [overrides, setOverrides] = useState<OverrideRecord[]>([]);
   const [overridesError, setOverridesError] = useState<string | null>(null);
   const [deletingOverride, setDeletingOverride] = useState<string | null>(null);
@@ -363,6 +376,33 @@ export function AdminPage() {
       const body = await res.json();
       setRecomputeMsg((body as { message?: string }).message ?? 'Recompute triggered.');
     } catch (err) { setRecomputeMsg(`Error: ${String(err)}`); }
+  }
+
+  async function saveBudget(enabled: boolean) {
+    setBudgetMsg(null);
+    setBudgetBusy(true);
+    try {
+      const body: { enabled: boolean; maxCallsPerDay?: number; minPollIntervalSeconds?: number } = { enabled };
+      if (budgetCap.trim() !== '') body.maxCallsPerDay = Number(budgetCap);
+      if (budgetInterval.trim() !== '') body.minPollIntervalSeconds = Number(budgetInterval);
+      const res = await fetch('/admin/ingestion/budget', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null) as { error?: string } | null;
+        setBudgetMsg(`Error: ${err?.error ?? `HTTP ${res.status}`}`);
+        return;
+      }
+      setBudgetMsg(enabled ? 'Budget (free-plan) mode enabled.' : 'Budget mode disabled — polling every 30s.');
+      setBudgetInterval(''); setBudgetCap('');
+      await fetchIngestion();
+    } catch (err) {
+      setBudgetMsg(`Error: ${String(err)}`);
+    } finally {
+      setBudgetBusy(false);
+    }
   }
 
   async function handleFetchAllEvents() {
@@ -680,6 +720,75 @@ export function AdminPage() {
               </div>
             )}
           </dl>
+        )}
+
+        {ingestion && (
+          <div className="rounded-input border border-border p-4 space-y-3" style={{ background: 'var(--surface-2)' }}>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div>
+                <p className="text-sm font-display font-bold">API Budget (free plan)</p>
+                <p className="text-xs text-fg-muted">
+                  Paces &amp; caps Football API polling so the free plan lasts a full match through penalties.
+                </p>
+              </div>
+              <span className="text-[11px] font-display font-bold uppercase tracking-wider px-2 py-1 rounded-input"
+                style={{
+                  background: ingestion.budget.enabled ? 'var(--secondary-fill)' : 'var(--surface-3)',
+                  color: ingestion.budget.enabled ? 'var(--fg-onblue)' : 'var(--fg-secondary)',
+                }}>
+                {ingestion.budget.enabled ? 'Budget mode ON' : 'Budget mode OFF (poll 30s)'}
+              </span>
+            </div>
+
+            <dl className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <dt className="text-fg-muted">Calls today</dt>
+                <dd className="text-fg font-medium">{ingestion.budget.callsToday} / {ingestion.budget.maxCallsPerDay}</dd>
+              </div>
+              <div>
+                <dt className="text-fg-muted">Min poll interval</dt>
+                <dd className="text-fg font-medium">{ingestion.budget.minPollIntervalSeconds}s</dd>
+              </div>
+              <div className="col-span-2">
+                <dt className="text-fg-muted">Last API poll</dt>
+                <dd className="text-fg font-medium">{formatDate(ingestion.budget.lastActivePoll)}</dd>
+              </div>
+            </dl>
+
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="flex flex-col gap-1">
+                <label htmlFor="budgetCap" className="text-xs text-fg-secondary select-none">Max calls/day</label>
+                <input id="budgetCap" type="number" min={1} value={budgetCap}
+                  onChange={e => setBudgetCap(e.target.value)}
+                  placeholder={String(ingestion.budget.maxCallsPerDay)} className={`${inputCls} w-28`} />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label htmlFor="budgetInterval" className="text-xs text-fg-secondary select-none">Interval (s)</label>
+                <input id="budgetInterval" type="number" min={1} value={budgetInterval}
+                  onChange={e => setBudgetInterval(e.target.value)}
+                  placeholder={String(ingestion.budget.minPollIntervalSeconds)} className={`${inputCls} w-28`} />
+              </div>
+              <button onClick={() => saveBudget(true)} disabled={budgetBusy}
+                className="px-4 py-2 rounded-input text-sm font-semibold transition-colors disabled:opacity-50"
+                style={{ background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }}>
+                {budgetBusy ? 'Saving…' : 'Enable budget mode'}
+              </button>
+              <button onClick={() => saveBudget(false)} disabled={budgetBusy}
+                className="px-4 py-2 rounded-input text-sm font-semibold transition-colors disabled:opacity-50"
+                style={{ background: 'var(--surface-3)', color: 'var(--fg-secondary)' }}>
+                Disable
+              </button>
+            </div>
+            <p className="text-[11px] text-fg-muted">
+              Overrides are optional — leave blank to keep current values. This toggle is in-memory; on a server
+              restart it reverts to the <span className="font-mono">Ingestion:Budget</span> config default.
+            </p>
+            {budgetMsg && (
+              <p className="text-sm" style={{ color: budgetMsg.startsWith('Error') ? 'var(--loss)' : 'var(--win)' }}>
+                {budgetMsg}
+              </p>
+            )}
+          </div>
         )}
 
         {ingestion && ingestion.unmatchedEvents.length > 0 && (

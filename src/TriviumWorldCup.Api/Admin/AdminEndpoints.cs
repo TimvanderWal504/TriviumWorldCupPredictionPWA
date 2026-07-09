@@ -24,6 +24,7 @@ public static class AdminEndpoints
         group.MapGet("/ingestion", async (
             HttpContext context,
             IngestionStatusStore statusStore,
+            FootballApiBudget budget,
             IDocumentStore store,
             CancellationToken ct) =>
         {
@@ -47,6 +48,14 @@ public static class AdminEndpoints
                 totalPollCount      = statusStore.TotalPollCount,
                 errorCount          = statusStore.ErrorCount,
                 pendingFixtureCount = pendingCount,
+                budget              = new
+                {
+                    enabled                = budget.Enabled,
+                    maxCallsPerDay         = budget.MaxCallsPerDay,
+                    minPollIntervalSeconds = budget.MinPollInterval.TotalSeconds,
+                    callsToday             = budget.CallsToday,
+                    lastActivePoll         = budget.LastActivePollUtc,
+                },
                 unmatchedEvents     = statusStore.UnmatchedEvents.Select(e => new
                 {
                     e.FixtureId,
@@ -59,6 +68,44 @@ public static class AdminEndpoints
         })
         .WithName("GetIngestionStatus")
         .WithSummary("Returns ingestion health and pending fixture count.");
+
+        // ── POST /admin/ingestion/budget ──────────────────────────────────────
+        // Switches the Football API polling strategy at runtime:
+        //   enabled=true  → free-plan budget mode: poll at most once per minPollIntervalSeconds,
+        //                   capped at maxCallsPerDay, spread so the allowance lasts a full match
+        //                   through penalties.
+        //   enabled=false → original pro-plan behaviour: poll every 30s, no cap.
+        // maxCallsPerDay / minPollIntervalSeconds are optional overrides; omit to keep current.
+        group.MapPost("/ingestion/budget", (
+            HttpContext context,
+            [FromBody] IngestionBudgetRequest request,
+            FootballApiBudget budget) =>
+        {
+            var user = context.GetAppUser();
+            if (!user.IsInRole("admin"))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            if (request.MaxCallsPerDay is { } cap && cap < 1)
+                return Results.BadRequest(new { error = "maxCallsPerDay must be >= 1." });
+            if (request.MinPollIntervalSeconds is { } secs && secs < 1)
+                return Results.BadRequest(new { error = "minPollIntervalSeconds must be >= 1." });
+
+            budget.Enabled = request.Enabled;
+            if (request.MaxCallsPerDay is { } newCap)
+                budget.MaxCallsPerDay = newCap;
+            if (request.MinPollIntervalSeconds is { } newSecs)
+                budget.MinPollInterval = TimeSpan.FromSeconds(newSecs);
+
+            return Results.Ok(new
+            {
+                enabled                = budget.Enabled,
+                maxCallsPerDay         = budget.MaxCallsPerDay,
+                minPollIntervalSeconds = budget.MinPollInterval.TotalSeconds,
+                callsToday             = budget.CallsToday,
+            });
+        })
+        .WithName("SetIngestionBudget")
+        .WithSummary("Enable/disable free-plan budget mode for Football API polling and tune its limits.");
 
         // ── POST /admin/fixtures/{fixtureId}/result ───────────────────────────
         group.MapPost("/fixtures/{fixtureId}/result", async (
@@ -1693,3 +1740,9 @@ public sealed record SyncApiFixtureIdsRequest(IReadOnlyList<string>? Ids);
 
 /// <summary>Request body for POST /admin/knockout/{slotKey}/teams.</summary>
 public sealed record SetKnockoutTeamsRequest(string? HomeTeamId, string? AwayTeamId);
+
+/// <summary>
+/// Body for POST /admin/ingestion/budget. <see cref="Enabled"/> switches free-plan budget mode
+/// on/off; the two nullable overrides tune the cap and pacing when supplied (omit to keep current).
+/// </summary>
+public sealed record IngestionBudgetRequest(bool Enabled, int? MaxCallsPerDay = null, int? MinPollIntervalSeconds = null);

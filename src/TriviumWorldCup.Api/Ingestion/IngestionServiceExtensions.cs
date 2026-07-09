@@ -32,6 +32,17 @@ public static class IngestionServiceExtensions
 
         services.AddSingleton<PlayerCache>();
 
+        // Free-plan budget/pacer — spreads and caps API-Football usage so the daily 100-call
+        // free-plan allowance covers a full match through penalties. Seeded from
+        // Ingestion:Budget config; toggled at runtime via POST /admin/ingestion/budget.
+        // Registered unconditionally (FootballApiClient depends on it, and the admin endpoint
+        // must resolve it even when no API key is configured).
+        var budgetSection = configuration.GetSection("Ingestion:Budget");
+        services.AddSingleton(new FootballApiBudget(
+            enabled:         budgetSection.GetValue("Enabled", false),
+            maxCallsPerDay:  budgetSection.GetValue("MaxCallsPerDay", 100),
+            minPollInterval: TimeSpan.FromSeconds(budgetSection.GetValue("MinPollIntervalSeconds", 240))));
+
         // Typed HTTP client for API-Football v3.
         // Register against the interface so ResultIngestionJob can resolve IFootballApiClient.
         services.AddHttpClient<IFootballApiClient, FootballApiClient>(client =>
