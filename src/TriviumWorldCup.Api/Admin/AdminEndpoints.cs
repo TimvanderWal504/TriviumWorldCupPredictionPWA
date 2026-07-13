@@ -187,9 +187,8 @@ public static class AdminEndpoints
             if (!user.IsInRole("admin"))
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
 
-            var fixture = await session.LoadAsync<Fixture>(fixtureId, ct);
-            if (fixture is null)
-                return Results.NotFound(new { error = $"Fixture '{fixtureId}' not found." });
+            if (!await MatchExistsAsync(session, fixtureId, ct))
+                return Results.NotFound(new { error = $"No fixture or knockout slot found with ID '{fixtureId}'." });
 
             if (!Enum.TryParse<GoalType>(request.Type, ignoreCase: true, out var goalType))
                 return Results.BadRequest(new { error = $"Invalid goal type '{request.Type}'. Valid values: OpenPlay, PenaltyInMatch, Shootout, OwnGoal." });
@@ -235,7 +234,7 @@ public static class AdminEndpoints
                 });
         })
         .WithName("AddGoalEvent")
-        .WithSummary("Adds or replaces a goal event for a fixture and triggers recompute.");
+        .WithSummary("Adds or replaces a goal event for a group fixture or knockout slot and triggers recompute.");
 
         // ── DELETE /admin/fixtures/{fixtureId}/goals/{goalEventId} ────────────
         group.MapDelete("/fixtures/{fixtureId}/goals/{goalEventId}", async (
@@ -288,9 +287,8 @@ public static class AdminEndpoints
             if (!user.IsInRole("admin"))
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
 
-            var fixture = await session.LoadAsync<Fixture>(fixtureId, ct);
-            if (fixture is null)
-                return Results.NotFound(new { error = $"Fixture '{fixtureId}' not found." });
+            if (!await MatchExistsAsync(session, fixtureId, ct))
+                return Results.NotFound(new { error = $"No fixture or knockout slot found with ID '{fixtureId}'." });
 
             if (!Enum.TryParse<CardType>(request.Type, ignoreCase: true, out var cardType))
                 return Results.BadRequest(new { error = $"Invalid card type '{request.Type}'. Valid values: Yellow, SecondYellow, Red." });
@@ -326,7 +324,7 @@ public static class AdminEndpoints
                 new { cardEvent.Id, cardEvent.FixtureId, cardEvent.PlayerId, cardEvent.Type, cardEvent.Minute });
         })
         .WithName("AddCardEvent")
-        .WithSummary("Adds or replaces a card event for a fixture.");
+        .WithSummary("Adds or replaces a card event for a group fixture or knockout slot.");
 
         // ── DELETE /admin/fixtures/{fixtureId}/cards/{cardEventId} ────────────
         group.MapDelete("/fixtures/{fixtureId}/cards/{cardEventId}", async (
@@ -376,9 +374,8 @@ public static class AdminEndpoints
             if (!user.IsInRole("admin"))
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
 
-            var fixture = await session.LoadAsync<Fixture>(fixtureId, ct);
-            if (fixture is null)
-                return Results.NotFound(new { error = $"Fixture '{fixtureId}' not found." });
+            if (!await MatchExistsAsync(session, fixtureId, ct))
+                return Results.NotFound(new { error = $"No fixture or knockout slot found with ID '{fixtureId}'." });
 
             if (request.Minute < 1 || request.Minute > 130)
                 return Results.BadRequest(new { error = "Minute must be between 1 and 130." });
@@ -414,7 +411,7 @@ public static class AdminEndpoints
             return Results.Ok(new { id = sub.Id });
         })
         .WithName("AddSubstitutionEvent")
-        .WithSummary("Manually adds a substitution event to a fixture.");
+        .WithSummary("Manually adds a substitution event to a group fixture or knockout slot.");
 
         // ── DELETE /admin/fixtures/{fixtureId}/substitutions/{subId} ─────────
         group.MapDelete("/fixtures/{fixtureId}/substitutions/{subId:guid}", async (
@@ -1707,6 +1704,18 @@ public static class AdminEndpoints
         var hash = System.Security.Cryptography.MD5.HashData(
             System.Text.Encoding.UTF8.GetBytes(key));
         return new Guid(hash);
+    }
+
+    /// <summary>
+    /// Returns true if the given id refers to either a group-stage <see cref="Fixture"/> or a
+    /// <see cref="KnockoutSlot"/>. Manual event overrides (goals/cards/subs) store the id verbatim
+    /// in the event's FixtureId, so both kinds of match can be targeted.
+    /// </summary>
+    private static async Task<bool> MatchExistsAsync(IDocumentSession session, string id, CancellationToken ct)
+    {
+        if (await session.LoadAsync<Fixture>(id, ct) is not null)
+            return true;
+        return await session.LoadAsync<KnockoutSlot>(id, ct) is not null;
     }
 }
 

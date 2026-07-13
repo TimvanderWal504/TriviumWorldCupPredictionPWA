@@ -270,7 +270,7 @@ export function AdminPage() {
 
   async function handleAddGoal(e: React.FormEvent) {
     e.preventDefault(); setGoalMsg(null); setGoalError(null);
-    if (!goalFixtureId.trim()) { setGoalError('Fixture ID is required.'); return; }
+    if (!goalFixtureId.trim()) { setGoalError('Fixture / Slot ID is required.'); return; }
     if (!goalPlayerId.trim()) { setGoalError('Player is required.'); return; }
     const minute = parseInt(goalMinute, 10);
     if (isNaN(minute) || minute < 1) { setGoalError('Minute must be a positive integer.'); return; }
@@ -281,7 +281,7 @@ export function AdminPage() {
       });
       if (!res.ok) { const b = await res.json().catch(() => ({})); setGoalError((b as { error?: string }).error ?? `HTTP ${res.status}`); return; }
       const player = players.find(p => p.id === goalPlayerId.trim());
-      setGoalMsg(`Goal added: ${player?.name ?? goalPlayerId} (${goalType}, min ${minute}) in fixture ${goalFixtureId.trim()}`);
+      setGoalMsg(`Goal added: ${player?.name ?? goalPlayerId} (${goalType}, min ${minute}) in match ${goalFixtureId.trim()}`);
       setGoalFixtureId(''); setGoalPlayerId(''); setPlayerSearch(''); setGoalMinute(''); setGoalType('OpenPlay');
       await fetchOverrides(); await fetchIngestion();
     } catch (err) { setGoalError(String(err)); }
@@ -289,7 +289,7 @@ export function AdminPage() {
 
   async function handleAddCard(e: React.FormEvent) {
     e.preventDefault(); setCardMsg(null); setCardError(null);
-    if (!cardFixtureId.trim()) { setCardError('Fixture ID is required.'); return; }
+    if (!cardFixtureId.trim()) { setCardError('Fixture / Slot ID is required.'); return; }
     if (!cardPlayerId.trim()) { setCardError('Player is required.'); return; }
     const minute = parseInt(cardMinute, 10);
     if (isNaN(minute) || minute < 1) { setCardError('Minute must be a positive integer.'); return; }
@@ -300,7 +300,7 @@ export function AdminPage() {
       });
       if (!res.ok) { const b = await res.json().catch(() => ({})); setCardError((b as { error?: string }).error ?? `HTTP ${res.status}`); return; }
       const player = players.find(p => p.id === cardPlayerId.trim());
-      setCardMsg(`Card added: ${player?.name ?? cardPlayerId} (${cardType}, min ${minute}) in fixture ${cardFixtureId.trim()}`);
+      setCardMsg(`Card added: ${player?.name ?? cardPlayerId} (${cardType}, min ${minute}) in match ${cardFixtureId.trim()}`);
       setCardFixtureId(''); setCardPlayerId(''); setCardPlayerSearch(''); setCardMinute(''); setCardType('Yellow');
       await fetchOverrides();
     } catch (err) { setCardError(String(err)); }
@@ -308,7 +308,7 @@ export function AdminPage() {
 
   async function handleAddSub(e: React.FormEvent) {
     e.preventDefault(); setSubMsg(null); setSubError(null);
-    if (!subFixtureId.trim()) { setSubError('Fixture ID is required.'); return; }
+    if (!subFixtureId.trim()) { setSubError('Fixture / Slot ID is required.'); return; }
     const playerInName = subPlayerInName.trim() || subPlayerInSearch.trim();
     const playerOutName = subPlayerOutName.trim() || subPlayerOutSearch.trim();
     if (!playerInName) { setSubError('Player In name is required.'); return; }
@@ -321,7 +321,7 @@ export function AdminPage() {
         body: JSON.stringify({ playerInName, playerOutName, teamId: subTeamId.trim() || null, minute }),
       });
       if (!res.ok) { const b = await res.json().catch(() => ({})); setSubError((b as { error?: string }).error ?? `HTTP ${res.status}`); return; }
-      setSubMsg(`Substitution added: ${playerInName} on / ${playerOutName} off at min ${minute} in fixture ${subFixtureId.trim()}`);
+      setSubMsg(`Substitution added: ${playerInName} on / ${playerOutName} off at min ${minute} in match ${subFixtureId.trim()}`);
       setSubFixtureId(''); setSubPlayerInName(''); setSubPlayerInSearch(''); setSubPlayerOutName(''); setSubPlayerOutSearch(''); setSubTeamId(''); setSubMinute('');
       await fetchOverrides();
     } catch (err) { setSubError(String(err)); }
@@ -1128,9 +1128,9 @@ export function AdminPage() {
         <form onSubmit={handleAddGoal} className="space-y-3">
           <div className="flex gap-3 flex-wrap items-end">
             <div>
-              <label htmlFor="goalFixtureId" className={labelCls}>Fixture ID</label>
+              <label htmlFor="goalFixtureId" className={labelCls}>Fixture / Slot ID</label>
               <input id="goalFixtureId" type="text" value={goalFixtureId} onChange={e => setGoalFixtureId(e.target.value)}
-                placeholder="e.g. 1" className={`${inputCls} w-28`} />
+                placeholder="e.g. 1 or R32-1" className={`${inputCls} w-28`} />
             </div>
             <div>
               <label htmlFor="goalMinute" className={labelCls}>Minute</label>
@@ -1193,9 +1193,9 @@ export function AdminPage() {
         <form onSubmit={handleAddCard} className="space-y-3">
           <div className="flex gap-3 flex-wrap items-end">
             <div>
-              <label htmlFor="cardFixtureId" className={labelCls}>Fixture ID</label>
+              <label htmlFor="cardFixtureId" className={labelCls}>Fixture / Slot ID</label>
               <input id="cardFixtureId" type="text" value={cardFixtureId} onChange={e => setCardFixtureId(e.target.value)}
-                placeholder="e.g. 1" className={`${inputCls} w-28`} />
+                placeholder="e.g. 1 or R32-1" className={`${inputCls} w-28`} />
             </div>
             <div>
               <label htmlFor="cardMinute" className={labelCls}>Minute</label>
@@ -1257,9 +1257,9 @@ export function AdminPage() {
         <form onSubmit={handleAddSub} className="space-y-3">
           <div className="flex gap-3 flex-wrap items-end">
             <div>
-              <label htmlFor="subFixtureId" className={labelCls}>Fixture ID</label>
+              <label htmlFor="subFixtureId" className={labelCls}>Fixture / Slot ID</label>
               <input id="subFixtureId" type="text" value={subFixtureId} onChange={e => setSubFixtureId(e.target.value)}
-                placeholder="e.g. 1" className={`${inputCls} w-28`} />
+                placeholder="e.g. 1 or R32-1" className={`${inputCls} w-28`} />
             </div>
             <div>
               <label htmlFor="subMinute" className={labelCls}>Minute</label>
