@@ -3,6 +3,7 @@ import { ChevronLeft, Search, X } from 'lucide-react';
 import { useAuth } from '../auth/useAuth.ts';
 import { Spinner } from '../components/ui/Spinner.tsx';
 import { SkeletonLeaderboard, SkeletonRankCard } from '../components/ui/Skeleton.tsx';
+import { PointsBreakdown } from '../components/PointsBreakdown.tsx';
 
 interface LeaderboardEntry {
   rank: number;
@@ -65,6 +66,10 @@ interface MemberDrillDown {
   goldenSix: GoldenSixDetail[];
   championTeamId: string | null;
   championTeamName: string | null;
+  groupMatchPoints: number;
+  knockoutPoints: number;
+  championPoints: number;
+  goldenSixPoints: number;
 }
 
 async function fetchLeaderboard(): Promise<LeaderboardEntry[]> {
@@ -195,6 +200,16 @@ function DrillDownPanel({ drillDown, isOwnProfile, onClose }: DrillDownPanelProp
           <p className="font-display font-black text-3xl tnum" style={{ color: 'var(--primary)' }}>{drillDown.totalPoints}</p>
           <p className="text-[11px] text-fg-muted mt-0.5">Total points</p>
         </div>
+
+        {/* Points breakdown — same component as the standings page */}
+        <PointsBreakdown
+          groupMatchPoints={drillDown.groupMatchPoints}
+          knockoutPoints={drillDown.knockoutPoints}
+          championPoints={drillDown.championPoints}
+          goldenSixPoints={drillDown.goldenSixPoints}
+          totalPoints={drillDown.totalPoints}
+          showTotal={false}
+        />
 
         {/* Champion pick */}
         {drillDown.championTeamId && (

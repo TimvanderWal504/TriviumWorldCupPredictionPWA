@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Spinner } from '../components/ui/Spinner.tsx';
+import { PointsBreakdown } from '../components/PointsBreakdown.tsx';
 
 interface GoldenSixPlayer {
   playerId: string;
@@ -71,30 +72,13 @@ export function StandingsPage() {
       </div>
 
       {/* Points breakdown */}
-      <div className="rounded-card bg-surface border border-border overflow-hidden">
-        <div className="px-5 py-3 border-b border-border bg-surface-2">
-          <h2 className="text-[10px] font-display font-bold uppercase tracking-wider text-fg-muted">Points Breakdown</h2>
-        </div>
-        <div className="divide-y divide-border">
-          {[
-            ['Group matches', standings.groupMatchPoints],
-            ['Knockout phase', standings.knockoutPoints],
-            ['Champion prediction', standings.championPoints],
-            ['Golden Six', standings.goldenSixPoints],
-          ].map(([label, pts]) => (
-            <div key={label as string} className="px-5 py-3 flex items-center justify-between">
-              <span className="text-sm text-fg-secondary">{label}</span>
-              <span className="text-sm text-fg tnum">{pts} pts</span>
-            </div>
-          ))}
-          <div className="px-5 py-3 flex items-center justify-between">
-            <span className="font-semibold text-fg">Total</span>
-            <span className="font-display font-bold tnum" style={{ color: 'var(--primary)' }}>
-              {standings.totalPoints} pts
-            </span>
-          </div>
-        </div>
-      </div>
+      <PointsBreakdown
+        groupMatchPoints={standings.groupMatchPoints}
+        knockoutPoints={standings.knockoutPoints}
+        championPoints={standings.championPoints}
+        goldenSixPoints={standings.goldenSixPoints}
+        totalPoints={standings.totalPoints}
+      />
 
       {hasNoScores && (
         <div className="rounded-card bg-surface border border-border p-5 text-fg-muted text-sm">

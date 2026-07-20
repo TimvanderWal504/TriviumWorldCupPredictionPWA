@@ -330,6 +330,10 @@ public static class LeaderboardEndpoints
                 }
             }
 
+            // Champion + Golden Six aggregates follow the same TWC-61 gate as the picks
+            // themselves — a hidden tournament prediction must not leak through its point total.
+            bool revealTournament = ShouldRevealTournamentPrediction(isSelf, tournamentLocked);
+
             var response = new MemberDrillDownDto(
                 UserId:                targetUserId,
                 DisplayName:           targetProfile.DisplayName,
@@ -338,7 +342,11 @@ public static class LeaderboardEndpoints
                 KnockoutPredictions:   knockoutPredictionDtos,
                 GoldenSix:             goldenSixDtos,
                 ChampionTeamId:        championTeamId,
-                ChampionTeamName:      championTeamName);
+                ChampionTeamName:      championTeamName,
+                GroupMatchPoints:      memberScore?.GroupMatchPoints ?? 0,
+                KnockoutPoints:        memberScore?.KnockoutPoints ?? 0,
+                ChampionPoints:        revealTournament ? memberScore?.ChampionPoints ?? 0 : 0,
+                GoldenSixPoints:       revealTournament ? memberScore?.GoldenSixPoints ?? 0 : 0);
 
             return Results.Ok(response);
         })
@@ -420,4 +428,8 @@ public sealed record MemberDrillDownDto(
     IReadOnlyList<KnockoutPredictionDetailDto> KnockoutPredictions,
     IReadOnlyList<GoldenSixDetailDto> GoldenSix,
     string? ChampionTeamId,
-    string? ChampionTeamName);
+    string? ChampionTeamName,
+    int GroupMatchPoints,
+    int KnockoutPoints,
+    int ChampionPoints,
+    int GoldenSixPoints);

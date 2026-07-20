@@ -495,3 +495,16 @@ Remaining 12 of 13 open TWC-51 stories (all but the human-gated TWC-53), impleme
 **Deliberately not done:** no unit tests for TWC-68/69 (pure ASP.NET Core pipeline wiring, no integration harness in this repo). `/admin/fixtures/{fixtureId}/goals` left unchanged for TWC-82 (not the described bug). TWC-53, TWC-72–81 out of scope for this batch.
 
 **Not merged.** `feature/wave-3` is local-only, 12 commits (one per story), clean diff (990 insertions / 92 deletions across 21 files). Needs review + merge to `main`, then a deploy + `POST /admin/recompute` (TWC-58's winner-casing fix can change historical knockout scores for any prediction that was submitted in non-canonical casing).
+
+## Unversioned work (main, 20 July 2026)
+
+### Points breakdown in leaderboard drill-down
+
+Requested directly by Tim — **no Jira story, worked on `main` rather than a `feature/TWC-<n>` branch** (deviation from the standard workflow, accepted for this change). File a story retroactively if the backlog needs to reflect it.
+
+- **`components/PointsBreakdown.tsx`** (new) — the per-category breakdown (Group matches / Knockout phase / Champion prediction / Golden Six + optional Total row) extracted verbatim from `StandingsPage`, where it had been inline markup rather than a component. `showTotal` prop defaults to `true`; the drill-down passes `false` because the panel already renders a total card directly above it.
+- **`pages/StandingsPage.tsx`** — inline breakdown block replaced with `<PointsBreakdown />`. No visual change.
+- **`pages/LeaderboardPage.tsx`** — `DrillDownPanel` renders `<PointsBreakdown />` between the total-points card and the Champion pick section. `MemberDrillDown` interface extended with `groupMatchPoints`, `knockoutPoints`, `championPoints`, `goldenSixPoints`.
+- **`Leaderboard/LeaderboardEndpoints.cs`** — `MemberDrillDownDto` previously returned only `TotalPoints`; extended with the four per-category fields read from `MemberScore`. **`ChampionPoints` and `GoldenSixPoints` are gated behind the existing `ShouldRevealTournamentPrediction(isSelf, tournamentLocked)` predicate and return `0` when hidden** — without the gate, a non-zero champion total would leak that a member's still-hidden pick was correct, routing around TWC-61. Group and knockout aggregates need no gate: they only accumulate from completed fixtures, which are revealed by definition.
+
+**487/487 backend tests pass.** Frontend `npm run build` green; `npm test` 10/11 — the one failure is the long-standing `OfflineBanner.test.tsx` copy-text mismatch, unrelated to these files and untouched here.
