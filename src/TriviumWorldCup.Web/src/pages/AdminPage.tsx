@@ -25,6 +25,39 @@ interface IngestionStatus {
   budget: IngestionBudget;
   unmatchedEvents: UnmatchedEvent[];
 }
+interface FieldDiscrepancy {
+  field: string;
+  stored: number;
+  expected: number;
+  delta: number;
+}
+
+interface PredictionDiscrepancy {
+  kind: string;
+  key: string;
+  detail: string;
+  stored: number;
+  expected: number;
+  delta: number;
+}
+
+interface UserScoreVerification {
+  userId: string;
+  missingScoreDocument: boolean;
+  orphanedScoreDocument: boolean;
+  lastComputedAt: string | null;
+  totals: FieldDiscrepancy[];
+  predictions: PredictionDiscrepancy[];
+}
+
+interface ScoreVerificationReport {
+  verifiedAt: string;
+  usersChecked: number;
+  usersWithDiscrepancies: number;
+  totalDiscrepancies: number;
+  users: UserScoreVerification[];
+}
+
 interface OverrideRecord {
   id: string; adminDisplayName: string; overriddenAt: string;
   targetType: string; targetId: string; description: string;
@@ -91,6 +124,10 @@ export function AdminPage() {
   const [resultMsg, setResultMsg] = useState<string | null>(null);
   const [resultError, setResultError] = useState<string | null>(null);
   const [recomputeMsg, setRecomputeMsg] = useState<string | null>(null);
+  const [verifyReport, setVerifyReport] = useState<ScoreVerificationReport | null>(null);
+  const [verifyUserId, setVerifyUserId] = useState('');
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
   const [syncApiIds, setSyncApiIds] = useState('');
   const [syncApiIdsMsg, setSyncApiIdsMsg] = useState<string | null>(null);
   const [syncApiIdsBusy, setSyncApiIdsBusy] = useState(false);
@@ -366,6 +403,25 @@ export function AdminPage() {
       fetch('/knockout/slots').then(r => r.json()).then((data: KnockoutSlotDto[]) => setKnockoutSlots(data)).catch(() => {});
       await fetchOverrides();
     } catch (err) { setKoTeamsError(String(err)); }
+  }
+
+  async function handleVerifyScores() {
+    setVerifyBusy(true);
+    setVerifyError(null);
+    setVerifyReport(null);
+    try {
+      const trimmed = verifyUserId.trim();
+      const url = trimmed
+        ? `/admin/scoring/verify?userId=${encodeURIComponent(trimmed)}`
+        : '/admin/scoring/verify';
+      const res = await fetch(url);
+      if (!res.ok) { setVerifyError(`Error: HTTP ${res.status}`); return; }
+      setVerifyReport(await res.json() as ScoreVerificationReport);
+    } catch (err) {
+      setVerifyError(`Error: ${String(err)}`);
+    } finally {
+      setVerifyBusy(false);
+    }
   }
 
   async function handleForceRecompute() {
@@ -874,6 +930,112 @@ export function AdminPage() {
             {fetchAllMsg && <p className="text-sm" style={{ color: 'var(--win)' }}>{fetchAllMsg}</p>}
           </div>
         </div>
+      </section>
+
+      {/* Points verifier */}
+      <section className="rounded-card bg-surface border border-border p-5 space-y-4">
+        <h2 className="font-display font-bold text-lg tracking-tight">Verify Points</h2>
+        <p className="text-sm text-fg-muted">
+          Re-derives every member's points from the raw predictions and results using a
+          second, independent implementation of the scoring rules, then compares against
+          what is stored in the database. Read-only — it never writes. If discrepancies
+          appear, fix them with <strong>Force recompute scores</strong> above.
+        </p>
+
+        <div className="flex gap-2 items-end flex-wrap">
+          <div>
+            <label htmlFor="verifyUserId" className={labelCls}>
+              User ID <span className="normal-case font-normal">(leave blank to check everyone)</span>
+            </label>
+            <input
+              id="verifyUserId" type="text" value={verifyUserId}
+              onChange={e => setVerifyUserId(e.target.value)}
+              placeholder="all members" className={`${inputCls} w-64`}
+            />
+          </div>
+          <button type="button" onClick={handleVerifyScores} disabled={verifyBusy}
+            className="px-4 py-2 rounded-input text-sm font-semibold transition-colors disabled:opacity-50"
+            style={{ background: 'var(--secondary-fill)', color: 'var(--fg-onblue)' }}>
+            {verifyBusy ? 'Verifying…' : 'Verify points'}
+          </button>
+        </div>
+
+        {verifyError && <p className="text-sm" style={{ color: 'var(--loss)' }}>{verifyError}</p>}
+
+        {verifyReport && verifyReport.users.length === 0 && (
+          <p className="text-sm" style={{ color: 'var(--win)' }}>
+            All clear — {verifyReport.usersChecked} member(s) checked, every stored score matches.
+          </p>
+        )}
+
+        {verifyReport && verifyReport.users.length > 0 && (
+          <div className="space-y-3">
+            <p className="text-sm font-semibold" style={{ color: 'var(--loss)' }}>
+              {verifyReport.usersWithDiscrepancies} of {verifyReport.usersChecked} member(s) have
+              discrepancies ({verifyReport.totalDiscrepancies} in total).
+            </p>
+
+            {verifyReport.users.map(u => (
+              <div key={u.userId} className="rounded-input border border-border p-3 space-y-2">
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <code className="text-sm font-semibold">{u.userId}</code>
+                  {u.missingScoreDocument && (
+                    <span className="text-xs" style={{ color: 'var(--loss)' }}>no score document</span>
+                  )}
+                  {u.orphanedScoreDocument && (
+                    <span className="text-xs" style={{ color: 'var(--loss)' }}>orphaned score document</span>
+                  )}
+                  {u.lastComputedAt && (
+                    <span className="text-xs text-fg-muted">
+                      last computed {new Date(u.lastComputedAt).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+
+                {u.totals.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-xs uppercase text-fg-muted">
+                          <th className="pr-4 py-1">Field</th>
+                          <th className="pr-4 py-1">Stored</th>
+                          <th className="pr-4 py-1">Expected</th>
+                          <th className="py-1">Delta</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {u.totals.map(t => (
+                          <tr key={t.field} className="border-t border-border">
+                            <td className="pr-4 py-1">{t.field}</td>
+                            <td className="pr-4 py-1">{t.stored}</td>
+                            <td className="pr-4 py-1">{t.expected}</td>
+                            <td className="py-1" style={{ color: t.delta === 0 ? undefined : 'var(--loss)' }}>
+                              {t.delta > 0 ? `+${t.delta}` : t.delta}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {u.predictions.length > 0 && (
+                  <ul className="space-y-1 text-xs text-fg-secondary">
+                    {u.predictions.map(p => (
+                      <li key={`${p.kind}-${p.key}`}>
+                        <span className="uppercase text-fg-muted">{p.kind}</span>{' '}
+                        <code>{p.key}</code> — {p.detail}{' '}
+                        <span style={{ color: 'var(--loss)' }}>
+                          (stored {p.stored}, expected {p.expected})
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Reset & re-fetch fixture events */}

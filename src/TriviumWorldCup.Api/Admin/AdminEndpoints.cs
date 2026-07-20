@@ -6,6 +6,7 @@ using TriviumWorldCup.Api.Domain;
 using TriviumWorldCup.Api.Ingestion;
 using TriviumWorldCup.Api.Knockout;
 using TriviumWorldCup.Api.Scoring;
+using TriviumWorldCup.Api.Verification;
 using WebPush;
 
 namespace TriviumWorldCup.Api.Admin;
@@ -1691,6 +1692,26 @@ public static class AdminEndpoints
         })
         .WithName("ForceRecompute")
         .WithSummary("Forces bracket re-resolution and full scoring recompute for all members.");
+
+        // ── GET /admin/scoring/verify ─────────────────────────────────────────
+        // Read-only. Independently re-derives every member's points from the raw
+        // predictions and results, then diffs against the stored MemberScore documents.
+        // Never writes — a discrepancy is fixed with POST /admin/recompute.
+        group.MapGet("/scoring/verify", async (
+            HttpContext context,
+            ScoreVerifier verifier,
+            [FromQuery] string? userId,
+            CancellationToken ct) =>
+        {
+            var user = context.GetAppUser();
+            if (!user.IsInRole("admin"))
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            var report = await verifier.VerifyAsync(userId, ct);
+            return Results.Ok(report);
+        })
+        .WithName("VerifyScores")
+        .WithSummary("Re-derives all points independently and reports any mismatch with the stored scores.");
 
         return routes;
     }

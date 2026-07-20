@@ -18,6 +18,7 @@ using TriviumWorldCup.Api.Push;
 using TriviumWorldCup.Api.Scoring;
 using TriviumWorldCup.Api.Standings;
 using TriviumWorldCup.Api.Tournament;
+using TriviumWorldCup.Api.Verification;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -75,6 +76,9 @@ builder.Services.AddScoped<ScoringRecomputeService>();
 
 // Knockout bracket resolver — TWC-32
 builder.Services.AddScoped<KnockoutBracketResolver>();
+
+// Points verifier — independent re-derivation, read-only (GET /admin/scoring/verify)
+builder.Services.AddScoped<ScoreVerifier>();
 
 // Ingestion status store — singleton, updated by ResultIngestionJob each poll cycle (TWC-16)
 builder.Services.AddSingleton<IngestionStatusStore>();

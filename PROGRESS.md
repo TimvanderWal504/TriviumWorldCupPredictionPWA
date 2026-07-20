@@ -360,6 +360,58 @@ Root cause analysis of Azure 503 errors during live matches identified CPU credi
 
 - **`.github/workflows/deploy-azure.yml`** — added a `test` job that runs before `build-and-deploy`. Checks out the repo, sets up .NET 8, and runs `dotnet test TriviumWorldCup.sln --configuration Release`. The `build-and-deploy` job now has `needs: test`, so pushes to `staging` or `main` are blocked if any test fails.
 
+## Unversioned work (main, 20 July 2026)
+
+### Points verifier — independent re-derivation
+
+Read-only admin diagnostic that answers "are the points in the database correct?" by
+re-deriving them from scratch and diffing against what is stored.
+
+- **`Verification/ScoreVerifier.cs`** (new) — a **second, independent implementation** of the
+  scoring rules. Deliberately does not call `GroupMatchScorer`, `KnockoutMatchScorer`,
+  `GoldenSixScorer` or `KnockoutStreakCalculator`, so a bug in the production scorers surfaces
+  as a discrepancy instead of being reproduced. Notably it derives the knockout streak by
+  walking the bracket **forward** in round order, where production recurses backwards through
+  MatchWinner feeders with a memo — same rule, opposite direction. Checks per-category totals,
+  `TotalPoints`, `ExactScorelineCount`/`CorrectOutcomeCount`, every per-prediction breakdown
+  entry, and the breakdown-sums-to-total invariant. Also flags members with points but no
+  `MemberScore` document, and orphaned `MemberScore` documents carrying points. `BuildReport`
+  is `internal` so the logic is testable with no database.
+- **`Verification/ScoreVerificationReport.cs`** (new) — report DTOs.
+- **`Admin/AdminEndpoints.cs`** — `GET /admin/scoring/verify?userId=` (admin-only, read-only).
+  Omit `userId` to check every member. Never writes; discrepancies are fixed with
+  `POST /admin/recompute`.
+- **`Program.cs`** — `ScoreVerifier` registered scoped.
+- **`pages/AdminPage.tsx`** — "Verify Points" section: optional user-ID filter, "Verify points"
+  button, green all-clear line, or a per-member table of stored vs expected vs delta plus a
+  per-prediction discrepancy list.
+- **`Api.Tests/Verification/ScoreVerifierTests.cs`** (new) — 11 tests. The important ones are
+  cross-checks: they build the "stored" `MemberScore` using the **production** scorers and
+  assert the verifier reports a clean run, so the two implementations are pinned to each other.
+  Plus detection tests for tampered totals, breakdowns that disagree with their own total, a
+  stale score missing a completed fixture, missing/orphaned score documents, and unscored
+  fixtures correctly ignored.
+
+**498 tests pass** (487 + 11). Frontend `tsc --noEmit` and `npm run build` clean.
+
+### ⚠️ Canonical scoring docs are out of date — knockout Component 2
+
+Found while writing the verifier. Three sources state three different rules for the
+advancing-team bonus:
+
+| Source | Rule |
+|---|---|
+| Confluence "Rules & Scoring (canonical)" (mod. 3 Jul 2026) | `5 × round multiplier` (R32 ×1 … Final ×5) |
+| In-app `RulesPage.tsx` | `5 × streak`, streak = user's global run of correct picks |
+| Code (`KnockoutStreakCalculator`) | `5 × streak`, streak follows **the advancing team along its bracket path** |
+
+Confirmed 20 July 2026 that **the code is the intended rule** and both docs lag it. The
+verifier is built against the code. Still outstanding:
+1. Update the Confluence canonical page — replace the round-multiplier table with the
+   per-team-path streak rule.
+2. Fix `RulesPage.tsx` — it currently describes a global streak, which overstates points for
+   users who pick across several bracket paths. This is user-facing and wrong today.
+
 ## Next action
 1. **Run `POST /admin/recompute`** (urgent) — several fixes now require a full recompute: the penalty-shootout goal type fix (30 June), the knockout streak-multiplier fix (30 June), the scoring centralisation refactor (1 July), the ET-cutoff fix (TWC-83), and the wave-3 knockout-winner-casing fix (TWC-58). A single recompute covers all of them.
 2. **Deploy B2ms Postgres upgrade** — re-run `az deployment group create` with updated `main.bicep` during a non-match window (Azure requires ~2 min downtime to resize Flexible Server).
